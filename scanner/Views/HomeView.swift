@@ -52,7 +52,7 @@ struct HomeView: View {
 			.scrollDismissesKeyboard(.immediately)
 
 			if pickerOpen {
-				Color.bark.opacity(0.18)
+				Color.shade.opacity(0.22)
 					.background(.ultraThinMaterial.opacity(0.25))
 					.ignoresSafeArea()
 					.onTapGesture { withAnimation(RescrivaMotion.ui) { pickerOpen = false } }
@@ -91,10 +91,7 @@ struct HomeView: View {
 
 	private var header: some View {
 		HStack {
-			Text("Rescriva")
-				.font(RescrivaFont.wordmark(34))
-				.foregroundStyle(.bark)
-				.accessibilityAddTraits(.isHeader)
+			RescrivaWordmark(size: 34)
 			Spacer()
 			CircleIconButton(systemName: "slider.vertical.3", label: "Settings") {
 				router.push(.settings)
@@ -107,12 +104,11 @@ struct HomeView: View {
 
 	private var searchField: some View {
 		HStack(spacing: 8) {
-			Image(systemName: "magnifyingglass")
-				.font(.system(size: 16))
-				.foregroundStyle(.slate)
+			Glyph("magnifyingglass", size: 15)
+				.foregroundStyle(.graphite)
 			TextField("Search every word you've scanned", text: $searchText)
 				.font(RescrivaFont.ui(15))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.submitLabel(.search)
 				.autocorrectionDisabled()
 				.textInputAutocapitalization(.never)
@@ -121,15 +117,15 @@ struct HomeView: View {
 					searchText = ""
 				} label: {
 					Image(systemName: "xmark.circle.fill")
-						.foregroundStyle(Color.slate.opacity(0.6))
+						.foregroundStyle(Color.graphite.opacity(0.6))
 				}
 				.accessibilityLabel("Clear search")
 			}
 		}
 		.padding(.horizontal, 14)
 		.frame(height: 44)
-		.background(Color.cream, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-		.overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.bark.opacity(0.08)) }
+		.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
+		.overlay { RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous).strokeBorder(Color.carbon.opacity(0.08)) }
 		.padding(.horizontal, 20)
 		.padding(.top, 10)
 	}
@@ -152,9 +148,11 @@ struct HomeView: View {
 	private var content: some View {
 		if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
 			if scans.isEmpty && pdfLibrary.items.isEmpty {
-				ThoughtBubble(text: String(localized: "Nothing scanned yet. Tap Scan whenever you're ready."), showsTrail: false)
-					.padding(.horizontal, 20)
-					.padding(.top, 16)
+				EmptyState(text: String(localized: "Nothing scanned yet. Tap Scan whenever you're ready.")) {
+					SketchToCleanIllustration(subject: .flowchart)
+				}
+				.padding(.horizontal, 16)
+				.padding(.top, 16)
 			}
 			LibraryHomeView()
 		} else {
@@ -167,13 +165,9 @@ struct HomeView: View {
 		let found = matchingScans
 		let foundPDFs = matchingPDFs
 		if found.isEmpty && foundPDFs.isEmpty {
-			Text("Nothing here mentions that yet.")
-				.font(RescrivaFont.bubble(16))
-				.foregroundStyle(.slate)
-				.multilineTextAlignment(.center)
-				.frame(maxWidth: .infinity)
-				.padding(.horizontal, 32)
-				.padding(.vertical, 48)
+			EmptyState(text: String(localized: "Nothing here mentions that yet."), ruling: .lines)
+				.padding(.horizontal, 16)
+				.padding(.top, 24)
 		} else {
 			if !found.isEmpty {
 				Text(found.count == 1 ? "1 scan" : "\(found.count) scans")

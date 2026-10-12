@@ -62,7 +62,7 @@ struct ScanPreviewView: View {
 			}
 		}
 		.sheet(item: $exportRequest) { request in
-			ExportSheet(scan: scan, initialFormat: request.format) { message in router.showToast(message) }
+			ExportSheet(scan: scan, initialFormat: request.format) { message in router.showToast(message, style: .exported) }
 		}
 		.fullScreenCover(item: $zoomedPage) { capture in
 			QuickLookView(scanCapture: capture)
@@ -83,10 +83,10 @@ struct ScanPreviewView: View {
 			} label: {
 				Text("Edit")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.frame(height: 40)
 					.padding(.horizontal, 16)
-					.background(Color.cream, in: Capsule())
+					.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 					.rescrivaShadow(.small)
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.94))
@@ -109,19 +109,19 @@ struct ScanPreviewView: View {
 			HStack(alignment: .firstTextBaseline, spacing: 10) {
 				Text(scan.displayTitle)
 					.font(RescrivaFont.header(26))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.accessibilityAddTraits(.isHeader)
 				Spacer(minLength: 0)
 				Text(scan.output.chipLabel)
 					.font(RescrivaFont.ui(11, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.padding(.vertical, 4)
 					.padding(.horizontal, 9)
 					.background(scan.output.chipColor, in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
 			}
 			Text(scan.detailMeta)
 				.font(RescrivaFont.ui(12))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 		}
 		.padding(.horizontal, 20)
 		.padding(.top, 10)
@@ -152,8 +152,8 @@ struct ScanPreviewView: View {
 		let captures = scan.capturesArray
 		if captures.isEmpty {
 			Text("No pages yet. Tap Edit to add some.")
-				.font(RescrivaFont.bubble(16))
-				.foregroundStyle(.slate)
+				.font(RescrivaFont.note(16))
+				.foregroundStyle(.graphite)
 				.frame(maxWidth: .infinity)
 				.padding(.vertical, 40)
 		} else {
@@ -203,8 +203,8 @@ private struct PreviewPage: View {
 					.overlay { MarksOverlay(marks: capture.pageMarks) }
 					.background(Color.paper)
 					.clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-					.shadow(color: Color.bark.opacity(0.10), radius: 4, x: 0, y: 2)
-					.shadow(color: Color.bark.opacity(0.10), radius: 14, x: 0, y: 12)
+					.shadow(color: Color.shade.opacity(0.10), radius: 4, x: 0, y: 2)
+					.shadow(color: Color.shade.opacity(0.10), radius: 14, x: 0, y: 12)
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.98))
 			.contextMenu {
@@ -219,7 +219,7 @@ private struct PreviewPage: View {
 			.accessibilityAction(named: "Adjust page", onAdjust)
 			Text("Page \(number)")
 				.font(RescrivaFont.ui(12))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 		}
 	}
 

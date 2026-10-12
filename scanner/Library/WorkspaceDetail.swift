@@ -40,7 +40,7 @@ struct WorkspaceScanDetail: View {
 			PageEditorView(capture: capture) { message in router.showToast(message) }
 		}
 		.sheet(item: $exportRequest) { request in
-			ExportSheet(scan: scan, initialFormat: request.format) { message in router.showToast(message) }
+			ExportSheet(scan: scan, initialFormat: request.format) { message in router.showToast(message, style: .exported) }
 		}
 		.fileImporter(isPresented: $addingFiles, allowedContentTypes: [.image, .pdf], allowsMultipleSelection: true) { result in
 			if case .success(let urls) = result { addPages(from: urls) }
@@ -67,12 +67,12 @@ struct WorkspaceScanDetail: View {
 		VStack(alignment: .leading, spacing: 4) {
 			Text(scan.displayTitle)
 				.font(RescrivaFont.header(titleSize))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.lineLimit(2)
 				.accessibilityAddTraits(.isHeader)
 			Text(scan.detailMeta)
 				.font(RescrivaFont.ui(13))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 				.lineLimit(1)
 		}
 	}
@@ -82,10 +82,10 @@ struct WorkspaceScanDetail: View {
 			Button(action: addPages) {
 				Text("Add pages")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.padding(.horizontal, 14)
 					.frame(height: 36)
-					.background(Color.cream, in: Capsule())
+					.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 					.rescrivaShadow(.small)
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.94))
@@ -103,11 +103,10 @@ struct WorkspaceScanDetail: View {
 			}
 			Button { exportRequest = ExportRequest(format: .pdf) } label: { Label("Share", systemImage: "square.and.arrow.up") }
 		} label: {
-			Image(systemName: "ellipsis")
-				.font(.system(size: 17, weight: .regular))
-				.foregroundStyle(.bark)
+			Glyph("ellipsis", size: 17, weight: .regular)
+				.foregroundStyle(.carbon)
 				.frame(width: 36, height: 36)
-				.background(Color.cream, in: Circle())
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.accessibilityLabel("More")
@@ -118,8 +117,8 @@ struct WorkspaceScanDetail: View {
 		let captures = scan.capturesArray
 		if captures.isEmpty {
 			Text("No pages yet. Tap Add pages to scan some.")
-				.font(RescrivaFont.bubble(16))
-				.foregroundStyle(.slate)
+				.font(RescrivaFont.note(16))
+				.foregroundStyle(.graphite)
 				.frame(maxWidth: .infinity)
 				.padding(.vertical, 40)
 		} else {
@@ -202,7 +201,7 @@ struct WorkspacePageTile: View {
 			.accessibilityHint("Opens the full page")
 			Text("Page \(number)")
 				.font(RescrivaFont.ui(13, weight: .medium))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 		}
 	}
 }
@@ -231,7 +230,7 @@ struct WorkspaceInspector: View {
 	var body: some View {
 		content
 			.sheet(item: $exportRequest) { request in
-				ExportSheet(scan: scan, initialFormat: request.format) { message in router.showToast(message) }
+				ExportSheet(scan: scan, initialFormat: request.format) { message in router.showToast(message, style: .exported) }
 			}
 			.sheet(isPresented: $choosingComparison) {
 				PDFComparePicker(current: .scan(scan)) { side in
@@ -256,8 +255,8 @@ struct WorkspaceInspector: View {
 			}
 			.padding(EdgeInsets(top: 28, leading: 20, bottom: 20, trailing: 20))
 			.frame(maxHeight: .infinity, alignment: .top)
-			.background(Color.cream.opacity(0.6).ignoresSafeArea())
-			.overlay(alignment: .leading) { Rectangle().fill(Color.bark.opacity(0.08)).frame(width: 1).ignoresSafeArea() }
+			.background(Color.vellum.opacity(0.6).ignoresSafeArea())
+			.overlay(alignment: .leading) { Rectangle().fill(Color.carbon.opacity(0.08)).frame(width: 1).ignoresSafeArea() }
 		case .sheet:
 			VStack(alignment: .leading, spacing: 12) {
 				tip.padding(.horizontal, 28)
@@ -289,7 +288,7 @@ struct WorkspaceInspector: View {
 		}
 		.padding(EdgeInsets(top: 20, leading: 28, bottom: 28, trailing: 28))
 		.background(.ultraThinMaterial, in: UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28, style: .continuous))
-		.background(Color.cream.opacity(0.6), in: UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28, style: .continuous))
+		.background(Color.vellum.opacity(0.6), in: UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28, style: .continuous))
 		.rescrivaShadow(.sheet)
 		.ignoresSafeArea(edges: .bottom)
 	}
@@ -298,20 +297,20 @@ struct WorkspaceInspector: View {
 		Text("Make it into")
 			.font(RescrivaFont.ui(12, weight: .medium))
 			.tracking(0.24)
-			.foregroundStyle(.slate)
+			.foregroundStyle(.graphite)
 	}
 
 	@ViewBuilder
 	private var tip: some View {
 		if companionTips && tier.canRebuild {
 			Text(scan.companionTip)
-				.font(RescrivaFont.bubble(style == .sheet ? 16 : 15))
-				.foregroundStyle(.bark)
+				.font(RescrivaFont.note(style == .sheet ? 16 : 15))
+				.foregroundStyle(.carbon)
 				.lineSpacing(3)
 				.fixedSize(horizontal: false, vertical: true)
 				.padding(.vertical, 12)
 				.padding(.horizontal, 16)
-				.background(Color.cream, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
 				.rescrivaShadow(.card)
 		}
 	}
@@ -327,12 +326,12 @@ struct WorkspaceInspector: View {
 		Button { choosingComparison = true } label: {
 			Text("Compare with another PDF")
 				.font(RescrivaFont.ui(14, weight: .medium))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.lineLimit(1)
 				.minimumScaleFactor(0.85)
 				.frame(maxWidth: .infinity)
 				.frame(height: height)
-				.overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.bark.opacity(0.18), lineWidth: 1))
+				.overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.carbon.opacity(0.18), lineWidth: 1))
 				.contentShape(Rectangle())
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.96))
@@ -342,11 +341,11 @@ struct WorkspaceInspector: View {
 		Button(action: primaryAction) {
 			Text(primaryLabel)
 				.font(RescrivaFont.ui(15, weight: .medium))
-				.foregroundStyle(Color.cream)
+				.foregroundStyle(Color.vellum)
 				.lineLimit(1)
 				.frame(maxWidth: .infinity)
 				.frame(height: height)
-				.background(Color.moss, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+				.background(Color.ink, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.96))
@@ -370,7 +369,7 @@ struct WorkspaceInspector: View {
 	}
 }
 
-/// One output in "Make it into": its name and what it keeps, moss when chosen.
+/// One output in "Make it into": its name and what it keeps, ink when chosen.
 struct WorkspaceOutputCard: View {
 	let kind: OutputKind
 	let tier: DeviceTier
@@ -393,11 +392,11 @@ struct WorkspaceOutputCard: View {
 						.fixedSize(horizontal: false, vertical: true)
 				}
 			}
-			.foregroundStyle(isSelected ? Color.cream : Color.bark)
+			.foregroundStyle(isSelected ? Color.vellum : Color.carbon)
 			.frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
 			.padding(.vertical, compact ? 10 : 12)
 			.padding(.horizontal, 14)
-			.background(isSelected ? Color.moss : Color.cream, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+			.background(isSelected ? Color.ink : Color.vellum, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 			.rescrivaShadow(.card)
 			.opacity(locked ? 0.4 : 1)
 		}

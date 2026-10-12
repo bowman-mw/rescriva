@@ -38,7 +38,7 @@ struct LiveScanSummary: View {
 					titleSection
 					ReadingStatus(scan: scan)
 					if companionTips && tier.canRebuild {
-						ThoughtBubble(text: scan.companionTip)
+						MarginNote(text: scan.companionTip)
 							.padding(.horizontal, 20)
 							.padding(.top, 14)
 					}
@@ -65,7 +65,7 @@ struct LiveScanSummary: View {
 		}
 		.onDisappear { commitTitle() }
 		.sheet(item: $exportRequest) { request in
-			ExportSheet(scan: scan, initialFormat: request.format) { message in router.showToast(message) }
+			ExportSheet(scan: scan, initialFormat: request.format) { message in router.showToast(message, style: .exported) }
 		}
 		.quickLookPreview($previewedOriginal)
 	}
@@ -84,10 +84,10 @@ struct LiveScanSummary: View {
 			} label: {
 				Text(reordering ? "Done" : "Edit")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(reordering ? Color.cream : Color.bark)
+					.foregroundStyle(reordering ? Color.vellum : Color.carbon)
 					.frame(height: 40)
 					.padding(.horizontal, 14)
-					.background(reordering ? Color.moss : Color.cream, in: Capsule())
+					.background(reordering ? Color.ink : Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 					.rescrivaShadow(.small)
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.94))
@@ -105,24 +105,24 @@ struct LiveScanSummary: View {
 		VStack(alignment: .leading, spacing: 6) {
 			TextField("Scan title", text: $titleValue)
 				.font(RescrivaFont.header(26))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.focused($titleFocused)
 				.submitLabel(.done)
 				.onSubmit(commitTitle)
 				.padding(.top, 6)
 				.padding(.bottom, 8)
 				.overlay(alignment: .bottom) {
-					Rectangle().fill(Color.bark.opacity(0.15)).frame(height: 1)
+					Rectangle().fill(Color.carbon.opacity(0.15)).frame(height: 1)
 				}
 			HStack(alignment: .firstTextBaseline) {
 				Text(scan.detailMeta)
 					.font(RescrivaFont.ui(12))
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 				Spacer(minLength: 8)
 				if let originalPDF {
 					Button("View original") { previewedOriginal = originalPDF }
 						.font(RescrivaFont.ui(13, weight: .medium))
-						.foregroundStyle(.moss)
+						.foregroundStyle(.ink)
 						.accessibilityHint("Opens the PDF this scan was imported from")
 				}
 			}
@@ -147,7 +147,7 @@ struct LiveScanSummary: View {
 				Text("Rebuilding needs a newer iPhone. Searchable PDFs work everywhere.")
 					.font(RescrivaFont.ui(12))
 					.lineSpacing(2)
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 			}
 		}
 		.padding(.horizontal, 20)
@@ -164,7 +164,7 @@ struct LiveScanSummary: View {
 					router.push(.camera(scan.pageSource == .whiteboard ? .whiteboard : .document, appendingTo: scan))
 				}
 				.font(RescrivaFont.ui(13, weight: .medium))
-				.foregroundStyle(.moss)
+				.foregroundStyle(.ink)
 			}
 			.padding(.horizontal, 20)
 			.padding(.top, 20)
@@ -272,19 +272,19 @@ private struct ReadingStatus: View {
 		let waiting = scan.capturesArray.filter { RecognitionTracker.shared.isReading($0) }.count
 		if waiting > 0 {
 			HStack(spacing: 12) {
-				ProgressView().tint(.moss)
+				ProgressView().tint(.ink)
 				VStack(alignment: .leading, spacing: 7) {
 					Text(label(done: total - waiting, total: total))
 						.font(RescrivaFont.ui(13, weight: .medium))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.monospacedDigit()
 					ProgressView(value: Double(total - waiting), total: Double(max(total, 1)))
-						.tint(.moss)
+						.tint(.ink)
 				}
 			}
 			.padding(.vertical, 12)
 			.padding(.horizontal, 16)
-			.background(Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
+			.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 			.rescrivaShadow(.small)
 			.padding(.horizontal, 20)
 			.padding(.top, 12)
@@ -318,23 +318,22 @@ private struct OutputCard: View {
 			if !locked { action() }
 		} label: {
 			VStack(alignment: .leading, spacing: 6) {
-				Image(systemName: icon)
-					.font(.system(size: 20, weight: .light))
-					.foregroundStyle(isSelected ? Color.cream : Color.moss)
+				Glyph(icon, size: 20, weight: .light)
+					.foregroundStyle(isSelected ? Color.vellum : Color.ink)
 				Text(title)
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(isSelected ? Color.cream : Color.bark)
+					.foregroundStyle(isSelected ? Color.vellum : Color.carbon)
 				Text(detail)
 					.font(RescrivaFont.ui(11))
 					.lineSpacing(1)
-					.foregroundStyle(isSelected ? Color.cream.opacity(0.8) : Color.slate)
+					.foregroundStyle(isSelected ? Color.vellum.opacity(0.8) : Color.graphite)
 					.fixedSize(horizontal: false, vertical: true)
 			}
 			.frame(maxWidth: .infinity, alignment: .leading)
 			.padding(.vertical, 12)
 			.padding(.horizontal, 10)
-			.background(isSelected ? Color.moss : Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
-			.shadow(color: isSelected ? Color.moss.opacity(0.3) : Color.bark.opacity(0.08), radius: isSelected ? 9 : 4, x: 0, y: isSelected ? 6 : 2)
+			.background(isSelected ? Color.ink : Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
+			.shadow(color: Color.shade.opacity(isSelected ? 0.24 : 0.08), radius: isSelected ? 9 : 4, x: 0, y: isSelected ? 6 : 2)
 			.opacity(locked ? 0.4 : 1)
 			.animation(RescrivaMotion.ui, value: isSelected)
 		}
@@ -388,31 +387,29 @@ private struct PageRow: View {
 			VStack(alignment: .leading, spacing: 3) {
 				Text("Page \(number)")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 				Text(preview)
 					.font(RescrivaFont.body(14, italic: true))
-					.foregroundStyle(Color.bark.opacity(0.72))
+					.foregroundStyle(Color.carbon.opacity(0.72))
 					.lineLimit(2)
 			}
 			.frame(maxWidth: .infinity, alignment: .leading)
 			if reordering {
 				VStack(spacing: 2) {
 					Button(action: onMoveUp) {
-						Image(systemName: "chevron.up")
-							.font(.system(size: 14, weight: .semibold))
-							.foregroundStyle(.bark)
+						Glyph("chevron.up", size: 14, weight: .semibold)
+							.foregroundStyle(.carbon)
 							.frame(width: 32, height: 26)
-							.background(Color.lichen, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+							.background(Color.wash, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 					}
 					.opacity(canMoveUp ? 1 : 0.35)
 					.disabled(!canMoveUp)
 					.accessibilityLabel("Move page \(number) up")
 					Button(action: onRemove) {
-						Image(systemName: "xmark")
-							.font(.system(size: 13, weight: .semibold))
-							.foregroundStyle(.terracotta)
+						Glyph("xmark", size: 13, weight: .semibold)
+							.foregroundStyle(.vermilion)
 							.frame(width: 32, height: 26)
-							.background(Color.terracotta.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+							.background(Color.vermilion.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 					}
 					.opacity(canRemove ? 1 : 0.35)
 					.disabled(!canRemove)
@@ -422,8 +419,7 @@ private struct PageRow: View {
 			}
 		}
 		.padding(10)
-		.background(Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
-		.rescrivaShadow(.card)
+		.paperCard(fold: 12)
 		.contentShape(Rectangle())
 		.onTapGesture {
 			if !reordering { onOpen() }

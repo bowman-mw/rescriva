@@ -91,7 +91,7 @@ struct LibraryHomeView: View {
 			Button {
 				controller.sheet = .newFolder(parent: nil)
 			} label: {
-				FolderPickerRow(title: String(localized: "New Folder"), symbol: "folder.badge.plus", tint: .moss)
+				FolderPickerRow(title: String(localized: "New Folder"), symbol: "folder.badge.plus", tint: .ink)
 			}
 			.buttonStyle(.plain)
 		}
@@ -123,12 +123,12 @@ struct LibraryHomeView: View {
 			if let id = tag.id { router.push(.collection(.tag(id))) }
 		} label: {
 			HStack(spacing: 5) {
-				Text(tag.displayName).font(RescrivaFont.ui(13, weight: .medium)).foregroundStyle(.bark)
-				Text("\(tagCounts[tag.objectID] ?? 0)").font(RescrivaFont.ui(11)).foregroundStyle(.slate)
+				Text(tag.displayName).font(RescrivaFont.ui(13, weight: .medium)).foregroundStyle(.carbon)
+				Text("\(tagCounts[tag.objectID] ?? 0)").font(RescrivaFont.ui(11)).foregroundStyle(.graphite)
 			}
 			.padding(.vertical, 7)
 			.padding(.horizontal, 12)
-			.background(Color.cream, in: Capsule())
+			.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
 			.rescrivaShadow(.small)
 		}
 		.buttonStyle(PressScaleStyle())
@@ -145,11 +145,10 @@ struct LibraryHomeView: View {
 			Button { controller.sheet = .newFolder(parent: nil) } label: { Label("New Folder", systemImage: "folder.badge.plus") }
 			Button { controller.sheet = .newSmartFolder } label: { Label("New Smart Folder", systemImage: "gearshape") }
 		} label: {
-			Image(systemName: "plus")
-				.font(.system(size: 15, weight: .semibold))
-				.foregroundStyle(.moss)
+			Glyph("plus", size: 13, weight: .semibold)
+				.foregroundStyle(.ink)
 				.frame(width: 32, height: 32)
-				.background(Color.cream, in: Circle())
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.accessibilityLabel(Text("New folder or smart folder"))
@@ -186,7 +185,7 @@ struct LibraryHomeView: View {
 	}
 }
 
-/// A titled group of rows on a cream card, like an inset grouped list.
+/// A titled group of rows on a sheet with its corner folded, like an inset grouped list.
 struct LibrarySection<Rows: View>: View {
 	let title: String?
 	var trailing: AnyView?
@@ -205,8 +204,7 @@ struct LibrarySection<Rows: View>: View {
 			VStack(spacing: 0) {
 				rows
 			}
-			.background(Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
-			.rescrivaShadow(.card)
+			.paperCard()
 			.padding(.horizontal, 16)
 		}
 	}
@@ -230,22 +228,20 @@ struct LibraryRowButton: View {
 			disclosureButton
 			Button(action: action) {
 				HStack(spacing: 12) {
-					Image(systemName: symbol)
-						.font(.system(size: 18))
+					Glyph(symbol, size: 18)
 						.foregroundStyle(tint)
 						.frame(width: 26)
 					Text(title)
 						.font(RescrivaFont.ui(16))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.lineLimit(1)
 					Spacer(minLength: 8)
 					Text("\(count)")
 						.font(RescrivaFont.ui(14))
-						.foregroundStyle(.slate)
+						.foregroundStyle(.graphite)
 						.monospacedDigit()
-					Image(systemName: "chevron.right")
-						.font(.system(size: 12, weight: .semibold))
-						.foregroundStyle(Color.bark.opacity(0.3))
+					Glyph("chevron.right", size: 11, weight: .semibold)
+						.foregroundStyle(Color.carbon.opacity(0.3))
 				}
 				.padding(.vertical, 13)
 				.padding(.trailing, 14)
@@ -261,9 +257,8 @@ struct LibraryRowButton: View {
 	private var disclosureButton: some View {
 		if let disclosure {
 			Button(action: onDisclosure) {
-				Image(systemName: "chevron.right")
-					.font(.system(size: 11, weight: .semibold))
-					.foregroundStyle(.slate)
+				Glyph("chevron.right", size: 10, weight: .semibold)
+					.foregroundStyle(.graphite)
 					.rotationEffect(.degrees(disclosure ? 90 : 0))
 					.frame(width: 24, height: 44)
 					.contentShape(Rectangle())

@@ -2,8 +2,9 @@
 //  RescrivaRouter.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  Navigation for the Rescriva flow. Screens float in and dissolve out (the
-//  Fernlet motion rules forbid sliding pushes), so instead of a
+//  Navigation for the Rescriva flow. Screens settle into place like a page
+//  laid on the desk and dissolve out (Rescriva's motion rules have no sliding
+//  pushes), so instead of a
 //  NavigationStack the app keeps an explicit stack of routes over the Library.
 //
 
@@ -49,8 +50,17 @@ struct RouteEntry: Identifiable, Hashable {
 
 /// A transient confirmation shown at the top of the screen.
 struct RescrivaToast: Identifiable {
+	/// How the toast marks its message.
+	enum Style {
+		/// A tick.
+		case done
+		/// A page settling onto its stack: a file was shared or saved.
+		case exported
+	}
+
 	let id = UUID()
 	let message: String
+	var style: Style = .done
 	var actionLabel: String?
 	var action: (() -> Void)?
 }
@@ -141,8 +151,8 @@ final class RescrivaRouter {
 		}
 	}
 
-	func showToast(_ message: String, actionLabel: String? = nil, action: (() -> Void)? = nil) {
-		let next = RescrivaToast(message: message, actionLabel: actionLabel, action: action)
+	func showToast(_ message: String, style: RescrivaToast.Style = .done, actionLabel: String? = nil, action: (() -> Void)? = nil) {
+		let next = RescrivaToast(message: message, style: style, actionLabel: actionLabel, action: action)
 		withAnimation(RescrivaMotion.ui) {
 			toast = next
 		}

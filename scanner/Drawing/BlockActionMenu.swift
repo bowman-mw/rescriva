@@ -34,18 +34,17 @@ struct BlockActionMenu: View {
 					dismiss()
 				} label: {
 					HStack(spacing: 12) {
-						Image(systemName: action.systemImage)
-							.font(.system(size: 17))
-							.foregroundStyle(.moss)
+						Glyph(action.systemImage, size: 17)
+							.foregroundStyle(.ink)
 							.frame(width: 26)
 						VStack(alignment: .leading, spacing: 2) {
 							Text(action.title)
 								.font(RescrivaFont.ui(15, weight: .medium))
-								.foregroundStyle(.bark)
+								.foregroundStyle(.carbon)
 							if let detail = action.detail {
 								Text(detail)
 									.font(RescrivaFont.ui(12))
-									.foregroundStyle(.slate)
+									.foregroundStyle(.graphite)
 									.fixedSize(horizontal: false, vertical: true)
 							}
 						}
@@ -61,7 +60,7 @@ struct BlockActionMenu: View {
 		.padding(8)
 		.frame(width: 280)
 		.presentationCompactAdaptation(.popover)
-		.presentationBackground(Color.cream)
+		.presentationBackground(Color.vellum)
 		.onDisappear { chosen?.perform() }
 	}
 }

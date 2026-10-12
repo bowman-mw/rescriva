@@ -50,9 +50,9 @@ final class LibraryTests: XCTestCase {
 
 	func testTheFolderTreeNestsAndCollapses() throws {
 		let context = try makeContext()
-		let biology = Library.createFolder(named: "Biology", symbol: "flask", color: .moss, parent: nil, in: context)
-		let labs = Library.createFolder(named: "Labs", symbol: "book.closed", color: .fern, parent: biology, in: context)
-		Library.createFolder(named: "Week 1", symbol: "nonsense.symbol", color: .slate, parent: labs, in: context)
+		let biology = Library.createFolder(named: "Biology", symbol: "flask", color: .ink, parent: nil, in: context)
+		let labs = Library.createFolder(named: "Labs", symbol: "book.closed", color: .bluePencil, parent: biology, in: context)
+		Library.createFolder(named: "Week 1", symbol: "nonsense.symbol", color: .graphite, parent: labs, in: context)
 		Library.createFolder(named: "Art", symbol: "paintpalette", color: .plum, parent: nil, in: context)
 
 		let rows = Library.tree(in: context)
@@ -67,16 +67,16 @@ final class LibraryTests: XCTestCase {
 
 	func testFoldersCantMoveIntoThemselvesOrTooDeep() throws {
 		let context = try makeContext()
-		let top = Library.createFolder(named: "Top", symbol: "folder", color: .moss, parent: nil, in: context)
-		let child = Library.createFolder(named: "Child", symbol: "folder", color: .moss, parent: top, in: context)
+		let top = Library.createFolder(named: "Top", symbol: "folder", color: .ink, parent: nil, in: context)
+		let child = Library.createFolder(named: "Child", symbol: "folder", color: .ink, parent: top, in: context)
 		var deepest = child
 		for level in 2...Library.maxFolderDepth {
-			deepest = Library.createFolder(named: "Level \(level)", symbol: "folder", color: .moss, parent: deepest, in: context)
+			deepest = Library.createFolder(named: "Level \(level)", symbol: "folder", color: .ink, parent: deepest, in: context)
 		}
 		XCTAssertEqual(Library.depth(of: deepest), Library.maxFolderDepth)
 		XCTAssertFalse(Library.canMove(top, into: child), "into its own child would loop")
 		XCTAssertFalse(Library.canMove(top, into: top))
-		let other = Library.createFolder(named: "Other", symbol: "folder", color: .moss, parent: nil, in: context)
+		let other = Library.createFolder(named: "Other", symbol: "folder", color: .ink, parent: nil, in: context)
 		XCTAssertFalse(Library.canMove(top, into: other), "the whole chain would sit one level too deep")
 		XCTAssertTrue(Library.move(other, into: child, in: context))
 		XCTAssertEqual(other.parent, child)
@@ -85,8 +85,8 @@ final class LibraryTests: XCTestCase {
 
 	func testDeletingAFolderSendsItsScansToRecentlyDeleted() throws {
 		let context = try makeContext()
-		let work = Library.createFolder(named: "Work", symbol: "briefcase", color: .slate, parent: nil, in: context)
-		let notes = Library.createFolder(named: "Notes", symbol: "folder", color: .moss, parent: work, in: context)
+		let work = Library.createFolder(named: "Work", symbol: "briefcase", color: .graphite, parent: nil, in: context)
+		let notes = Library.createFolder(named: "Notes", symbol: "folder", color: .ink, parent: work, in: context)
 		let a = scan("A", in: context), b = scan("B", in: context), loose = scan("Loose", in: context)
 		Library.move([a], to: work, in: context)
 		Library.move([b], to: notes, in: context)
@@ -125,7 +125,7 @@ final class LibraryTests: XCTestCase {
 
 	func testEachScopeCountsItsScans() throws {
 		let context = try makeContext()
-		let folder = Library.createFolder(named: "F", symbol: "folder", color: .moss, parent: nil, in: context)
+		let folder = Library.createFolder(named: "F", symbol: "folder", color: .ink, parent: nil, in: context)
 		let a = scan("A", in: context), b = scan("B", in: context), c = scan("C", in: context)
 		Library.setPinned([a], to: true, in: context)
 		Library.setFavorite([a, b], to: true, in: context)
@@ -151,7 +151,7 @@ final class LibraryTests: XCTestCase {
 		Library.setTag(exam, on: [oldPDF], to: true, in: context)
 
 		func matches(_ rule: SmartRule) throws -> Set<String> {
-			let smart = Library.createSmartFolder(named: "S", symbol: "gearshape", color: .moss, rule: rule, in: context)
+			let smart = Library.createSmartFolder(named: "S", symbol: "gearshape", color: .ink, rule: rule, in: context)
 			return Set(Library.scans(for: .smart(try XCTUnwrap(smart.id)), in: context, now: now).compactMap(\.title))
 		}
 		XCTAssertEqual(try matches(SmartRule(outputs: ["docx", "pptx"])), ["Board", "Deck"])
@@ -223,7 +223,7 @@ final class LibraryTests: XCTestCase {
 
 	func testNewScansAreFiledInTheFolderOnScreen() throws {
 		let context = try makeContext()
-		let folder = Library.createFolder(named: "Inbox", symbol: "tray", color: .moss, parent: nil, in: context)
+		let folder = Library.createFolder(named: "Inbox", symbol: "tray", color: .ink, parent: nil, in: context)
 		let router = RescrivaRouter()
 		router.push(.settings)
 		XCTAssertNil(router.placementFolderID)

@@ -2,11 +2,14 @@
 //  RescrivaTheme.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  Fernlet design-system tokens (colors_and_type.css) for SwiftUI: palette,
-//  type roles, radii, shadows, motion and the parchment grain.
+//  Rescriva's design tokens: paper and ink. Screens are warm paper stock,
+//  type is carbon, actions are indigo ink, and one marker — a highlighter —
+//  picks out whatever needs a look. In the dark the paper becomes a
+//  chalkboard: charcoal slate, chalk-white type, blue and yellow chalk.
 //
-//  Serif is the document's voice; sans is the controls. Flags use goldenrod,
-//  never red. Nothing shakes, nothing flashes.
+//  Headings are New York, the serif built into iOS, so screens read like a
+//  document; controls stay sans. Flags are highlighted, never red: vermilion
+//  is for delete alone. Pages settle into place; nothing shakes or flashes.
 //
 
 import SwiftUI
@@ -14,83 +17,139 @@ import UIKit
 
 // MARK: - Palette
 
+/// Every palette colour with its two appearances: on paper (light) and on the
+/// chalkboard (dark). The `Color` tokens below are made from these. UIKit
+/// views use them as they are, and anything saved into a document or drawn
+/// onto a page takes `onPaper`, so it never follows the screen into the dark.
+enum RescrivaPalette {
+	static let stock = UIColor(paper: 0xF5F2EA, chalkboard: 0x222625)
+	static let vellum = UIColor(paper: 0xFDFBF6, chalkboard: 0x2C302F)
+	static let carbon = UIColor(paper: 0x1D2233, chalkboard: 0xECE9E1)
+	static let graphite = UIColor(paper: 0x676C7A, chalkboard: 0xA3A79F)
+	static let ink = UIColor(paper: 0x2B3B8C, chalkboard: 0xA9BAF2)
+	static let bluePencil = UIColor(paper: 0x5A7BD0, chalkboard: 0x87A1EA)
+	static let wash = UIColor(paper: 0xE3E7F4, chalkboard: 0x343A4C)
+	static let vermilion = UIColor(paper: 0xCF4326, chalkboard: 0xF0866B)
+	static let highlighter = UIColor(paper: 0xF6C823, chalkboard: 0xF2D660)
+	static let shade = UIColor(paper: 0x1D2233, chalkboard: 0x000000)
+	static let scanBackdrop = UIColor(paper: 0xE7E3D9, chalkboard: 0x1A1D1C)
+	/// Folder inks beyond the tokens.
+	static let plum = UIColor(paper: 0x7D4C76, chalkboard: 0xD3A6CC)
+	static let sepia = UIColor(paper: 0x80562F, chalkboard: 0xD2AB82)
+}
+
 extension Color {
-	/// Primary background.
-	static let parchment = Color(hex: 0xF5EFE0)
-	/// Elevated surfaces, cards, sheets.
-	static let cream = Color(hex: 0xFBF7EE)
-	/// Primary text — dark brown, never black.
-	static let bark = Color(hex: 0x3D2E1E)
-	/// Secondary text, disabled states.
-	static let slate = Color(hex: 0x7B8B99)
-	/// Brand accent, primary actions.
-	static let moss = Color(hex: 0x5A7A52)
-	/// Secondary accent, progress, detection outline.
-	static let fern = Color(hex: 0x8AAD7E)
-	/// Muted fills and tinted backgrounds.
-	static let lichen = Color(hex: 0xC8DBC2)
-	/// Destructive actions only (delete), never errors.
-	static let terracotta = Color(hex: 0xC0674A)
-	/// Flags, highlights, warmth.
-	static let goldenrod = Color(hex: 0xD4A843)
-	/// The camera's dark surround.
-	static let midnight = Color(hex: 0x1A1F2E)
-	/// Paper white for scanned pages and thumbnails.
+	/// Primary background: warm paper stock. Charcoal slate on the chalkboard.
+	static let stock = Color(uiColor: RescrivaPalette.stock)
+	/// Raised surfaces — cards, sheets, pills: a brighter sheet laid on the stock.
+	static let vellum = Color(uiColor: RescrivaPalette.vellum)
+	/// Primary text: carbon black with a little blue in it. Chalk white in the dark.
+	static let carbon = Color(uiColor: RescrivaPalette.carbon)
+	/// Secondary text and disabled states: graphite pencil.
+	static let graphite = Color(uiColor: RescrivaPalette.graphite)
+	/// The brand colour and primary actions: deep indigo ink. Blue chalk in the dark.
+	static let ink = Color(uiColor: RescrivaPalette.ink)
+	/// Secondary accent — progress, the camera's page outline: the editor's blue pencil.
+	static let bluePencil = Color(uiColor: RescrivaPalette.bluePencil)
+	/// A pale wash of ink for muted fills and the chosen row.
+	static let wash = Color(uiColor: RescrivaPalette.wash)
+	/// Destructive actions only (delete): a proofreader's red. Never errors, never flags.
+	static let vermilion = Color(uiColor: RescrivaPalette.vermilion)
+	/// The one marker: flags, highlights, pins. Type laid on it is `printInk`.
+	static let highlighter = Color(uiColor: RescrivaPalette.highlighter)
+	/// Shadows and scrims: ink-tinted on paper, plain black on the chalkboard.
+	static let shade = Color(uiColor: RescrivaPalette.shade)
+	/// The desk behind original scans in review.
+	static let scanBackdrop = Color(uiColor: RescrivaPalette.scanBackdrop)
+
+	/// The camera's dark surround, in either appearance.
+	static let darkroom = Color(hex: 0x15171C)
+	/// Type and controls on the camera's dark surround, in either appearance.
+	static let chalk = Color(hex: 0xF1EEE6)
+	/// Paper white for scanned pages and thumbnails, in either appearance.
 	static let paper = Color(hex: 0xFFFDF8)
-	/// Ballpoint ink for handwriting renderings.
-	static let ink = Color(hex: 0x2E3A4A)
-	/// The warm backdrop behind original scans in review.
-	static let scanBackdrop = Color(hex: 0xE9E4D8)
+	/// Printed type, in either appearance: for words on paper and on the highlighter.
+	static let printInk = Color(hex: 0x1D2233)
+	/// Blue ballpoint, for handwriting renderings.
+	static let ballpoint = Color(hex: 0x23367E)
 }
 
 extension ShapeStyle where Self == Color {
-	static var parchment: Color { Color.parchment }
-	static var cream: Color { Color.cream }
-	static var bark: Color { Color.bark }
-	static var slate: Color { Color.slate }
-	static var moss: Color { Color.moss }
-	static var fern: Color { Color.fern }
-	static var lichen: Color { Color.lichen }
-	static var terracotta: Color { Color.terracotta }
-	static var goldenrod: Color { Color.goldenrod }
+	static var stock: Color { Color.stock }
+	static var vellum: Color { Color.vellum }
+	static var carbon: Color { Color.carbon }
+	static var graphite: Color { Color.graphite }
+	static var ink: Color { Color.ink }
+	static var bluePencil: Color { Color.bluePencil }
+	static var wash: Color { Color.wash }
+	static var vermilion: Color { Color.vermilion }
+	static var highlighter: Color { Color.highlighter }
+	static var chalk: Color { Color.chalk }
+	static var printInk: Color { Color.printInk }
+	static var ballpoint: Color { Color.ballpoint }
+}
+
+extension UIColor {
+	/// The colour as it looks on paper (its light appearance), for marks saved
+	/// into a document or drawn onto a page.
+	var onPaper: UIColor {
+		resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+	}
+}
+
+private extension UIColor {
+	/// A colour that reads `paper` in the light and `chalkboard` in the dark.
+	convenience init(paper: UInt, chalkboard: UInt) {
+		self.init(dynamicProvider: { traits in
+			UIColor(hex: traits.userInterfaceStyle == .dark ? chalkboard : paper)
+		})
+	}
+
+	convenience init(hex: UInt) {
+		self.init(red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+				  blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+	}
 }
 
 // MARK: - Type
 
-/// The Fernlet type roles. Each role prefers the design system's typeface when
-/// it is bundled with the app and otherwise falls back to the closest system
-/// face (New York for the serif roles, SF Pro for the interface). Sizes follow
-/// Dynamic Type, capped so the layouts stay calm.
+/// Rescriva's type roles. Headings and the document's own voice are New York,
+/// the serif built into iOS (no licence, no bundled font); the interface keeps
+/// its sans. Sizes follow Dynamic Type, capped so the layouts stay calm.
 enum RescrivaFont {
-	/// Logo only — Playfair Display Italic.
+	/// The wordmark: New York semibold.
 	static func wordmark(_ size: CGFloat) -> Font {
-		font(names: ["PlayfairDisplay-Italic"], size: size, weight: .regular, italic: true, design: .serif, style: .largeTitle)
+		serif(size, weight: .semibold, style: .largeTitle)
 	}
 
-	/// Hero and state — Fraunces 600.
+	/// Hero and state titles.
 	static func display(_ size: CGFloat) -> Font {
-		font(names: ["Fraunces-SemiBold", "Fraunces9pt-SemiBold"], size: size, weight: .semibold, italic: false, design: .serif, style: .title1)
+		serif(size, weight: .semibold, style: .title1)
 	}
 
-	/// Section and document headers — DM Serif Display.
+	/// Section, sheet and document headers.
 	static func header(_ size: CGFloat) -> Font {
-		font(names: ["DMSerifDisplay-Regular"], size: size, weight: .regular, italic: false, design: .serif, style: .title2)
+		serif(size, weight: .medium, style: .title2)
 	}
 
-	/// Document body — Instrument Serif.
+	/// Document body.
 	static func body(_ size: CGFloat, italic: Bool = false) -> Font {
-		font(names: [italic ? "InstrumentSerif-Italic" : "InstrumentSerif-Regular"], size: size, weight: .regular, italic: italic, design: .serif, style: .body)
+		serif(size, weight: .regular, italic: italic, style: .body)
 	}
 
-	/// The companion's voice: thought bubbles, hints, gentle empty states.
-	static func bubble(_ size: CGFloat) -> Font {
+	/// A note in the margin: hints, tips and gentle empty states, in New York italic.
+	static func note(_ size: CGFloat) -> Font {
 		body(size, italic: true)
 	}
 
-	/// Interface labels, buttons, settings — DM Sans.
+	/// Interface labels, buttons, settings — DM Sans where it's bundled, otherwise SF Pro.
 	static func ui(_ size: CGFloat, weight: UIFont.Weight = .regular) -> Font {
 		let name = weight >= .medium ? "DMSans-Medium" : "DMSans-Regular"
 		return font(names: [name], size: size, weight: weight, italic: false, design: .default, style: .subheadline)
+	}
+
+	private static func serif(_ size: CGFloat, weight: UIFont.Weight, italic: Bool = false, style: UIFont.TextStyle) -> Font {
+		font(names: [], size: size, weight: weight, italic: italic, design: .serif, style: style)
 	}
 
 	private static func font(names: [String], size: CGFloat, weight: UIFont.Weight, italic: Bool, design: UIFontDescriptor.SystemDesign, style: UIFont.TextStyle) -> Font {
@@ -114,78 +173,91 @@ enum RescrivaFont {
 }
 
 extension View {
-	/// Sentence-case interface label: 12pt DM Sans medium, slate, slightly tracked.
+	/// A section label set like a document's running head: small capitals in
+	/// graphite, tracked out.
 	func rescrivaSectionLabel() -> some View {
-		self.font(RescrivaFont.ui(12, weight: .medium))
-			.tracking(0.24)
-			.foregroundStyle(.slate)
+		self.font(RescrivaFont.ui(11, weight: .semibold))
+			.textCase(.uppercase)
+			.tracking(0.9)
+			.foregroundStyle(.graphite)
 	}
 }
 
 // MARK: - Shape & elevation
 
-/// Corner radii — generous throughout, nothing sharp or punishing.
+/// Corner radii: a sheet of paper's softened corner, never a pebble.
 enum RescrivaRadius {
 	/// Chips and tags.
-	static let small: CGFloat = 10
+	static let small: CGFloat = 7
+	/// Buttons and pills: a tab cut from card stock.
+	static let control: CGFloat = 11
 	/// Cards and modals.
-	static let medium: CGFloat = 18
+	static let medium: CGFloat = 12
 	/// Bottom sheets and floating panels.
-	static let large: CGFloat = 28
-	/// Thought bubbles and full-bleed cards.
-	static let extraLarge: CGFloat = 40
+	static let large: CGFloat = 22
+	/// Full-bleed cards.
+	static let extraLarge: CGFloat = 28
 }
 
-/// Warm-tinted shadows (never cold grey). CSS blur radii are halved for SwiftUI.
+/// Paper-on-a-desk shadows: a close contact shadow plus a soft ambient one,
+/// tinted with ink (black on the chalkboard).
 enum RescrivaShadow {
 	case small, card, float, sheet
 }
 
 extension View {
-	/// Applies one of the Fernlet shadow tokens.
+	/// Applies one of Rescriva's shadow tokens.
 	@ViewBuilder
 	func rescrivaShadow(_ shadow: RescrivaShadow) -> some View {
 		switch shadow {
 		case .small:
-			self.shadow(color: Color.bark.opacity(0.10), radius: 2, x: 0, y: 1)
+			self.shadow(color: Color.shade.opacity(0.12), radius: 1.5, x: 0, y: 1)
 		case .card:
-			self.shadow(color: Color.bark.opacity(0.08), radius: 4, x: 0, y: 2)
-				.shadow(color: Color.bark.opacity(0.05), radius: 12, x: 0, y: 6)
+			self.shadow(color: Color.shade.opacity(0.10), radius: 1, x: 0, y: 1)
+				.shadow(color: Color.shade.opacity(0.06), radius: 10, x: 0, y: 5)
 		case .float:
-			self.shadow(color: Color.bark.opacity(0.12), radius: 16, x: 0, y: 8)
-				.shadow(color: Color.bark.opacity(0.08), radius: 4, x: 0, y: 2)
+			self.shadow(color: Color.shade.opacity(0.14), radius: 14, x: 0, y: 8)
+				.shadow(color: Color.shade.opacity(0.08), radius: 2, x: 0, y: 1)
 		case .sheet:
-			self.shadow(color: Color.bark.opacity(0.10), radius: 12, x: 0, y: -4)
+			self.shadow(color: Color.shade.opacity(0.10), radius: 12, x: 0, y: -4)
 		}
 	}
 
-	/// Cream card with the card radius and shadow.
+	/// A vellum card with a folded top corner, a hairline edge and the card shadow.
 	func rescrivaCard(padding: CGFloat = 16, radius: CGFloat = RescrivaRadius.medium) -> some View {
 		self.padding(padding)
-			.background(Color.cream, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-			.rescrivaShadow(.card)
+			.paperCard(radius: radius)
 	}
 }
 
 // MARK: - Motion
 
-/// Motion tokens: ease-out or spring only, never linear.
+/// Motion tokens: ease-out or spring only, never linear. Rescriva's signatures
+/// are a scan line passing over the page, ink drawing itself in as words are
+/// read, and a page settling into place.
 enum RescrivaMotion {
 	/// UI transitions (250 ms).
 	static let ui = Animation.timingCurve(0.22, 0.61, 0.36, 1, duration: 0.25)
 	/// Quick feedback (150 ms).
 	static let fast = Animation.timingCurve(0.22, 0.61, 0.36, 1, duration: 0.15)
-	/// Gentle spring for toggles and celebrations.
+	/// Gentle spring for toggles.
 	static let spring = Animation.spring(response: 0.32, dampingFraction: 0.68)
 	/// Loading transitions (700 ms).
 	static let load = Animation.timingCurve(0.25, 0.46, 0.45, 0.94, duration: 0.7)
+	/// A page settling onto the stack: a short drop with the faintest overshoot.
+	static let settle = Animation.spring(response: 0.46, dampingFraction: 0.72)
+	/// One pass of the scan line down a page.
+	static let scan = Animation.timingCurve(0.42, 0, 0.58, 1, duration: 1.6)
+	/// A line of ink drawing itself in.
+	static let inkStroke = Animation.timingCurve(0.3, 0, 0.2, 1, duration: 0.55)
 }
 
 extension AnyTransition {
-	/// Entry: float in (rise 10pt and fade). Exit: dissolve. No slides.
-	static var floatIn: AnyTransition {
+	/// Entry: a sheet settling onto the desk (dropping 8 pt into place as it
+	/// fades in). Exit: dissolve. No slides.
+	static var settle: AnyTransition {
 		.asymmetric(
-			insertion: .opacity.combined(with: .offset(y: 10)),
+			insertion: .opacity.combined(with: .offset(y: -8)),
 			removal: .opacity
 		)
 	}
@@ -204,40 +276,67 @@ struct PressScaleStyle: ButtonStyle {
 
 // MARK: - Texture
 
-/// Parchment grain: a tiled noise texture at ~6% over parchment, so no surface
-/// is a flat digital rectangle.
+/// Paper grain: a tiled fibre texture over the stock, so no surface is a flat
+/// digital rectangle. On paper it settles in like pulp (multiply); on the
+/// chalkboard it lifts like chalk dust (screen).
 struct GrainBackground: View {
-	var base: Color = .parchment
+	var base: Color = .stock
+	@Environment(\.colorScheme) private var colorScheme
 
 	var body: some View {
 		ZStack {
 			base
-			Image(uiImage: GrainTexture.tile)
+			Image(uiImage: PaperGrain.tile)
 				.resizable(resizingMode: .tile)
-				.opacity(0.06)
-				.blendMode(.multiply)
+				.opacity(colorScheme == .dark ? 0.045 : 0.07)
+				.blendMode(colorScheme == .dark ? .screen : .multiply)
 		}
 		.ignoresSafeArea()
 		.accessibilityHidden(true)
 	}
 }
 
-/// Generates the 160×160 noise tile once per launch with a fixed seed, so the
-/// grain never shimmers between renders.
-enum GrainTexture {
+/// Generates the 192 × 192 grain tile once per launch with a fixed seed, so the
+/// grain never shimmers between renders: fine mottling plus short, faint
+/// fibres that wrap at the edges so the tile repeats without a seam.
+enum PaperGrain {
+	static let side = 192
+
 	static let tile: UIImage = {
-		let side = 160
-		var generator = SeededGenerator(seed: 0x5EED)
-		var pixels = [UInt8](repeating: 0, count: side * side * 4)
-		for index in stride(from: 0, to: pixels.count, by: 4) {
-			let value = UInt8.random(in: 0...255, using: &generator)
-			pixels[index] = value
-			pixels[index + 1] = value
-			pixels[index + 2] = value
-			pixels[index + 3] = 255
+		let side = Self.side
+		var generator = SeededGenerator(seed: 0x9A9E5)
+		var values = [Double](repeating: 0, count: side * side)
+		// Mottling: noise around mid grey, so the tile darkens (or lightens) evenly on average.
+		for index in values.indices {
+			values[index] = 128 + Double.random(in: -52...52, using: &generator)
 		}
-		let provider = CGDataProvider(data: Data(pixels) as CFData)
-		guard let provider,
+		// Fibres: short, slightly curving strokes, some darker and some lighter than the pulp.
+		for _ in 0..<150 {
+			var x = Double.random(in: 0..<Double(side), using: &generator)
+			var y = Double.random(in: 0..<Double(side), using: &generator)
+			var angle = Double.random(in: 0..<(2 * Double.pi), using: &generator)
+			let length = Double.random(in: 6...26, using: &generator)
+			let shift = Double.random(in: 34...70, using: &generator) * (Bool.random(using: &generator) ? 1 : -1)
+			var travelled = 0.0
+			while travelled < length {
+				let column = (Int(x.rounded(.down)) % side + side) % side
+				let row = (Int(y.rounded(.down)) % side + side) % side
+				let index = row * side + column
+				values[index] = min(255, max(0, values[index] + shift * 0.5))
+				angle += Double.random(in: -0.12...0.12, using: &generator)
+				x += cos(angle) * 0.6
+				y += sin(angle) * 0.6
+				travelled += 0.6
+			}
+		}
+		var pixels = [UInt8](repeating: 255, count: side * side * 4)
+		for (index, value) in values.enumerated() {
+			let byte = UInt8(min(255, max(0, value.rounded())))
+			pixels[index * 4] = byte
+			pixels[index * 4 + 1] = byte
+			pixels[index * 4 + 2] = byte
+		}
+		guard let provider = CGDataProvider(data: Data(pixels) as CFData),
 			  let image = CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4,
 								  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
 								  provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
@@ -246,7 +345,7 @@ enum GrainTexture {
 	}()
 }
 
-/// SplitMix64 — deterministic, so textures and sample content are stable.
+/// SplitMix64 — deterministic, so textures, sketches and sample content are stable.
 struct SeededGenerator: RandomNumberGenerator {
 	private var state: UInt64
 

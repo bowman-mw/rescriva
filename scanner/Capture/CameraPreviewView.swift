@@ -14,10 +14,11 @@ import UIKit
 /// SwiftUI wrapper around an aspect-fill `AVCaptureVideoPreviewLayer` (portrait) that draws the
 /// detected page itself.
 ///
-/// The overlay is a 2.5 pt fern (#8AAD7E) outline, full opacity while the page is steady and 70%
-/// otherwise, filled with fern at 10%, plus 14 pt cream (#FBF7EE) corner dots with a 2.5 pt fern
-/// ring. Quad changes animate over 0.15 s (ease-out). The overlay fades in when a page appears and
-/// out when it disappears.
+/// The overlay is the highlighter marking the page: a 2.5 pt outline in yellow chalk (#F2D660), full
+/// opacity while the page is steady and 70% otherwise, filled with it at 10%, plus 13 pt chalk-white
+/// (#F1EEE6) square corner marks ringed in the same yellow, like a printer's crop marks. Quad changes
+/// animate over 0.15 s (ease-out). The overlay fades in when a page appears and out when it
+/// disappears.
 ///
 /// `quad` is in the upright video frame (see `PageQuad`). The view converts each corner to
 /// AVFoundation's unrotated capture-device space and maps it with
@@ -49,13 +50,13 @@ extension CameraPreviewView {
 
 		/// Overlay colours and metrics from the Capture screen design.
 		private enum Style {
-			static let fern = UIColor(red: 0x8A / 255, green: 0xAD / 255, blue: 0x7E / 255, alpha: 1)
-			static let cream = UIColor(red: 0xFB / 255, green: 0xF7 / 255, blue: 0xEE / 255, alpha: 1)
+			static let marker = UIColor(red: 0xF2 / 255, green: 0xD6 / 255, blue: 0x60 / 255, alpha: 1)
+			static let chalk = UIColor(red: 0xF1 / 255, green: 0xEE / 255, blue: 0xE6 / 255, alpha: 1)
 			static let strokeWidth: CGFloat = 2.5
 			static let steadyStrokeAlpha: CGFloat = 1
 			static let searchingStrokeAlpha: CGFloat = 0.7
 			static let fillAlpha: CGFloat = 0.1
-			static let dotDiameter: CGFloat = 14
+			static let dotDiameter: CGFloat = 13
 			static let ringWidth: CGFloat = 2.5
 			static let animationDuration: CFTimeInterval = 0.15
 		}
@@ -126,20 +127,21 @@ extension CameraPreviewView {
 			layer.addSublayer(overlayLayer)
 
 			quadLayer.lineWidth = Style.strokeWidth
-			quadLayer.lineJoin = .round
-			quadLayer.fillColor = Style.fern.withAlphaComponent(Style.fillAlpha).cgColor
-			quadLayer.strokeColor = Style.fern.withAlphaComponent(Style.searchingStrokeAlpha).cgColor
+			quadLayer.lineJoin = .miter
+			quadLayer.fillColor = Style.marker.withAlphaComponent(Style.fillAlpha).cgColor
+			quadLayer.strokeColor = Style.marker.withAlphaComponent(Style.searchingStrokeAlpha).cgColor
 			overlayLayer.addSublayer(quadLayer)
 
-			// Inset by half the ring so the dot's outer edge is exactly `dotDiameter`.
+			// Inset by half the ring so the mark's outer edge is exactly `dotDiameter`.
 			let side = Style.dotDiameter
 			let inset = Style.ringWidth / 2
-			let circle = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: side, height: side).insetBy(dx: inset, dy: inset), transform: nil)
+			let square = CGPath(roundedRect: CGRect(x: 0, y: 0, width: side, height: side).insetBy(dx: inset, dy: inset),
+								cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)
 			for dot in cornerLayers {
 				dot.bounds = CGRect(x: 0, y: 0, width: side, height: side)
-				dot.path = circle
-				dot.fillColor = Style.cream.cgColor
-				dot.strokeColor = Style.fern.cgColor
+				dot.path = square
+				dot.fillColor = Style.chalk.cgColor
+				dot.strokeColor = Style.marker.cgColor
 				dot.lineWidth = Style.ringWidth
 				overlayLayer.addSublayer(dot)
 			}
@@ -173,7 +175,7 @@ extension CameraPreviewView {
 			}
 			let path = Self.outline(through: points)
 			let strokeAlpha = isSteady ? Style.steadyStrokeAlpha : Style.searchingStrokeAlpha
-			let strokeColor = Style.fern.withAlphaComponent(strokeAlpha).cgColor
+			let strokeColor = Style.marker.withAlphaComponent(strokeAlpha).cgColor
 			// Slide only while visible; a page that just appeared snaps into place and fades in.
 			let slide = animated && isOverlayVisible
 

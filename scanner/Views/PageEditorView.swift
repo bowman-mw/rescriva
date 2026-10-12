@@ -358,7 +358,7 @@ struct PageEditorView: View {
 
 	var body: some View {
 		ZStack {
-			Color.midnight.ignoresSafeArea()
+			Color.darkroom.ignoresSafeArea()
 			VStack(spacing: 0) {
 				topBar
 				canvas
@@ -399,26 +399,26 @@ struct PageEditorView: View {
 			} label: {
 				Text("Cancel")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.printInk)
 					.frame(height: 40)
 					.padding(.horizontal, 16)
-					.background(Color.cream, in: Capsule())
+					.background(Color.chalk, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.94))
 			.accessibilityHint("Leaves the page as it was")
 			Spacer()
 			Text("Adjust page")
 				.font(RescrivaFont.ui(15, weight: .medium))
-				.foregroundStyle(.cream)
+				.foregroundStyle(.chalk)
 				.accessibilityAddTraits(.isHeader)
 			Spacer()
 			Button(action: done) {
 				Text("Done")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.cream)
+					.foregroundStyle(.vellum)
 					.frame(height: 40)
 					.padding(.horizontal, 18)
-					.background(Color.moss, in: Capsule())
+					.background(Color.ink, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.94))
 			.disabled(model.availability == .loading || model.isApplying || model.isSplitting)
@@ -448,11 +448,11 @@ struct PageEditorView: View {
 		} else {
 			Group {
 				if model.availability == .loading {
-					ProgressView().tint(.cream)
-				} else {
-					Text("This page has no image to adjust.")
-						.font(RescrivaFont.ui(14))
-						.foregroundStyle(Color.cream.opacity(0.8))
+					ProgressView().tint(.chalk)
+					} else {
+						Text("This page has no image to adjust.")
+							.font(RescrivaFont.ui(14))
+							.foregroundStyle(Color.chalk.opacity(0.8))
 				}
 			}
 			.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -512,7 +512,7 @@ struct PageEditorView: View {
 		if let message = model.errorMessage {
 			Text(message)
 				.font(RescrivaFont.ui(12))
-				.foregroundStyle(.terracotta)
+				.foregroundStyle(.vermilion)
 				.multilineTextAlignment(.center)
 		}
 	}
@@ -523,7 +523,7 @@ struct PageEditorView: View {
 		Text(splitNoteText)
 			.font(RescrivaFont.ui(12))
 			.lineSpacing(2)
-			.foregroundStyle(.slate)
+			.foregroundStyle(.graphite)
 			.multilineTextAlignment(.center)
 			.fixedSize(horizontal: false, vertical: true)
 		HStack(spacing: 12) {
@@ -532,10 +532,10 @@ struct PageEditorView: View {
 			} label: {
 				Text("Keep one page")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.frame(height: 48)
 					.padding(.horizontal, 18)
-					.background(Color.cream, in: Capsule())
+					.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.94))
 			.disabled(model.isApplying)
@@ -556,7 +556,7 @@ struct PageEditorView: View {
 		Text(noteText)
 			.font(RescrivaFont.ui(12))
 			.lineSpacing(2)
-			.foregroundStyle(.slate)
+			.foregroundStyle(.graphite)
 			.multilineTextAlignment(.center)
 			.fixedSize(horizontal: false, vertical: true)
 	}
@@ -575,17 +575,17 @@ struct PageEditorView: View {
 
 	private var applyingCard: some View {
 		VStack(spacing: 12) {
-			ProgressView().tint(.moss)
+			ProgressView().tint(.ink)
 			Text("Re-making the page…")
 				.font(RescrivaFont.ui(14, weight: .medium))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 		}
 		.padding(24)
-		.background(Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
-		.rescrivaShadow(.float)
+		.paperCard()
+		.rescrivaShadow(.small)
 		.accessibilityElement(children: .combine)
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
-		.background(Color.midnight.opacity(0.35).ignoresSafeArea())
+		.background(Color.darkroom.opacity(0.35).ignoresSafeArea())
 	}
 
 	// MARK: Actions
@@ -750,7 +750,7 @@ private struct CropCanvas: View {
 			.scaleEffect(zoom, anchor: .topLeading)
 			.offset(x: diameter / 2 - focus.x * zoom, y: diameter / 2 - focus.y * zoom)
 			.frame(width: diameter, height: diameter, alignment: .topLeading)
-			.background(Color.midnight)
+			.background(Color.darkroom)
 			.clipShape(Circle())
 			.overlay { LoupeReticle() }
 			.rescrivaShadow(.float)
@@ -781,12 +781,12 @@ private struct CropLayer: View {
 					path.addLines(corners)
 					path.closeSubpath()
 				}
-				.fill(Color.midnight.opacity(0.55), style: FillStyle(eoFill: true))
+				.fill(Color.darkroom.opacity(0.55), style: FillStyle(eoFill: true))
 				Path { path in
 					path.addLines(corners)
 					path.closeSubpath()
 				}
-				.stroke(Color.fern, lineWidth: 2 / max(lineScale, 1))
+				.stroke(Color.highlighter, lineWidth: 2 / max(lineScale, 1))
 			}
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -836,24 +836,23 @@ private struct CropHandles: View {
 		let isActive = active == handle
 		switch handle {
 		case .corner:
-			Circle()
-				.fill(Color.cream)
-				.overlay { Circle().strokeBorder(Color.fern, lineWidth: 2.5) }
-				.frame(width: isActive ? 30 : 22, height: isActive ? 30 : 22)
+			RoundedRectangle(cornerRadius: 3, style: .continuous)
+				.fill(Color.chalk)
+				.overlay { RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(Color.highlighter, lineWidth: 2.5) }
+				.frame(width: isActive ? 28 : 20, height: isActive ? 28 : 20)
 				.shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
 		case .edge(let index):
-			Capsule()
-				.fill(Color.cream)
-				.overlay { Capsule().strokeBorder(Color.fern, lineWidth: 2) }
+			RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+				.fill(Color.chalk)
+				.overlay { RoundedRectangle(cornerRadius: 2.5, style: .continuous).strokeBorder(Color.highlighter, lineWidth: 2) }
 				.frame(width: isActive ? 34 : 26, height: 9)
 				.rotationEffect(edgeAngle(index))
 				.shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
 		case .body:
-			Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-				.font(.system(size: 14, weight: .semibold))
-				.foregroundStyle(Color.cream.opacity(isActive ? 1 : 0.75))
+			Glyph("arrow.up.and.down.and.arrow.left.and.right", size: 14, weight: .semibold)
+				.foregroundStyle(Color.chalk.opacity(isActive ? 1 : 0.75))
 				.frame(width: 34, height: 34)
-				.background(Color.midnight.opacity(0.4), in: Circle())
+				.background(Color.darkroom.opacity(0.4), in: Circle())
 		}
 	}
 
@@ -896,7 +895,7 @@ private struct SplitLineLayer: View {
 				path.move(to: start)
 				path.addLine(to: end)
 			}
-			.stroke(Color.cream, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+			.stroke(Color.chalk, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
 			.shadow(color: .black.opacity(0.4), radius: 2, x: 0, y: 1)
 			grip
 				.position(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
@@ -926,12 +925,11 @@ private struct SplitLineLayer: View {
 	}
 
 	private var grip: some View {
-		Image(systemName: "arrow.left.and.right")
-			.font(.system(size: 13, weight: .semibold))
-			.foregroundStyle(Color.bark)
+		Glyph("arrow.left.and.right", size: 13, weight: .semibold)
+			.foregroundStyle(Color.printInk)
 			.frame(width: 34, height: 34)
-			.background(Color.cream, in: Circle())
-			.overlay { Circle().strokeBorder(Color.fern, lineWidth: 2.5) }
+			.background(Color.chalk, in: Circle())
+			.overlay { Circle().strokeBorder(Color.highlighter, lineWidth: 2.5) }
 			.shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
 	}
 }
@@ -940,9 +938,9 @@ private struct SplitLineLayer: View {
 private struct LoupeReticle: View {
 	var body: some View {
 		ZStack {
-			Circle().strokeBorder(Color.cream, lineWidth: 3)
-			Rectangle().fill(Color.cream.opacity(0.9)).frame(width: 14, height: 1.5)
-			Rectangle().fill(Color.cream.opacity(0.9)).frame(width: 1.5, height: 14)
+			Circle().strokeBorder(Color.chalk, lineWidth: 3)
+			Rectangle().fill(Color.chalk.opacity(0.9)).frame(width: 14, height: 1.5)
+			Rectangle().fill(Color.chalk.opacity(0.9)).frame(width: 1.5, height: 14)
 		}
 	}
 }
@@ -957,13 +955,12 @@ private struct EditorTool: View {
 	var body: some View {
 		Button(action: action) {
 			VStack(spacing: 4) {
-				Image(systemName: systemImage)
-					.font(.system(size: 18, weight: .light))
+				Glyph(systemImage, size: 18, weight: .light)
 					.frame(height: 22)
 				Text(title)
 					.font(RescrivaFont.ui(11, weight: .medium))
 			}
-			.foregroundStyle(.bark)
+			.foregroundStyle(.carbon)
 			.frame(maxWidth: .infinity)
 			.padding(.vertical, 6)
 			.contentShape(Rectangle())

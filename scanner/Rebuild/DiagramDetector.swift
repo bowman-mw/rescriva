@@ -1557,7 +1557,7 @@ extension DiagramDetector {
 		return Double(sorted[sorted.count / 2]) / 255
 	}
 
-	/// A light tint of the stroke for the fill (moss → lichen in the sample).
+	/// A light tint of the stroke for the fill (ink → wash in the sample).
 	static func tint(_ colour: RGBColor) -> RGBColor {
 		let t = Tuning.fillTint
 		return RGBColor(red: 1 - t * (1 - colour.red), green: 1 - t * (1 - colour.green), blue: 1 - t * (1 - colour.blue))

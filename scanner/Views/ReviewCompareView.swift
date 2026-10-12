@@ -6,7 +6,7 @@
 //  rebuilt version (left and right in landscape). Tapping a block on
 //  either half selects it on both: its box lights up on the original,
 //  which zooms in on it, and the rebuilt half scrolls to it. Blocks with
-//  something to check are outlined in goldenrod on the original. A grabber
+//  something to check are outlined in highlighter on the original. A grabber
 //  between the halves sets how much room each one gets.
 //
 
@@ -71,7 +71,7 @@ struct ReviewCompareView: View {
 			Spacer()
 			Text("Page \(pageIndex + 1) of \(max(document.pages.count, 1))")
 				.font(RescrivaFont.ui(13, weight: .medium))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.monospacedDigit()
 			Spacer()
 			CircleIconButton(systemName: "chevron.right", label: "Next page") { turn(by: 1) }
@@ -92,11 +92,10 @@ struct ReviewCompareView: View {
 					focusedBlock = zoomsToSelection ? selectedBlock : nil
 				}
 			} label: {
-				Image(systemName: focusedBlock == nil ? "plus.magnifyingglass" : "arrow.down.right.and.arrow.up.left")
-					.font(.system(size: 14, weight: .medium))
-					.foregroundStyle(.bark)
+				Glyph(focusedBlock == nil ? "plus.magnifyingglass" : "arrow.down.right.and.arrow.up.left", size: 14, weight: .medium)
+					.foregroundStyle(.carbon)
 					.frame(width: 34, height: 34)
-					.background(Color.cream.opacity(0.94), in: Circle())
+					.background(Color.vellum.opacity(0.94), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 					.rescrivaShadow(.small)
 			}
 			.buttonStyle(PressScaleStyle())
@@ -133,7 +132,7 @@ struct ReviewCompareView: View {
 	/// The handle between the halves: drag it to give one more room.
 	private func grabber(height: CGFloat) -> some View {
 		Capsule()
-			.fill(Color.bark.opacity(0.25))
+			.fill(Color.carbon.opacity(0.25))
 			.frame(width: 44, height: 5)
 			.frame(maxWidth: .infinity)
 			.frame(height: 28)
@@ -183,8 +182,8 @@ struct ReviewCompareView: View {
 	}
 }
 
-/// The scanned page with its blocks' boxes: the selected one lit in moss,
-/// ones with something to check outlined in goldenrod. Tapping inside a box
+/// The scanned page with its blocks' boxes: the selected one lit in ink,
+/// ones with something to check outlined in highlighter. Tapping inside a box
 /// selects that block; the page zooms in on `focusedBlock` when there is one.
 struct OriginalPageView: View {
 	let image: UIImage?
@@ -261,10 +260,10 @@ struct OriginalPageView: View {
 			guard let box = block.box else { continue }
 			let frame = Path(roundedRect: rect(box, in: fitted).insetBy(dx: -3 * unit, dy: -3 * unit), cornerRadius: 4 * unit)
 			if block.id == selectedBlock {
-				context.fill(frame, with: .color(Color.moss.opacity(0.14)))
-				context.stroke(frame, with: .color(.moss), lineWidth: 2 * unit)
+				context.fill(frame, with: .color(Color.ink.opacity(0.14)))
+				context.stroke(frame, with: .color(.ink), lineWidth: 2 * unit)
 			} else if flaggedBlocks.contains(block.id) {
-				context.stroke(frame, with: .color(.goldenrod), style: StrokeStyle(lineWidth: 1.5 * unit, dash: [4 * unit, 3 * unit]))
+				context.stroke(frame, with: .color(.highlighter), style: StrokeStyle(lineWidth: 1.5 * unit, dash: [4 * unit, 3 * unit]))
 			}
 		}
 	}

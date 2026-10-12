@@ -80,10 +80,10 @@ struct ScanCollectionView: View {
 					}
 				}
 				.font(RescrivaFont.ui(14, weight: .medium))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.frame(height: 40)
 				.padding(.horizontal, 16)
-				.background(Color.cream, in: Capsule())
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				.rescrivaShadow(.small)
 			}
 			if !selecting { optionsMenu }
@@ -100,18 +100,17 @@ struct ScanCollectionView: View {
 	private var header: some View {
 		VStack(alignment: .leading, spacing: 4) {
 			HStack(spacing: 10) {
-				Image(systemName: look.symbol)
-					.font(.system(size: 22))
+				Glyph(look.symbol, size: 22)
 					.foregroundStyle(look.tint)
 				Text(look.title)
 					.font(RescrivaFont.header(28))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.lineLimit(2)
 					.accessibilityAddTraits(.isHeader)
 			}
 			Text(subtitle)
 				.font(RescrivaFont.ui(12))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 		}
 		.padding(.horizontal, 20)
 		.padding(.top, 8)
@@ -137,11 +136,11 @@ struct ScanCollectionView: View {
 						} label: {
 							Label(child.displayName, systemImage: child.symbolName)
 								.font(RescrivaFont.ui(13, weight: .medium))
-								.foregroundStyle(.bark)
+								.foregroundStyle(.carbon)
 								.padding(.vertical, 8)
 								.padding(.horizontal, 12)
-								.background(Color.cream, in: Capsule())
-								.overlay { Capsule().strokeBorder(child.tint.opacity(0.5)) }
+								.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
+								.overlay { RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous).strokeBorder(child.tint.opacity(0.5)) }
 						}
 						.buttonStyle(PressScaleStyle())
 					}
@@ -157,9 +156,16 @@ struct ScanCollectionView: View {
 	private var content: some View {
 		let visible = scans
 		if visible.isEmpty {
-			ThoughtBubble(text: emptyText, showsTrail: false)
-				.padding(.horizontal, 20)
-				.padding(.top, 20)
+			Group {
+				switch scope {
+				case .all, .folder:
+					EmptyState(text: emptyText) { SketchToCleanIllustration(subject: .notes) }
+				default:
+					EmptyState(text: emptyText)
+				}
+			}
+			.padding(.horizontal, 16)
+			.padding(.top, 20)
 		} else {
 			ScanGallery(sections: LibraryGrouping.sections(visible, sort: sort, pinnedFirst: scope.showsPinnedFirst, now: Date()),
 						inRecentlyDeleted: scope == .recentlyDeleted, selecting: selecting, selection: $selection) { action, scans in
@@ -208,11 +214,10 @@ private extension ScanCollectionView {
 				Button { controller.sheet = .editSmartFolder(smart) } label: { Label("Edit Smart Folder", systemImage: "slider.horizontal.3") }
 			}
 		} label: {
-			Image(systemName: "ellipsis")
-				.font(.system(size: 17, weight: .medium))
-				.foregroundStyle(.bark)
+			Glyph("ellipsis", size: 17, weight: .medium)
+				.foregroundStyle(.carbon)
 				.frame(width: 40, height: 40)
-				.background(Color.cream, in: Circle())
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.accessibilityLabel(Text("More"))
@@ -227,11 +232,11 @@ private extension ScanCollectionView {
 					}
 				}
 				.font(RescrivaFont.ui(14, weight: .medium))
-				.foregroundStyle(.moss)
+				.foregroundStyle(.ink)
 				Spacer()
 				Text(selection.isEmpty ? "Select scans" : "\(selection.count) selected")
 					.font(RescrivaFont.ui(13))
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 			}
 			HStack(spacing: 8) {
 				if scope == .recentlyDeleted {
@@ -252,12 +257,12 @@ private extension ScanCollectionView {
 			controller.perform(action, on: selectedScans, context: context, router: router)
 		} label: {
 			VStack(spacing: 3) {
-				Image(systemName: symbol).font(.system(size: 18))
+				Glyph(symbol, size: 18)
 				Text(title).font(RescrivaFont.ui(11, weight: .medium))
 			}
-			.foregroundStyle(destructive ? Color.terracotta : Color.bark)
+			.foregroundStyle(destructive ? Color.vermilion : Color.carbon)
 			.frame(maxWidth: .infinity, minHeight: 50)
-			.background(Color.cream, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+			.background(Color.vellum, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 		}
 		.buttonStyle(PressScaleStyle())
 		.disabled(selection.isEmpty)
@@ -273,15 +278,14 @@ private extension ScanCollectionView {
 				Button { router.push(.camera(.whiteboard, appendingTo: nil)) } label: { Label("Whiteboard", systemImage: "rectangle.and.pencil.and.ellipsis") }
 			} label: {
 				HStack(spacing: 8) {
-					Image(systemName: "viewfinder")
-						.font(.system(size: 18, weight: .medium))
+					Glyph("viewfinder", size: 18, weight: .medium)
 					Text("Scan here")
 						.font(RescrivaFont.ui(16, weight: .medium))
 				}
-				.foregroundStyle(.cream)
+				.foregroundStyle(.vellum)
 				.frame(height: 54)
 				.padding(.horizontal, 22)
-				.background(Color.moss, in: Capsule())
+				.background(Color.ink, in: RoundedRectangle(cornerRadius: RescrivaRadius.large * 0.75, style: .continuous))
 				.rescrivaShadow(.float)
 			} primaryAction: {
 				router.push(.camera(.document, appendingTo: nil))

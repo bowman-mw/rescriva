@@ -66,7 +66,7 @@ struct AnnotateView: View {
 			CircleIconButton(systemName: "xmark", label: "Close") { close() }
 			Text("Annotate")
 				.font(RescrivaFont.header(22))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.accessibilityAddTraits(.isHeader)
 			Spacer(minLength: 4)
 			historyButton("arrow.uturn.backward", label: "Undo", isEnabled: session.canUndo) { session.undo() }
@@ -74,10 +74,10 @@ struct AnnotateView: View {
 			Button(action: done) {
 				Text("Done")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.cream)
+					.foregroundStyle(.vellum)
 					.frame(height: 40)
 					.padding(.horizontal, 18)
-					.background(Color.moss, in: Capsule())
+					.background(Color.ink, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 					.rescrivaShadow(.small)
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.94))
@@ -103,7 +103,7 @@ struct AnnotateView: View {
 			}
 			Text("Page \(session.pageIndex + 1) of \(session.pages.count)")
 				.font(RescrivaFont.ui(13, weight: .medium))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.monospacedDigit()
 				.frame(minWidth: 96)
 			pageButton("chevron.right", label: "Next page", isEnabled: session.canGoForward) {
@@ -111,16 +111,15 @@ struct AnnotateView: View {
 			}
 		}
 		.padding(.horizontal, 4)
-		.background(Color.cream, in: Capsule())
+		.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 		.rescrivaShadow(.small)
 		.padding(.bottom, 10)
 	}
 
 	private func pageButton(_ systemName: String, label: LocalizedStringKey, isEnabled: Bool, action: @escaping () -> Void) -> some View {
 		Button(action: action) {
-			Image(systemName: systemName)
-				.font(.system(size: 14, weight: .medium))
-				.foregroundStyle(.bark)
+			Glyph(systemName, size: 14, weight: .medium)
+				.foregroundStyle(.carbon)
 				.frame(width: 36, height: 36)
 				.contentShape(Rectangle())
 		}
@@ -141,7 +140,7 @@ struct AnnotateView: View {
 				.frame(maxWidth: .infinity)
 				if tool == .eraser {
 					Rectangle()
-						.fill(Color.bark.opacity(0.14))
+						.fill(Color.carbon.opacity(0.14))
 						.frame(width: 1, height: 24)
 						.accessibilityHidden(true)
 				}
@@ -154,12 +153,12 @@ struct AnnotateView: View {
 		if session.tool == .eraser {
 			HStack {
 				Text("Touch a mark to erase it")
-					.font(RescrivaFont.bubble(15))
-					.foregroundStyle(.slate)
+					.font(RescrivaFont.note(15))
+					.foregroundStyle(.graphite)
 				Spacer()
 				Button("Clear page") { session.clearPage() }
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.terracotta)
+					.foregroundStyle(.vermilion)
 					.disabled(session.currentMarks.isEmpty)
 					.opacity(session.currentMarks.isEmpty ? 0.4 : 1)
 			}
@@ -172,7 +171,7 @@ struct AnnotateView: View {
 						.frame(maxWidth: .infinity)
 				}
 				Rectangle()
-					.fill(Color.bark.opacity(0.14))
+					.fill(Color.carbon.opacity(0.14))
 					.frame(width: 1, height: 24)
 					.padding(.horizontal, 6)
 					.accessibilityHidden(true)
@@ -212,7 +211,7 @@ struct AnnotateView: View {
 	}
 }
 
-/// A tool in the bottom bar: bark circle when chosen.
+/// A tool in the bottom bar: carbon circle when chosen.
 private struct ToolButton: View {
 	let tool: AnnotationTool
 	let isSelected: Bool
@@ -220,13 +219,12 @@ private struct ToolButton: View {
 
 	var body: some View {
 		Button(action: action) {
-			Image(systemName: tool.systemImage)
-				.font(.system(size: 18, weight: .regular))
-				.foregroundStyle(isSelected ? Color.cream : Color.bark)
+			Glyph(tool.systemImage, size: 18, weight: .regular)
+				.foregroundStyle(isSelected ? Color.vellum : Color.carbon)
 				.frame(width: 40, height: 40)
 				.background {
 					if isSelected {
-						Circle().fill(Color.bark)
+						Circle().fill(Color.carbon)
 					}
 				}
 				.contentShape(Circle())
@@ -237,7 +235,7 @@ private struct ToolButton: View {
 	}
 }
 
-/// A color choice; the chosen one wears a bark ring.
+/// A color choice; the chosen one wears a carbon ring.
 private struct SwatchButton: View {
 	let swatch: MarkSwatch
 	let isSelected: Bool
@@ -247,12 +245,12 @@ private struct SwatchButton: View {
 		Button(action: action) {
 			Circle()
 				.fill(Color(hex: UInt(swatch.rgb)))
-				.overlay(Circle().strokeBorder(Color.bark.opacity(0.18), lineWidth: 1))
+				.overlay(Circle().strokeBorder(Color.carbon.opacity(0.18), lineWidth: 1))
 				.frame(width: 24, height: 24)
 				.padding(4)
 				.overlay {
 					if isSelected {
-						Circle().strokeBorder(Color.bark, lineWidth: 2)
+						Circle().strokeBorder(Color.carbon, lineWidth: 2)
 					}
 				}
 				.frame(width: 36, height: 36)
@@ -276,12 +274,12 @@ private struct SizeButton: View {
 		Button(action: action) {
 			Circle()
 				.fill(Color(hex: UInt(color)))
-				.overlay(Circle().strokeBorder(Color.bark.opacity(0.18), lineWidth: 1))
+				.overlay(Circle().strokeBorder(Color.carbon.opacity(0.18), lineWidth: 1))
 				.frame(width: CGFloat(6 + index * 5), height: CGFloat(6 + index * 5))
 				.frame(width: 34, height: 34)
 				.background {
 					if isSelected {
-						Circle().fill(Color.bark.opacity(0.1))
+						Circle().fill(Color.carbon.opacity(0.1))
 					}
 				}
 				.contentShape(Circle())

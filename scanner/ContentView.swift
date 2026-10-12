@@ -26,7 +26,10 @@ struct ContentView: View {
 		}
 		.overlay(alignment: .leading) { edgeSwipeBack }
 		.environment(router)
-		.preferredColorScheme(router.isCameraVisible ? .dark : .light)
+		// System controls (menus, alerts, the text cursor) take indigo ink, not system blue.
+		.tint(.ink)
+		// The app follows the system's appearance; the camera is always in the dark.
+		.preferredColorScheme(router.isCameraVisible ? .dark : nil)
 		.inboxImports(router: router)
 		.onChange(of: appState.openScan) { _, scan in
 			// Spotlight result or widget link.
@@ -108,12 +111,12 @@ struct ContentView: View {
 					.allowsHitTesting(isTop)
 					.accessibilityHidden(!isTop)
 					.zIndex(Double(index + 1))
-					.transition(.floatIn)
+					.transition(.settle)
 			}
 
 			if let toast = router.toast {
 				VStack {
-					ToastView(message: toast.message, actionLabel: toast.actionLabel, action: toast.action.map { action in
+					ToastView(message: toast.message, style: toast.style, actionLabel: toast.actionLabel, action: toast.action.map { action in
 						{
 							action()
 							router.dismissToast()
@@ -124,7 +127,7 @@ struct ContentView: View {
 					Spacer()
 				}
 				.zIndex(100)
-				.transition(.floatIn)
+				.transition(.settle)
 			}
 		}
 	}

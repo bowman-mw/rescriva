@@ -152,7 +152,7 @@ struct PDFDocumentView: View {
 					topBar(session, item: item)
 					if isFinding {
 						findBar(session)
-							.transition(.floatIn)
+							.transition(.settle)
 					} else if !titleBesideBack && session.mode != .markup {
 						// Marking up on a phone, the page needs the room more than the title does.
 						titleRow(session, item: item)
@@ -161,7 +161,7 @@ struct PDFDocumentView: View {
 						BannerView(text: banner.text, tone: banner.tone) { withAnimation(RescrivaMotion.ui) { dismissedBanner = true } }
 							.padding(.horizontal, 16)
 							.padding(.bottom, 8)
-							.transition(.floatIn)
+							.transition(.settle)
 					}
 					if session.isLocked {
 						passwordCard(session)
@@ -174,7 +174,7 @@ struct PDFDocumentView: View {
 				unavailable
 			} else {
 				ProgressView()
-					.tint(.moss)
+					.tint(.ink)
 			}
 		}
 		.background {
@@ -226,10 +226,10 @@ struct PDFDocumentView: View {
 				} label: {
 					Text(session.mode == .markup ? "Done" : "Mark up")
 						.font(RescrivaFont.ui(14, weight: .medium))
-						.foregroundStyle(session.mode == .markup ? Color.cream : Color.bark)
+						.foregroundStyle(session.mode == .markup ? Color.vellum : Color.carbon)
 						.frame(height: 40)
 						.padding(.horizontal, 16)
-						.background(session.mode == .markup ? Color.moss : Color.cream, in: Capsule())
+						.background(session.mode == .markup ? Color.ink : Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 						.rescrivaShadow(.small)
 				}
 				.buttonStyle(PressScaleStyle(scale: 0.94))
@@ -254,11 +254,10 @@ struct PDFDocumentView: View {
 				.pickerStyle(.inline)
 			}
 		} label: {
-			Image(systemName: session.currentNoteMargin == .left ? "rectangle.portrait.leftthird.inset.filled" : "rectangle.portrait.rightthird.inset.filled")
-				.font(.system(size: 17, weight: .regular))
-				.foregroundStyle(session.currentNoteMargin == nil ? Color.bark : Color.cream)
+			Glyph(session.currentNoteMargin == .left ? "rectangle.portrait.leftthird.inset.filled" : "rectangle.portrait.rightthird.inset.filled", size: 17, weight: .regular)
+				.foregroundStyle(session.currentNoteMargin == nil ? Color.carbon : Color.vellum)
 				.frame(width: 40, height: 40)
-				.background(session.currentNoteMargin == nil ? Color.cream : Color.bark, in: Circle())
+				.background(session.currentNoteMargin == nil ? Color.vellum : Color.carbon, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.accessibilityLabel("Note margin")
@@ -281,11 +280,10 @@ struct PDFDocumentView: View {
 			router.showToast(session.pencilOnly ? String(localized: "Apple Pencil marks up. Fingers scroll.")
 								: String(localized: "Fingers mark up. Two fingers scroll."))
 		} label: {
-			Image(systemName: session.pencilOnly ? "applepencil" : "hand.draw")
-				.font(.system(size: 17, weight: .regular))
-				.foregroundStyle(session.pencilOnly ? Color.cream : Color.bark)
+			Glyph(session.pencilOnly ? "applepencil" : "hand.draw", size: 17, weight: .regular)
+				.foregroundStyle(session.pencilOnly ? Color.vellum : Color.carbon)
 				.frame(width: 40, height: 40)
-				.background(session.pencilOnly ? Color.bark : Color.cream, in: Circle())
+				.background(session.pencilOnly ? Color.carbon : Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.buttonStyle(PressScaleStyle())
@@ -318,11 +316,10 @@ struct PDFDocumentView: View {
 				Button(role: .destructive) { confirmingRevert = true } label: { Label("Revert to original", systemImage: "arrow.counterclockwise") }
 			}
 		} label: {
-			Image(systemName: "ellipsis")
-				.font(.system(size: 17, weight: .regular))
-				.foregroundStyle(.bark)
+			Glyph("ellipsis", size: 17, weight: .regular)
+				.foregroundStyle(.carbon)
 				.frame(width: 40, height: 40)
-				.background(Color.cream, in: Circle())
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.accessibilityLabel("More")
@@ -341,14 +338,14 @@ struct PDFDocumentView: View {
 		VStack(alignment: .leading, spacing: titleBesideBack ? 2 : 6) {
 			Text(item.title)
 				.font(RescrivaFont.header(size))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.lineLimit(1)
 				.accessibilityAddTraits(.isHeader)
 			ScrollView(.horizontal, showsIndicators: false) {
 				HStack(spacing: 6) {
 					Text(item.libraryMeta)
 						.font(RescrivaFont.ui(12))
-						.foregroundStyle(.slate)
+						.foregroundStyle(.graphite)
 					ForEach(badges(session, item: item), id: \.self) { badge in
 						FormatBadge(text: badge)
 					}
@@ -438,12 +435,11 @@ struct PDFDocumentView: View {
 	private func findBar(_ session: PDFEditSession) -> some View {
 		HStack(spacing: 8) {
 			HStack(spacing: 8) {
-				Image(systemName: "magnifyingglass")
-					.font(.system(size: 15))
-					.foregroundStyle(.slate)
+				Glyph("magnifyingglass", size: 15)
+					.foregroundStyle(.graphite)
 				TextField("Find in this PDF", text: $findText)
 					.font(RescrivaFont.ui(15))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.submitLabel(.search)
 					.autocorrectionDisabled()
 					.textInputAutocapitalization(.never)
@@ -451,19 +447,19 @@ struct PDFDocumentView: View {
 					.onSubmit { session.showNextResult() }
 				Text(findStatus(session))
 					.font(RescrivaFont.ui(12, weight: .medium))
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 					.monospacedDigit()
 					.fixedSize()
 			}
 			.padding(.horizontal, 12)
 			.frame(height: 40)
-			.background(Color.cream, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-			.overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.bark.opacity(0.08)) }
+			.background(Color.vellum, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+			.overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.carbon.opacity(0.08)) }
 			findStep("chevron.up", label: "Previous match") { session.showPreviousResult() }
 			findStep("chevron.down", label: "Next match") { session.showNextResult() }
 			Button("Done") { endFind() }
 				.font(RescrivaFont.ui(14, weight: .medium))
-				.foregroundStyle(.moss)
+				.foregroundStyle(.ink)
 		}
 		.padding(.horizontal, 16)
 		.padding(.bottom, 10)
@@ -481,9 +477,8 @@ struct PDFDocumentView: View {
 	private func findStep(_ systemName: String, label: LocalizedStringKey, action: @escaping () -> Void) -> some View {
 		let enabled = !(session?.findResults.isEmpty ?? true)
 		return Button(action: action) {
-			Image(systemName: systemName)
-				.font(.system(size: 15, weight: .medium))
-				.foregroundStyle(.bark)
+			Glyph(systemName, size: 15, weight: .medium)
+				.foregroundStyle(.carbon)
 				.frame(width: 34, height: 40)
 				.contentShape(Rectangle())
 		}
@@ -518,22 +513,22 @@ struct PDFDocumentView: View {
 		VStack(alignment: .leading, spacing: 12) {
 			Text("This PDF is locked")
 				.font(RescrivaFont.header(20))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 			Text("Enter its password to open it. Rescriva keeps the password on the file when it saves.")
 				.font(RescrivaFont.ui(14))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 			SecureField("Password", text: $password)
 				.font(RescrivaFont.ui(16))
 				.textContentType(.password)
 				.submitLabel(.go)
 				.padding(.horizontal, 14)
 				.frame(height: 44)
-				.background(Color.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+				.background(Color.stock, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 				.onSubmit { unlock(session) }
 			if passwordFailed {
 				Text("That password didn't work.")
 					.font(RescrivaFont.ui(13))
-					.foregroundStyle(.terracotta)
+					.foregroundStyle(.vermilion)
 			}
 			PrimaryButton(title: "Unlock", systemImage: "lock.open", height: 48) { unlock(session) }
 		}
@@ -552,8 +547,8 @@ struct PDFDocumentView: View {
 			.padding(.top, 6)
 			Spacer()
 			Text("This PDF couldn't be opened. It may be damaged, or it was removed.")
-				.font(RescrivaFont.bubble(16))
-				.foregroundStyle(.slate)
+				.font(RescrivaFont.note(16))
+				.foregroundStyle(.graphite)
 				.multilineTextAlignment(.center)
 				.padding(.horizontal, 40)
 			Spacer()
@@ -660,7 +655,7 @@ struct PDFDocumentView: View {
 		do {
 			let extracted = try library.add(data, title: String(localized: "\(item.title) (pages)"))
 			let message = pageCount == 1 ? String(localized: "Saved 1 page as a new PDF") : String(localized: "Saved \(pageCount) pages as a new PDF")
-			router.showToast(message, actionLabel: String(localized: "Open")) {
+			router.showToast(message, style: .exported, actionLabel: String(localized: "Open")) {
 				router.push(.pdf(extracted.id, query: nil))
 			}
 		} catch {
@@ -746,39 +741,39 @@ private struct MarkupTextSheet: View {
 			HStack {
 				Text(entry.title)
 					.font(RescrivaFont.header(22))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 				Spacer()
 				Button(isEditable ? "Done" : "Close") {
 					if isEditable { onDone(text) }
 					dismiss()
 				}
 				.font(RescrivaFont.ui(15, weight: .medium))
-				.foregroundStyle(.moss)
+				.foregroundStyle(.ink)
 			}
 			if isEditable {
 				TextEditor(text: $text)
 					.font(RescrivaFont.ui(16))
 					.scrollContentBackground(.hidden)
 					.padding(10)
-					.background(Color.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+					.background(Color.stock, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 					.focused($focused)
 				if entry.annotation != nil {
 					Text("Clear the text to delete it.")
 						.font(RescrivaFont.ui(12))
-						.foregroundStyle(.slate)
+						.foregroundStyle(.graphite)
 				}
 			} else {
 				ScrollView {
 					Text(text)
 						.font(RescrivaFont.ui(16))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.frame(maxWidth: .infinity, alignment: .leading)
 						.textSelection(.enabled)
 				}
 			}
 		}
 		.padding(20)
-		.background(Color.parchment)
+		.background(Color.stock)
 		.onAppear { focused = isEditable }
 	}
 }
@@ -791,11 +786,11 @@ private struct PageIndicator: View {
 	var body: some View {
 		Text("\(current) of \(total)")
 			.font(RescrivaFont.ui(13, weight: .medium))
-			.foregroundStyle(.bark)
+			.foregroundStyle(.carbon)
 			.monospacedDigit()
 			.padding(.vertical, 7)
 			.padding(.horizontal, 14)
-			.background(Color.cream.opacity(0.94), in: Capsule())
+			.background(Color.vellum.opacity(0.94), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			.rescrivaShadow(.small)
 			.accessibilityLabel(Text("Page \(current) of \(total)"))
 	}
@@ -808,9 +803,9 @@ struct FormatBadge: View {
 	var body: some View {
 		Text(text)
 			.font(RescrivaFont.ui(11, weight: .medium))
-			.foregroundStyle(.bark)
+			.foregroundStyle(.carbon)
 			.padding(.vertical, 4)
 			.padding(.horizontal, 9)
-			.background(Color.lichen.opacity(0.7), in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
+			.background(Color.wash.opacity(0.7), in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
 	}
 }

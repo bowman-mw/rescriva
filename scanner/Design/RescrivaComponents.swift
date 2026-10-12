@@ -2,13 +2,14 @@
 //  RescrivaComponents.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  Small reusable pieces of the Fernlet look: pills, chips, toggles, thought
-//  bubbles, the toast, paper thumbnails and the frosted bottom bar.
+//  Small reusable pieces of Rescriva's paper-and-ink look: tabs of card
+//  stock for buttons, chips, the paper-tab switch, ink-stroke tabs, the
+//  toast, banners, page thumbnails, the wordmark and the frosted bottom bar.
 //
 
 import SwiftUI
 
-/// "‹ Scans" — the cream back pill at the top-left of every inner screen.
+/// "‹ Scans" — the vellum tab at the top-left of every inner screen.
 struct BackPill: View {
 	let title: LocalizedStringKey
 	let action: () -> Void
@@ -16,16 +17,15 @@ struct BackPill: View {
 	var body: some View {
 		Button(action: action) {
 			HStack(spacing: 2) {
-				Image(systemName: "chevron.left")
-					.font(.system(size: 17, weight: .regular))
+				Glyph("chevron.left", size: 15)
 				Text(title)
 					.font(RescrivaFont.ui(14, weight: .medium))
 			}
-			.foregroundStyle(.bark)
+			.foregroundStyle(.carbon)
 			.frame(height: 40)
-			.padding(.leading, 8)
+			.padding(.leading, 6)
 			.padding(.trailing, 14)
-			.background(Color.cream, in: Capsule())
+			.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			.rescrivaShadow(.small)
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.94))
@@ -33,7 +33,7 @@ struct BackPill: View {
 	}
 }
 
-/// A 40pt cream circle holding one SF Symbol.
+/// A 40 pt vellum tab holding one icon.
 struct CircleIconButton: View {
 	let systemName: String
 	let label: LocalizedStringKey
@@ -41,11 +41,10 @@ struct CircleIconButton: View {
 
 	var body: some View {
 		Button(action: action) {
-			Image(systemName: systemName)
-				.font(.system(size: 17, weight: .regular))
-				.foregroundStyle(.bark)
+			Glyph(systemName, size: 17)
+				.foregroundStyle(.carbon)
 				.frame(width: 40, height: 40)
-				.background(Color.cream, in: Circle())
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.buttonStyle(PressScaleStyle())
@@ -53,7 +52,7 @@ struct CircleIconButton: View {
 	}
 }
 
-/// A selectable chip: bark when chosen, cream otherwise.
+/// A selectable chip: carbon when chosen, vellum otherwise.
 struct ChoiceChip: View {
 	let label: LocalizedStringKey
 	let isSelected: Bool
@@ -64,18 +63,18 @@ struct ChoiceChip: View {
 		Button(action: action) {
 			Text(label)
 				.font(RescrivaFont.ui(13, weight: .medium))
-				.foregroundStyle(isSelected ? Color.cream : Color.bark)
+				.foregroundStyle(isSelected ? Color.vellum : Color.carbon)
 				.lineLimit(1)
 				.fixedSize(horizontal: !fillsWidth, vertical: false)
 				.padding(.vertical, fillsWidth ? 9 : 7)
 				.padding(.horizontal, fillsWidth ? 0 : 14)
 				.frame(maxWidth: fillsWidth ? .infinity : nil)
-				.background(isSelected ? Color.bark : Color.cream,
+				.background(isSelected ? Color.carbon : Color.vellum,
 							in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
 				.overlay {
-					// A faint edge keeps an unselected chip visible on a cream sheet.
+					// A faint edge keeps an unselected chip visible on a vellum sheet.
 					RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous)
-						.strokeBorder(Color.bark.opacity(isSelected ? 0 : 0.14))
+						.strokeBorder(Color.carbon.opacity(isSelected ? 0 : 0.14))
 				}
 				.animation(RescrivaMotion.ui, value: isSelected)
 		}
@@ -84,20 +83,20 @@ struct ChoiceChip: View {
 	}
 }
 
-/// The Fernlet switch: moss track when on, warm grey when off, spring knob.
+/// Rescriva's switch: a paper tab sliding in a slot, inked when on.
 struct RescrivaToggleStyle: ToggleStyle {
 	func makeBody(configuration: Configuration) -> some View {
 		HStack(spacing: 12) {
 			configuration.label
 			Spacer(minLength: 0)
 			ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-				Capsule()
-					.fill(configuration.isOn ? Color.moss : Color.bark.opacity(0.16))
+				RoundedRectangle(cornerRadius: 9, style: .continuous)
+					.fill(configuration.isOn ? Color.ink : Color.carbon.opacity(0.16))
 					.frame(width: 51, height: 31)
-				Circle()
-					.fill(Color.cream)
+				RoundedRectangle(cornerRadius: 7, style: .continuous)
+					.fill(Color.vellum)
 					.frame(width: 27, height: 27)
-					.shadow(color: Color.bark.opacity(0.25), radius: 2, x: 0, y: 1)
+					.shadow(color: Color.shade.opacity(0.25), radius: 1.5, x: 0, y: 1)
 					.padding(2)
 			}
 			.animation(RescrivaMotion.spring, value: configuration.isOn)
@@ -111,61 +110,42 @@ struct RescrivaToggleStyle: ToggleStyle {
 	}
 }
 
-/// The companion's voice: a cream bubble with two trailing dots.
-struct ThoughtBubble: View {
-	let text: String
-	var showsTrail = true
-
-	var body: some View {
-		VStack(alignment: .leading, spacing: 0) {
-			Text(text)
-				.font(RescrivaFont.bubble(15))
-				.lineSpacing(3)
-				.foregroundStyle(.bark)
-				.padding(.vertical, 12)
-				.padding(.horizontal, 18)
-				.background(Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.extraLarge, style: .continuous))
-				.rescrivaShadow(.card)
-			if showsTrail {
-				HStack(alignment: .top, spacing: 4) {
-					Circle().fill(Color.cream).frame(width: 9, height: 9).rescrivaShadow(.small)
-					Circle().fill(Color.cream).frame(width: 5, height: 5).rescrivaShadow(.small).padding(.top, 8)
-				}
-				.padding(.leading, 22)
-				.padding(.top, 4)
-			}
-		}
-		.frame(maxWidth: .infinity, alignment: .leading)
-		.transition(.floatIn)
-	}
-}
-
-/// A transient confirmation at the top of the screen.
+/// A transient confirmation at the top of the screen: a slip of ink-dark
+/// paper. An export's toast shows the page settling onto its stack.
 struct ToastView: View {
 	let message: String
+	var style: RescrivaToast.Style = .done
 	var actionLabel: String?
 	var action: (() -> Void)?
+	@Environment(\.colorScheme) private var colorScheme
 
 	var body: some View {
 		HStack(spacing: 10) {
-			Image(systemName: "checkmark")
-				.font(.system(size: 11, weight: .bold))
-				.foregroundStyle(.cream)
-				.frame(width: 22, height: 22)
-				.background(Color.fern, in: Circle())
+			switch style {
+			case .done:
+				Glyph("checkmark", size: 11)
+					.foregroundStyle(.printInk)
+					.frame(width: 22, height: 22)
+					.background(Color.highlighter, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+			case .exported:
+				SettlingPage(width: 17)
+					.frame(width: 22, height: 26)
+			}
 			Text(message)
 				.font(RescrivaFont.ui(14))
-				.foregroundStyle(.cream)
+				.foregroundStyle(.vellum)
 				.frame(maxWidth: .infinity, alignment: .leading)
 			if let actionLabel, let action {
+				// The slip is dark ink on paper and chalk white on the chalkboard: the action is
+				// highlighted on the first and inked in indigo on the second.
 				Button(actionLabel, action: action)
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.lichen)
+					.foregroundStyle(colorScheme == .dark ? Color(uiColor: RescrivaPalette.ink.onPaper) : Color.highlighter)
 			}
 		}
 		.padding(.vertical, 12)
 		.padding(.horizontal, 16)
-		.background(Color.bark, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
+		.background(Color.carbon, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 		.rescrivaShadow(.float)
 		.padding(.horizontal, 24)
 		.accessibilityElement(children: .combine)
@@ -173,7 +153,8 @@ struct ToastView: View {
 	}
 }
 
-/// A line of explanation above a screen's content, with a close button when `onDismiss` is set.
+/// A line of explanation above a screen's content, on a slip with its corner
+/// folded, with a close button when `onDismiss` is set.
 struct BannerView: View {
 	enum Tone { case info, warning }
 
@@ -183,36 +164,33 @@ struct BannerView: View {
 
 	var body: some View {
 		HStack(alignment: .top, spacing: 10) {
-			Image(systemName: tone == .warning ? "exclamationmark.triangle" : "info.circle")
-				.font(.system(size: 15, weight: .medium))
-				.foregroundStyle(tone == .warning ? Color.terracotta : Color.moss)
-				.padding(.top, 1)
+			Glyph(tone == .warning ? "exclamationmark.triangle" : "info.circle", size: 15)
+				.foregroundStyle(tone == .warning ? Color.vermilion : Color.ink)
+				.padding(.top, -1)
 			Text(text)
 				.font(RescrivaFont.ui(13))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.frame(maxWidth: .infinity, alignment: .leading)
 				.fixedSize(horizontal: false, vertical: true)
 			if let onDismiss {
 				Button(action: onDismiss) {
-					Image(systemName: "xmark")
-						.font(.system(size: 12, weight: .semibold))
-						.foregroundStyle(.slate)
+					Glyph("xmark", size: 11)
+						.foregroundStyle(.graphite)
 						.frame(width: 24, height: 24)
 				}
 				.accessibilityLabel("Dismiss")
 			}
 		}
 		.padding(12)
-		.background(Color.cream, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-		.rescrivaShadow(.small)
+		.paperCard(radius: 10, fold: 10)
 	}
 }
 
-/// A soft parchment fade behind the status bar, so scrolled content doesn't
+/// A soft fade of paper behind the status bar, so scrolled content doesn't
 /// collide with the clock.
 struct StatusBarScrim: View {
 	var body: some View {
-		LinearGradient(stops: [.init(color: .parchment, location: 0), .init(color: .parchment.opacity(0.92), location: 0.55), .init(color: .parchment.opacity(0), location: 1)],
+		LinearGradient(stops: [.init(color: .stock, location: 0), .init(color: .stock.opacity(0.92), location: 0.55), .init(color: .stock.opacity(0), location: 1)],
 					   startPoint: .top, endPoint: .bottom)
 			.frame(height: 14)
 			.ignoresSafeArea(edges: .top)
@@ -221,42 +199,62 @@ struct StatusBarScrim: View {
 	}
 }
 
-/// A segmented choice: a warm track with the chosen option on a cream pill.
+/// A choice of a few views, set like tabs in a document: the options on a
+/// faint rule, the chosen one in ink with a hand-inked stroke under it that
+/// moves across when the choice changes.
 struct RescrivaSegmentedPicker<Option: Hashable>: View {
 	let options: [Option]
 	@Binding var selection: Option
 	let label: (Option) -> LocalizedStringKey
+	/// The stroke under the chosen tab.
+	var stroke: Color = .ink
+	/// The chosen tab's label.
+	var chosenText: Color = .carbon
+	/// The other tabs' labels.
+	var otherText: Color = .graphite
+
+	@Namespace private var underline
 
 	var body: some View {
 		HStack(spacing: 0) {
 			ForEach(options, id: \.self) { option in
+				let chosen = selection == option
 				Button {
 					withAnimation(RescrivaMotion.ui) { selection = option }
 				} label: {
 					Text(label(option))
-						.font(RescrivaFont.ui(13, weight: .medium))
-						.foregroundStyle(.bark)
-						.frame(maxWidth: .infinity)
-						.padding(.vertical, 7)
-						.background {
-							if selection == option {
-								RoundedRectangle(cornerRadius: 9, style: .continuous)
-									.fill(Color.cream)
-									.rescrivaShadow(.small)
+						.font(RescrivaFont.ui(13, weight: chosen ? .semibold : .medium))
+						.foregroundStyle(chosen ? chosenText : otherText)
+						.lineLimit(1)
+						.minimumScaleFactor(0.8)
+						.padding(.top, 7)
+						.padding(.bottom, 10)
+						.background(alignment: .bottom) {
+							if chosen {
+								InkStroke()
+									.fill(stroke)
+									.frame(height: 4)
+									.padding(.horizontal, -5)
+									.matchedGeometryEffect(id: "underline", in: underline)
 							}
 						}
+						.frame(maxWidth: .infinity)
 						.contentShape(Rectangle())
 				}
 				.buttonStyle(.plain)
-				.accessibilityAddTraits(selection == option ? .isSelected : [])
+				.accessibilityAddTraits(chosen ? .isSelected : [])
 			}
 		}
-		.padding(3)
-		.background(Color.bark.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+		.background(alignment: .bottom) {
+			Rectangle()
+				.fill(otherText.opacity(0.25))
+				.frame(height: 0.75)
+				.offset(y: -1.5)
+		}
 	}
 }
 
-/// The moss primary action.
+/// The indigo primary action.
 struct PrimaryButton: View {
 	let title: LocalizedStringKey
 	var systemImage: String?
@@ -268,25 +266,25 @@ struct PrimaryButton: View {
 		Button(action: action) {
 			HStack(spacing: 8) {
 				if isBusy {
-					ProgressView().tint(.cream)
+					ProgressView().tint(.vellum)
 				} else if let systemImage {
-					Image(systemName: systemImage)
-						.font(.system(size: 17, weight: .regular))
+					Glyph(systemImage, size: 17)
 				}
 				Text(title)
 					.font(RescrivaFont.ui(16, weight: .medium))
 			}
-			.foregroundStyle(.cream)
+			.foregroundStyle(.vellum)
 			.frame(maxWidth: .infinity)
 			.frame(height: height)
-			.background(Color.moss, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
+			.background(Color.ink, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.96))
 		.disabled(isBusy)
 	}
 }
 
-/// Frosted parchment bar pinned to the bottom with the sheet radius.
+/// Frosted paper bar pinned to the bottom with the sheet radius and a ruled
+/// top edge.
 struct FrostedBottomBar<Content: View>: View {
 	@ViewBuilder var content: Content
 
@@ -303,7 +301,11 @@ struct FrostedBottomBar<Content: View>: View {
 				.fill(.ultraThinMaterial)
 				.overlay {
 					UnevenRoundedRectangle(topLeadingRadius: RescrivaRadius.large, topTrailingRadius: RescrivaRadius.large, style: .continuous)
-						.fill(Color.parchment.opacity(0.78))
+						.fill(Color.stock.opacity(0.78))
+				}
+				.overlay {
+					UnevenRoundedRectangle(topLeadingRadius: RescrivaRadius.large, topTrailingRadius: RescrivaRadius.large, style: .continuous)
+						.strokeBorder(Color.carbon.opacity(0.07), lineWidth: 0.75)
 				}
 				.rescrivaShadow(.sheet)
 				.ignoresSafeArea(edges: .bottom)
@@ -311,13 +313,13 @@ struct FrostedBottomBar<Content: View>: View {
 	}
 }
 
-/// A page thumbnail on paper: the scanned image when there is one, otherwise
-/// a few ink bars standing in for lines of text.
+/// A page thumbnail on paper with its corner folded: the scanned image when
+/// there is one, otherwise a few ink lines standing in for text.
 struct PaperThumbnail: View {
 	var image: UIImage?
 	var width: CGFloat
 	var height: CGFloat
-	var ink: Color = .moss
+	var ink: Color = .ink
 	var grayscale = 0.0
 	var contrast = 1.0
 	var saturation = 1.0
@@ -341,23 +343,25 @@ struct PaperThumbnail: View {
 			}
 		}
 		.frame(width: width, height: height)
-		.clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-		.shadow(color: Color.bark.opacity(0.16), radius: 1.5, x: 0, y: 1)
+		.foldedPage(radius: 3, fold: max(6, min(width, height) * 0.16))
+		.environment(\.colorScheme, .light)
+		.shadow(color: Color.shade.opacity(0.16), radius: 1.5, x: 0, y: 1)
 		.accessibilityHidden(true)
 	}
 }
 
-/// Ink bars: a title bar and four lines.
+/// Ink lines on a page: a heading and four lines of text, square-ended like
+/// a pen's strokes.
 struct PlaceholderLines: View {
-	var ink: Color = .moss
+	var ink: Color = .ink
 
 	var body: some View {
 		GeometryReader { proxy in
 			let w = proxy.size.width
 			VStack(alignment: .leading, spacing: max(2, proxy.size.height * 0.08)) {
-				Capsule().fill(ink).frame(width: w * 0.6, height: max(3, proxy.size.height * 0.08))
+				RoundedRectangle(cornerRadius: 1).fill(ink).frame(width: w * 0.6, height: max(3, proxy.size.height * 0.08))
 				ForEach([0.9, 0.8, 0.86, 0.5], id: \.self) { fraction in
-					Capsule().fill(Color.bark.opacity(0.18)).frame(width: w * fraction, height: 2)
+					RoundedRectangle(cornerRadius: 0.5).fill(Color.carbon.opacity(0.2)).frame(width: w * fraction, height: 2)
 				}
 			}
 		}
@@ -375,19 +379,42 @@ struct SheetHeader: View {
 			VStack(alignment: .leading, spacing: 2) {
 				Text(title)
 					.font(RescrivaFont.header(22))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 				if let subtitle {
 					Text(subtitle)
 						.font(RescrivaFont.ui(13))
-						.foregroundStyle(.slate)
+						.foregroundStyle(.graphite)
 				}
 			}
 			Spacer()
 			if let trailing {
 				Button(trailing.label, action: trailing.action)
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.moss)
+					.foregroundStyle(.ink)
 			}
 		}
+	}
+}
+
+/// "Rescriva" set in New York with a swipe of highlighter under it.
+struct RescrivaWordmark: View {
+	var size: CGFloat = 34
+	@Environment(\.colorScheme) private var colorScheme
+
+	var body: some View {
+		Text("Rescriva")
+			.font(RescrivaFont.wordmark(size))
+			.tracking(-0.3)
+			.foregroundStyle(.carbon)
+			.background(alignment: .bottomLeading) {
+				InkStroke()
+					.fill(Color.highlighter.opacity(colorScheme == .dark ? 0.45 : 0.7))
+					.frame(height: size * 0.3)
+					.padding(.leading, -size * 0.06)
+					.padding(.trailing, -size * 0.14)
+					.offset(y: -size * 0.1)
+			}
+			.accessibilityLabel(Text(verbatim: "Rescriva"))
+			.accessibilityAddTraits(.isHeader)
 	}
 }

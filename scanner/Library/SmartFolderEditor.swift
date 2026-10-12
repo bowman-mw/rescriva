@@ -59,8 +59,7 @@ struct SmartFolderEditorSheet: View {
 			Button {
 				withAnimation(RescrivaMotion.ui) { showsStyle.toggle() }
 			} label: {
-				Image(systemName: symbol)
-					.font(.system(size: 22))
+				Glyph(symbol, size: 22)
 					.foregroundStyle(color.color)
 					.frame(width: 44, height: 44)
 					.background(color.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -71,7 +70,7 @@ struct SmartFolderEditorSheet: View {
 				.font(RescrivaFont.ui(17))
 		}
 		.padding(12)
-		.background(Color.paper, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
+		.background(Color.stock, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 	}
 
 	private var criteria: some View {
@@ -105,7 +104,7 @@ struct SmartFolderEditorSheet: View {
 				}
 			}
 			Toggle(isOn: $rule.favoritesOnly) {
-				Text("Favorites only").font(RescrivaFont.ui(15, weight: .medium)).foregroundStyle(.bark)
+				Text("Favorites only").font(RescrivaFont.ui(15, weight: .medium)).foregroundStyle(.carbon)
 			}
 			.toggleStyle(RescrivaToggleStyle())
 		}

@@ -98,18 +98,18 @@ struct ScanTile: View {
 			thumbnail
 			Text(scan.displayTitle)
 				.font(RescrivaFont.header(15))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.lineLimit(2)
 				.multilineTextAlignment(.leading)
 				.padding(.top, 4)
 			Text(meta)
 				.font(RescrivaFont.ui(11))
-				.foregroundStyle(inRecentlyDeleted ? Color.terracotta : Color.slate)
+				.foregroundStyle(inRecentlyDeleted ? Color.vermilion : Color.graphite)
 				.lineLimit(1)
 			if !scan.tagList.isEmpty {
 				Text(scan.tagList.prefix(3).map(\.displayName).joined(separator: " "))
 					.font(RescrivaFont.ui(11, weight: .medium))
-					.foregroundStyle(.moss)
+					.foregroundStyle(.ink)
 					.lineLimit(1)
 			}
 		}
@@ -119,20 +119,24 @@ struct ScanTile: View {
 		.accessibilityLabel(Text(accessibilityText))
 	}
 
+	/// The first page, dog-eared. The page is paper, so it keeps its paper colours in the dark;
+	/// the labels on it follow the screen.
 	private var thumbnail: some View {
 		Color.paper
 			.aspectRatio(0.78, contentMode: .fit)
 			.overlay { pageImage }
-			.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+			.environment(\.colorScheme, .light)
+			.foldedPage(radius: 6, fold: 16)
 			.overlay {
-				RoundedRectangle(cornerRadius: 10, style: .continuous)
-					.strokeBorder(isSelected ? Color.moss : Color.bark.opacity(0.08), lineWidth: isSelected ? 3 : 1)
+				FoldedSheet(radius: 6, fold: 16)
+					.strokeBorder(isSelected ? Color.ink : Color.carbon.opacity(0.08), lineWidth: isSelected ? 3 : 1)
 			}
 			.overlay(alignment: .topLeading) { kindChip }
-			.overlay(alignment: .topTrailing) { badge }
+			.overlay(alignment: .topTrailing) { selectionMark }
+			.overlay(alignment: .bottomLeading) { marks }
 			.overlay(alignment: .bottomTrailing) { pageCount }
-			.shadow(color: Color.bark.opacity(0.10), radius: 3, x: 0, y: 2)
-			.shadow(color: Color.bark.opacity(0.06), radius: 10, x: 0, y: 6)
+			.shadow(color: Color.shade.opacity(0.10), radius: 3, x: 0, y: 2)
+			.shadow(color: Color.shade.opacity(0.06), radius: 10, x: 0, y: 6)
 	}
 
 	@ViewBuilder
@@ -151,35 +155,42 @@ struct ScanTile: View {
 	private var kindChip: some View {
 		Text(scan.output.chipLabel)
 			.font(RescrivaFont.ui(10, weight: .medium))
-			.foregroundStyle(.bark)
+			.foregroundStyle(.carbon)
 			.padding(.vertical, 3)
 			.padding(.horizontal, 7)
 			.background {
 				ZStack {
-					Capsule().fill(Color.cream.opacity(0.94))
-					Capsule().fill(scan.output.chipColor)
+					RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Color.vellum.opacity(0.94))
+					RoundedRectangle(cornerRadius: 4, style: .continuous).fill(scan.output.chipColor)
 				}
 			}
 			.padding(7)
 	}
 
+	/// In select mode, a tick box clear of the folded corner.
 	@ViewBuilder
-	private var badge: some View {
+	private var selectionMark: some View {
 		if isSelecting {
-			Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-				.font(.system(size: 22))
-				.foregroundStyle(isSelected ? Color.moss : Color.bark.opacity(0.45))
-				.background(Circle().fill(Color.cream).padding(2))
-				.padding(7)
-		} else if scan.pinned || scan.fave {
+			Glyph(isSelected ? "checkmark.circle.fill" : "circle", size: 22)
+				.foregroundStyle(isSelected ? Color.ink : Color.carbon.opacity(0.45))
+				.background(Circle().fill(Color.vellum).padding(2))
+				.padding(.top, 20)
+				.padding(.trailing, 8)
+		}
+	}
+
+	/// Pinned and starred: a tab of highlighter at the foot of the page.
+	@ViewBuilder
+	private var marks: some View {
+		if !isSelecting, scan.pinned || scan.fave {
 			HStack(spacing: 3) {
-				if scan.pinned { Image(systemName: "pin.fill") }
-				if scan.fave { Image(systemName: "star.fill") }
+				if scan.pinned { Glyph("pin.fill", size: 9) }
+				if scan.fave { Glyph("star.fill", size: 9) }
 			}
-			.font(.system(size: 10, weight: .semibold))
-			.foregroundStyle(.goldenrod)
-			.padding(5)
-			.background(Color.cream.opacity(0.94), in: Capsule())
+			.foregroundStyle(.printInk)
+			.padding(.vertical, 2)
+			.padding(.horizontal, 4)
+			.background(Color.highlighter, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
 			.padding(7)
 		}
 	}
@@ -190,10 +201,10 @@ struct ScanTile: View {
 		if count > 1 {
 			Text("\(count)")
 				.font(RescrivaFont.ui(10, weight: .medium))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.padding(.vertical, 3)
 				.padding(.horizontal, 7)
-				.background(Color.cream.opacity(0.94), in: Capsule())
+				.background(Color.vellum.opacity(0.94), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
 				.padding(7)
 				.accessibilityHidden(true)
 		}

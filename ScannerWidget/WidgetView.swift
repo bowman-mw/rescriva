@@ -45,18 +45,20 @@ struct ScannerWidgetEntryView: View {
 		}
 	}
 	
+	/// Rescriva's look: the viewfinder in indigo ink on paper (chalk on the
+	/// chalkboard), with the caption set in New York.
 	func buttonText(scaleBy: Double = 1) -> some View {
 		ZStack {
 			Text(caption)
-				.font(.system(size: caption.count > 4 ? 10 * scaleBy : 15 * scaleBy))
-				.bold()
+				.font(.system(size: caption.count > 4 ? 10 * scaleBy : 15 * scaleBy, weight: .semibold, design: .serif))
 			Image(systemName: "viewfinder")
-				.font(.system(size: 42 * scaleBy))
+				.font(.system(size: 42 * scaleBy, weight: .light))
+				.foregroundStyle(widgetFamily == .systemSmall ? Color.accent : Color.primary)
 		}
 	}
-	
+
 	var caption: String {
-		"Classic"
+		"Scan"
 	}
 	
 }

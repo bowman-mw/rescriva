@@ -48,10 +48,10 @@ enum SampleLibrary {
 
 	/// Folders, tags and a smart folder for the sample scans.
 	private static func organize(notes: Scan, board: Scan, deck: Scan, lease: Scan, receipt: Scan, in context: NSManagedObjectContext) {
-		let biology = Library.createFolder(named: "Biology 201", symbol: "flask", color: .moss, parent: nil, in: context)
-		let labs = Library.createFolder(named: "Lab notes", symbol: "book.closed", color: .fern, parent: biology, in: context)
-		let work = Library.createFolder(named: "Work", symbol: "briefcase", color: .slate, parent: nil, in: context)
-		let home = Library.createFolder(named: "Home", symbol: "house", color: .terracotta, parent: nil, in: context)
+		let biology = Library.createFolder(named: "Biology 201", symbol: "flask", color: .ink, parent: nil, in: context)
+		let labs = Library.createFolder(named: "Lab notes", symbol: "book.closed", color: .bluePencil, parent: biology, in: context)
+		let work = Library.createFolder(named: "Work", symbol: "briefcase", color: .graphite, parent: nil, in: context)
+		let home = Library.createFolder(named: "Home", symbol: "house", color: .vermilion, parent: nil, in: context)
 		Library.move([notes], to: labs, in: context)
 		Library.move([board, deck], to: work, in: context)
 		Library.move([lease, receipt], to: home, in: context)
@@ -59,7 +59,7 @@ enum SampleLibrary {
 		for (name, scans) in [("exam", [notes]), ("todo", [notes, board]), ("whiteboard", [board])] {
 			if let tag = Library.tag(named: name, creating: true, in: context) { Library.setTag(tag, on: scans, to: true, in: context) }
 		}
-		Library.createSmartFolder(named: "Rebuilt as Word", symbol: "doc.text", color: .moss,
+		Library.createSmartFolder(named: "Rebuilt as Word", symbol: "doc.text", color: .ink,
 								  rule: SmartRule(outputs: [OutputKind.docx.rawValue]), in: context)
 		// Samples were "edited" when they were scanned, so the library's date sections read naturally.
 		for scan in [notes, board, deck, lease, receipt] { scan.lastUpdate = scan.timestamp }
@@ -78,7 +78,8 @@ enum SampleLibrary {
 	}
 
 	private static func render<Content: View>(_ view: Content, width: CGFloat = 612, height: CGFloat = 792) -> UIImage {
-		let renderer = ImageRenderer(content: view.frame(width: width, height: height))
+		// Pages are paper: their inks are drawn as they look on paper, whatever the screen's appearance.
+		let renderer = ImageRenderer(content: view.frame(width: width, height: height).environment(\.colorScheme, .light))
 		renderer.scale = 2
 		return renderer.uiImage ?? UIImage()
 	}
@@ -89,19 +90,19 @@ enum SampleLibrary {
 	/// Node boxes follow `LabFigurePage`'s 440 × 250 drawing, so the original
 	/// lines up behind the shapes when the diagram is recreated.
 	static var labNotesDiagram: Diagram {
-		let moss = RGBColor(hex: 0x5A7A52)
-		let terracotta = RGBColor(hex: 0xC0674A)
-		let lichen = RGBColor(red: 0.89, green: 0.93, blue: 0.87)
-		let blush = RGBColor(red: 0.96, green: 0.89, blue: 0.86)
+		let indigo = RGBColor(hex: 0x2B3B8C)
+		let vermilion = RGBColor(hex: 0xCF4326)
+		let wash = RGBColor(hex: 0xE3E7F4)
+		let blush = RGBColor(hex: 0xF8E1DA)
 		func box(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> NormalizedBox {
 			NormalizedBox(x: x / 440, y: y / 250, width: w / 440, height: h / 250)
 		}
 		return Diagram(
 			nodes: [
-				.init(id: "substrate", label: "Substrate", shape: .rectangle, box: box(14, 11, 112, 48), stroke: moss, fill: lichen),
-				.init(id: "enzyme", label: "Enzyme", shape: .ellipse, box: box(282, 11, 96, 48), stroke: terracotta, fill: blush),
-				.init(id: "es", label: "ES complex", shape: .rectangle, box: box(22, 181, 126, 48), stroke: moss, fill: lichen),
-				.init(id: "product", label: "Product", shape: .rectangle, box: box(274, 181, 92, 48), stroke: moss, fill: lichen),
+				.init(id: "substrate", label: "Substrate", shape: .rectangle, box: box(14, 11, 112, 48), stroke: indigo, fill: wash),
+				.init(id: "enzyme", label: "Enzyme", shape: .ellipse, box: box(282, 11, 96, 48), stroke: vermilion, fill: blush),
+				.init(id: "es", label: "ES complex", shape: .rectangle, box: box(22, 181, 126, 48), stroke: indigo, fill: wash),
+				.init(id: "product", label: "Product", shape: .rectangle, box: box(274, 181, 92, 48), stroke: indigo, fill: wash),
 			],
 			edges: [
 				.init(id: "e1", from: "substrate", to: "es"),
@@ -170,7 +171,7 @@ enum SampleLibrary {
 private struct Handwriting: View {
 	let text: String
 	var size: CGFloat = 22
-	var color: Color = .ink
+	var color: Color = .ballpoint
 
 	var body: some View {
 		Text(text)
@@ -185,7 +186,7 @@ private struct LinedPaper<Content: View>: View {
 	var body: some View {
 		ZStack(alignment: .topLeading) {
 			RuledPaper(spacing: 34)
-			Rectangle().fill(Color.terracotta.opacity(0.35)).frame(width: 1.5).padding(.leading, 64)
+			Rectangle().fill(Color.vermilion.opacity(0.35)).frame(width: 1.5).padding(.leading, 64)
 			content
 				.padding(.leading, 84)
 				.padding(.trailing, 40)
@@ -203,11 +204,11 @@ private struct LabNotesPage: View {
 					.lineSpacing(10)
 				Handwriting(text: "v = Vmax[S] / (Km + [S])", size: 26).padding(.leading, 30)
 				HStack(spacing: 14) {
-					Handwriting(text: "substrate", size: 18, color: .moss).padding(8).overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.moss, lineWidth: 2.5) }
-					Handwriting(text: "→", size: 22, color: .moss)
-					Handwriting(text: "ES", size: 18, color: .terracotta).padding(8).overlay { RoundedRectangle(cornerRadius: 10).stroke(Color.terracotta, lineWidth: 2.5) }
-					Handwriting(text: "→", size: 22, color: .moss)
-					Handwriting(text: "product", size: 18, color: .moss).padding(8).overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.moss, lineWidth: 2.5) }
+					Handwriting(text: "substrate", size: 18, color: .ink).padding(8).overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.ink, lineWidth: 2.5) }
+					Handwriting(text: "→", size: 22, color: .ink)
+					Handwriting(text: "ES", size: 18, color: .vermilion).padding(8).overlay { RoundedRectangle(cornerRadius: 10).stroke(Color.vermilion, lineWidth: 2.5) }
+					Handwriting(text: "→", size: 22, color: .ink)
+					Handwriting(text: "product", size: 18, color: .ink).padding(8).overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.ink, lineWidth: 2.5) }
 				}
 				Handwriting(text: "☐ repeat trial 3 at 37°C")
 				Handwriting(text: "☑ plot Lineweaver–Bunk")
@@ -228,11 +229,11 @@ private struct LabFigurePage: View {
 						path.move(to: CGPoint(x: 160, y: 205)); path.addLine(to: CGPoint(x: 250, y: 205))
 						path.move(to: CGPoint(x: 340, y: 180)); path.addLine(to: CGPoint(x: 340, y: 70))
 					}
-					.stroke(Color.ink, lineWidth: 2.5)
-					Handwriting(text: "Substrate", size: 20, color: .moss).padding(10).overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.moss, lineWidth: 2.5) }.position(x: 70, y: 35)
-					Handwriting(text: "Enzyme", size: 20, color: .terracotta).padding(10).overlay { Capsule().stroke(Color.terracotta, lineWidth: 2.5) }.position(x: 330, y: 35)
-					Handwriting(text: "ES complex", size: 20, color: .moss).padding(10).overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.moss, lineWidth: 2.5) }.position(x: 85, y: 205)
-					Handwriting(text: "Product", size: 20, color: .moss).padding(10).overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.moss, lineWidth: 2.5) }.position(x: 320, y: 205)
+					.stroke(Color.ballpoint, lineWidth: 2.5)
+					Handwriting(text: "Substrate", size: 20, color: .ink).padding(10).overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.ink, lineWidth: 2.5) }.position(x: 70, y: 35)
+					Handwriting(text: "Enzyme", size: 20, color: .vermilion).padding(10).overlay { Capsule().stroke(Color.vermilion, lineWidth: 2.5) }.position(x: 330, y: 35)
+					Handwriting(text: "ES complex", size: 20, color: .ink).padding(10).overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.ink, lineWidth: 2.5) }.position(x: 85, y: 205)
+					Handwriting(text: "Product", size: 20, color: .ink).padding(10).overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.ink, lineWidth: 2.5) }.position(x: 320, y: 205)
 				}
 				.frame(width: 440, height: 250)
 				Handwriting(text: "substrate → ES complex → product, enzyme released and reused.")
@@ -279,16 +280,16 @@ private struct WhiteboardPage: View {
 			}
 			.stroke(Color(hex: 0x2B4C7E), lineWidth: 4)
 			marker("API", color: Color(hex: 0x2B4C7E)).position(x: 170, y: 200)
-			marker("queue", color: .moss).position(x: 470, y: 200)
-			marker("worker", color: .terracotta).position(x: 760, y: 200)
-			marker("cache", color: .moss).position(x: 470, y: 440)
+			marker("queue", color: .ink).position(x: 470, y: 200)
+			marker("worker", color: .vermilion).position(x: 760, y: 200)
+			marker("cache", color: .ink).position(x: 470, y: 440)
 			Text("Systems design")
 				.font(.custom("Noteworthy-Bold", size: 40))
 				.foregroundStyle(Color(hex: 0x2B4C7E))
 				.position(x: 450, y: 70)
 			Text("retry w/ backoff • idempotent jobs")
 				.font(.custom("Noteworthy-Light", size: 26))
-				.foregroundStyle(Color.terracotta)
+				.foregroundStyle(Color.vermilion)
 				.position(x: 450, y: 570)
 		}
 	}
@@ -313,28 +314,28 @@ private struct SlidePage: View {
 	var body: some View {
 		ZStack(alignment: .topLeading) {
 			Color.white
-			Rectangle().fill(Color.goldenrod).frame(height: 18)
+			Rectangle().fill(Color.highlighter).frame(height: 18)
 			VStack(alignment: .leading, spacing: 22) {
 				Text(Self.titles[index])
 					.font(.system(size: index == 0 ? 64 : 48, weight: .bold))
-					.foregroundStyle(Color.bark)
+					.foregroundStyle(Color.carbon)
 				if index > 0 {
 					ForEach(0..<3, id: \.self) { line in
 						Text("• " + Self.bullets[(index + line) % Self.bullets.count])
 							.font(.system(size: 28))
-							.foregroundStyle(Color.bark.opacity(0.85))
+							.foregroundStyle(Color.carbon.opacity(0.85))
 					}
 				} else {
 					Text("Product team · October")
 						.font(.system(size: 30))
-						.foregroundStyle(Color.slate)
+						.foregroundStyle(Color.graphite)
 				}
 			}
 			.padding(.horizontal, 64)
 			.padding(.top, 70)
 			Text("\(index + 1)")
 				.font(.system(size: 20))
-				.foregroundStyle(Color.slate)
+				.foregroundStyle(Color.graphite)
 				.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
 				.padding(28)
 		}

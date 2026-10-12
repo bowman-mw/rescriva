@@ -23,9 +23,10 @@ enum PPTXRenderer {
 		return try writer.package()
 	}
 
-	/// The calm default palette used when a page has no sampled colours:
-	/// moss, fern, terracotta, goldenrod, slate, lichen.
-	static let defaultAccents = ["5A7A52", "8AAD7E", "C0674A", "D4A843", "7B8B99", "C8DBC2"]
+	/// The calm default palette used when a page has no sampled colours —
+	/// Rescriva's inks on paper: indigo, blue pencil, vermilion, highlighter,
+	/// graphite, ink wash.
+	static let defaultAccents = ["2B3B8C", "5A7BD0", "CF4326", "F6C823", "676C7A", "E3E7F4"]
 }
 
 /// A rectangle in EMU.

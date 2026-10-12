@@ -4,7 +4,7 @@
 //
 //  Draws a RescrivaDocument the way it will come out in Word: headings,
 //  paragraphs, checklists, tables, the equation, the diagram and the
-//  figures' pictures. Uncertain words are dotted goldenrod and open their
+//  figures' pictures. Uncertain words are highlighted and open their
 //  flag when tapped; tapping a block selects it for the format buttons, and
 //  a figure or diagram also opens its menu (Recreate, Remove figure).
 //
@@ -30,15 +30,18 @@ struct RebuiltDocumentView: View {
 			ForEach(Array(document.pages.enumerated()), id: \.element.id) { pageIndex, page in
 				if pageIndex > 0 {
 					PageDivider(number: pageIndex + 1)
+						.environment(\.colorScheme, .light)
 				}
 				ForEach(page.blocks) { block in
+					// The document is printed on paper: its type keeps its paper colours in the dark.
 					BlockView(block: block, output: output, activeFlag: activeFlag,
 							  onOpenFlag: onOpenFlag, onToggleItem: { onToggleItem(block.id, $0) })
+						.environment(\.colorScheme, .light)
 						.padding(.vertical, 2)
 						.padding(.horizontal, 4)
 						.background {
 							RoundedRectangle(cornerRadius: 8, style: .continuous)
-								.strokeBorder(Color.moss.opacity(interactive && selectedBlock == block.id ? 0.55 : 0), lineWidth: 1.5)
+								.strokeBorder(Color.ink.opacity(interactive && selectedBlock == block.id ? 0.55 : 0), lineWidth: 1.5)
 								.padding(-4)
 						}
 						.contentShape(Rectangle())
@@ -58,7 +61,7 @@ struct RebuiltDocumentView: View {
 			onOpenFlag(id)
 			return .handled
 		})
-		.tint(.bark)
+		.tint(.carbon)
 	}
 
 	/// Selects the block and, for a figure or diagram with actions, opens its menu.
@@ -78,11 +81,11 @@ private struct PageDivider: View {
 
 	var body: some View {
 		HStack(spacing: 8) {
-			Rectangle().fill(Color.bark.opacity(0.12)).frame(height: 1)
+			Rectangle().fill(Color.carbon.opacity(0.12)).frame(height: 1)
 			Text("Page \(number)")
 				.font(RescrivaFont.ui(11))
-				.foregroundStyle(.slate)
-			Rectangle().fill(Color.bark.opacity(0.12)).frame(height: 1)
+				.foregroundStyle(.graphite)
+			Rectangle().fill(Color.carbon.opacity(0.12)).frame(height: 1)
 		}
 		.accessibilityHidden(true)
 	}
@@ -136,11 +139,11 @@ private struct BlockView: View {
 				EquationView(latex: latex, fallback: linear)
 				Text(output == .docx ? "Equation · editable in Word" : "Equation")
 					.font(RescrivaFont.ui(11, weight: .medium))
-					.foregroundStyle(.moss)
+					.foregroundStyle(.ink)
 			}
 			.frame(maxWidth: .infinity)
 			.padding(.vertical, 10)
-			.background(Color.lichen.opacity(0.28), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+			.background(Color.wash.opacity(0.28), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 			.accessibilityElement(children: .ignore)
 			.accessibilityLabel(Text("Equation: \(linear)"))
 		case .figure(let assetID, let caption, let altText):
@@ -165,10 +168,10 @@ private struct BlockView: View {
 			} label: {
 				ZStack {
 					if item.checked == true {
-						RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.moss)
-						Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.cream)
+						RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.ink)
+						Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.vellum)
 					} else {
-						RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.bark, lineWidth: 1.5)
+						RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.carbon, lineWidth: 1.5)
 					}
 				}
 				.frame(width: 18, height: 18)
@@ -178,9 +181,9 @@ private struct BlockView: View {
 			.disabled(!interactive)
 			.accessibilityLabel(item.checked == true ? "Checked" : "Not checked")
 		case .bullet:
-			Text("•").font(RescrivaFont.body(16)).foregroundStyle(.bark)
+			Text("•").font(RescrivaFont.body(16)).foregroundStyle(.carbon)
 		case .ordered:
-			Text("\(index + 1).").font(RescrivaFont.body(16)).foregroundStyle(.bark)
+			Text("\(index + 1).").font(RescrivaFont.body(16)).foregroundStyle(.carbon)
 		}
 	}
 
@@ -215,10 +218,10 @@ private struct FigureBlockView: View {
 				RoundedRectangle(cornerRadius: 8, style: .continuous)
 					.fill(Color.scanBackdrop)
 					.frame(height: 120)
-					.overlay { Image(systemName: "photo").font(.system(size: 24, weight: .light)).foregroundStyle(.slate) }
+					.overlay { Image(systemName: "photo").font(.system(size: 24, weight: .light)).foregroundStyle(.graphite) }
 			}
 			if let caption {
-				Text(caption).font(RescrivaFont.ui(12)).foregroundStyle(.slate)
+				Text(caption).font(RescrivaFont.ui(12)).foregroundStyle(.graphite)
 			}
 		}
 		.accessibilityElement(children: .ignore)
@@ -231,8 +234,8 @@ private struct FigureBlockView: View {
 	}
 }
 
-/// Styled runs as an attributed string. Unresolved flags are dotted goldenrod
-/// links that open the flag sheet.
+/// Styled runs as an attributed string. Unresolved flags are highlighted (more
+/// strongly while their sheet is open) and are links that open the flag sheet.
 func styled(_ runs: [RescrivaRun], font: Font, activeFlag: UUID?, showsFlags: Bool = true) -> AttributedString {
 	var result = AttributedString()
 	for run in runs {
@@ -241,19 +244,17 @@ func styled(_ runs: [RescrivaRun], font: Font, activeFlag: UUID?, showsFlags: Bo
 		if run.bold { runFont = runFont.bold() }
 		if run.italic { runFont = runFont.italic() }
 		piece.font = runFont
-		piece.foregroundColor = .bark
+		piece.foregroundColor = .carbon
 		if run.underline {
-			piece.underlineStyle = Text.LineStyle(pattern: .solid, color: .bark)
+			piece.underlineStyle = Text.LineStyle(pattern: .solid, color: .carbon)
 		}
 		if run.strikethrough {
-			piece.strikethroughStyle = Text.LineStyle(pattern: .solid, color: .bark)
+			piece.strikethroughStyle = Text.LineStyle(pattern: .solid, color: .carbon)
 		}
 		if showsFlags, let flag = run.flag, flag.resolution == nil {
-			piece.underlineStyle = Text.LineStyle(pattern: .dot, color: .goldenrod)
+			piece.backgroundColor = Color.highlighter.opacity(activeFlag == flag.id ? 0.75 : 0.4)
+			piece.underlineStyle = Text.LineStyle(pattern: .dot, color: Color.carbon.opacity(0.45))
 			piece.link = URL(string: "rescriva-flag://\(flag.id.uuidString)")
-			if activeFlag == flag.id {
-				piece.backgroundColor = Color.goldenrod.opacity(0.22)
-			}
 		}
 		result.append(piece)
 	}
@@ -267,19 +268,18 @@ private struct NoteView: View {
 
 	var body: some View {
 		HStack(alignment: .top, spacing: 8) {
-			Image(systemName: "text.bubble")
-				.font(.system(size: 14, weight: .light))
-				.foregroundStyle(.bark)
+			Glyph("text.bubble", size: 14, weight: .light)
+				.foregroundStyle(.carbon)
 				.padding(.top, 1)
-			(Text(note.text).foregroundStyle(Color.bark)
-			 + Text(" · \(destination)").foregroundStyle(Color.slate))
+			(Text(note.text).foregroundStyle(Color.carbon)
+			 + Text(" · \(destination)").foregroundStyle(Color.graphite))
 				.font(RescrivaFont.ui(13))
 				.lineSpacing(3)
 		}
 		.padding(.vertical, 10)
 		.padding(.horizontal, 12)
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.background(Color.goldenrod.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+		.background(Color.highlighter.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 	}
 
 	private var destination: String {
@@ -306,14 +306,14 @@ private struct TableBlock: View {
 							.frame(maxWidth: .infinity, alignment: .leading)
 							.padding(8)
 							.layoutPriority(Double(cell.columnSpan))
-							.overlay { Rectangle().strokeBorder(Color.bark.opacity(0.18), lineWidth: 0.5) }
+							.overlay { Rectangle().strokeBorder(Color.carbon.opacity(0.18), lineWidth: 0.5) }
 					}
 				}
 			}
 		}
 		.background(Color.paper)
 		.clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-		.overlay { RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.bark.opacity(0.25), lineWidth: 1) }
+		.overlay { RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.carbon.opacity(0.25), lineWidth: 1) }
 	}
 }
 
@@ -351,11 +351,11 @@ struct EquationView: View {
 	var body: some View {
 		if let node = parsed {
 			MathNodeView(node: node, size: 19)
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 		} else {
 			Text(fallback)
 				.font(RescrivaFont.body(19, italic: true))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 		}
 	}
 }
@@ -515,7 +515,7 @@ struct MathNodeView: View {
 				VStack(spacing: 2) {
 					MathNodeView(node: numerator, size: size * 0.9)
 						.padding(.horizontal, 6)
-					Rectangle().fill(Color.bark).frame(height: 1.5)
+					Rectangle().fill(Color.carbon).frame(height: 1.5)
 					MathNodeView(node: denominator, size: size * 0.9)
 						.padding(.horizontal, 6)
 				}
@@ -566,7 +566,7 @@ struct MathNodeView: View {
 
 // MARK: - Diagram
 
-/// A diagram as shapes and arrows. An uncertain arrow is dashed goldenrod
+/// A diagram as shapes and arrows. An uncertain arrow is dashed highlighter
 /// with a "?" badge that opens its flag.
 struct DiagramView: View {
 	@Environment(\.documentIsInteractive) private var interactive
@@ -582,12 +582,12 @@ struct DiagramView: View {
 						guard let segment = segment(for: edge, in: size) else { continue }
 						let unconfirmed = edge.flag != nil && edge.flag?.resolution == nil
 						let uncertain = interactive && unconfirmed
-						let color = uncertain ? Color.goldenrod : Color.bark
+						let color = uncertain ? Color.highlighter : Color.carbon
 						var line = Path()
 						line.move(to: segment.start)
 						line.addLine(to: segment.end)
 						context.stroke(line, with: .color(color),
-									   style: StrokeStyle(lineWidth: uncertain ? 2 : 1.5, dash: uncertain ? [5, 4] : []))
+									   style: StrokeStyle(lineWidth: uncertain ? 2.5 : 1.5, dash: uncertain ? [5, 4] : []))
 						// In the read-only preview an unconfirmed direction is shown as a plain line.
 						guard interactive || !unconfirmed else { continue }
 						if edge.direction != .none {
@@ -611,9 +611,9 @@ struct DiagramView: View {
 						} label: {
 							Text("?")
 								.font(RescrivaFont.ui(14, weight: .medium))
-								.foregroundStyle(.bark)
+								.foregroundStyle(.printInk)
 								.frame(width: 26, height: 26)
-								.background(Color.goldenrod, in: Circle())
+								.background(Color.highlighter, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
 								.rescrivaShadow(.small)
 						}
 						.buttonStyle(PressScaleStyle())
@@ -663,7 +663,7 @@ private struct NodeShapeView: View {
 			GeometryReader { proxy in
 				Text(node.label)
 					.font(RescrivaFont.ui(13, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.lineLimit(2)
 					.minimumScaleFactor(0.6)
 					.multilineTextAlignment(.center)
