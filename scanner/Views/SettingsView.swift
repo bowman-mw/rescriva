@@ -324,7 +324,7 @@ private struct InfoSheetView: View {
 				""")
 		case .acknowledgements:
 			return """
-				Rescriva is a fork of Open Scanner.
+				Rescriva began as a fork of Open Scanner by Pencil Research and still includes some of its code, used under this license.
 
 				MIT License
 
