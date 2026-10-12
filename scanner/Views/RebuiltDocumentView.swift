@@ -36,7 +36,6 @@ struct RebuiltDocumentView: View {
 					// The document is printed on paper: its type keeps its paper colours in the dark.
 					BlockView(block: block, output: output, activeFlag: activeFlag,
 							  onOpenFlag: onOpenFlag, onToggleItem: { onToggleItem(block.id, $0) })
-						.environment(\.colorScheme, .light)
 						.padding(.vertical, 2)
 						.padding(.horizontal, 4)
 						.background {
@@ -44,6 +43,8 @@ struct RebuiltDocumentView: View {
 								.strokeBorder(Color.ink.opacity(interactive && selectedBlock == block.id ? 0.55 : 0), lineWidth: 1.5)
 								.padding(-4)
 						}
+						// Above the menu's popover, so the menu still follows the screen.
+						.environment(\.colorScheme, .light)
 						.contentShape(Rectangle())
 						.onTapGesture { tapped(block) }
 						.popover(isPresented: menuShown(for: block.id), attachmentAnchor: .point(.center)) {
@@ -582,7 +583,7 @@ struct DiagramView: View {
 						guard let segment = segment(for: edge, in: size) else { continue }
 						let unconfirmed = edge.flag != nil && edge.flag?.resolution == nil
 						let uncertain = interactive && unconfirmed
-						let color = uncertain ? Color.highlighter : Color.carbon
+						let color = uncertain ? Color.markerInk : Color.carbon
 						var line = Path()
 						line.move(to: segment.start)
 						line.addLine(to: segment.end)

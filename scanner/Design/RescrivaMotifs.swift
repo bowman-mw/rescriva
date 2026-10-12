@@ -389,6 +389,8 @@ struct SettlingPage: View {
 					.padding(.leading, width * 0.16)
 				}
 				.overlay { FoldedCorner(fold: width * 0.28, fill: .paper) }
+				// A hairline edge, so the page still shows on the chalk-white toast of the dark appearance.
+				.overlay { FoldedSheet(radius: 2, fold: width * 0.28).strokeBorder(Color.printInk.opacity(0.22), lineWidth: 0.75) }
 				.shadow(color: Color.black.opacity(settled ? 0.2 : 0.1), radius: settled ? 1 : 4, x: 0, y: settled ? 1 : 5)
 				.rotationEffect(.degrees(settled ? 0 : -16))
 				.offset(y: settled ? 0 : -12)

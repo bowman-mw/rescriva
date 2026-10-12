@@ -24,7 +24,7 @@ enum FolderColor: String, CaseIterable, Identifiable {
 		case .ink: return .ink
 		case .bluePencil: return .bluePencil
 		case .vermilion: return .vermilion
-		case .highlighter: return .highlighter
+		case .highlighter: return .markerInk
 		case .graphite: return .graphite
 		case .carbon: return .carbon
 		case .plum: return Color(uiColor: RescrivaPalette.plum)
@@ -112,8 +112,8 @@ struct ScopeAppearance {
 	static func of(_ scope: LibraryScope, in context: NSManagedObjectContext) -> ScopeAppearance {
 		switch scope {
 		case .all: return ScopeAppearance(title: String(localized: "All Scans"), symbol: "tray.full", tint: .ink)
-		case .pinned: return ScopeAppearance(title: String(localized: "Pinned"), symbol: "pin", tint: .highlighter)
-		case .favorites: return ScopeAppearance(title: String(localized: "Favorites"), symbol: "star", tint: .highlighter)
+		case .pinned: return ScopeAppearance(title: String(localized: "Pinned"), symbol: "pin", tint: .markerInk)
+		case .favorites: return ScopeAppearance(title: String(localized: "Favorites"), symbol: "star", tint: .markerInk)
 		case .recentlyDeleted: return ScopeAppearance(title: String(localized: "Recently Deleted"), symbol: "trash", tint: .graphite)
 		case .folder(let id):
 			let folder = Library.folder(id, in: context)

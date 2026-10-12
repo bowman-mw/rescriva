@@ -369,6 +369,8 @@ struct PageEditorView: View {
 			}
 		}
 		.statusBarHidden()
+		// Like the camera, the editor is always in the dark.
+		.environment(\.colorScheme, .dark)
 		.task { await model.load() }
 		.confirmationDialog(confirmingSplit ? "Split this page?" : "Update this page?", isPresented: $confirmingRebuild, titleVisibility: .visible) {
 			if confirmingSplit {

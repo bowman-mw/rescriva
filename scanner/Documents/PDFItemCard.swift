@@ -79,7 +79,7 @@ struct PDFItemCard: View {
 				.background(Color.carbon.opacity(0.08), in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
 			Button(action: onToggleFave) {
 				Glyph(item.fave ? "star.fill" : "star", size: 17, weight: .light)
-					.foregroundStyle(item.fave ? Color.highlighter : Color.carbon.opacity(0.3))
+					.foregroundStyle(item.fave ? Color.markerInk : Color.carbon.opacity(0.3))
 					.frame(width: 32, height: 32)
 					.contentShape(Rectangle())
 			}

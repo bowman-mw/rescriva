@@ -131,7 +131,7 @@ private struct CanvasEdges: View {
 	private func draw(_ edge: Diagram.Edge, from start: CGPoint, to end: CGPoint, in context: GraphicsContext) {
 		let zoom = model.zoom
 		let uncertain = edge.flag != nil && edge.flag?.resolution == nil
-		let colour = uncertain ? Color.highlighter : Color.carbon
+		let colour = uncertain ? Color.markerInk : Color.carbon
 		var line = Path()
 		line.move(to: start)
 		line.addLine(to: end)

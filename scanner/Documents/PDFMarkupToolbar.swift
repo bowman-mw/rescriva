@@ -276,7 +276,7 @@ private struct SizeDot: View {
 		let share = high > low ? (size - low) / (high - low) : 0.5
 		Circle()
 			.fill(Color(uiColor: color.withAlphaComponent(1)))
-			.overlay(Circle().strokeBorder(Color.carbon.opacity(0.18), lineWidth: 1))
+			.overlay(Circle().strokeBorder(Color.rim, lineWidth: 1))
 			.frame(width: 5 + share * 19, height: 5 + share * 19)
 	}
 }
@@ -313,7 +313,7 @@ private struct MarkupSwatchButton: View {
 		Button(action: action) {
 			Circle()
 				.fill(Color(uiColor: swatch.uiColor))
-				.overlay(Circle().strokeBorder(Color.carbon.opacity(0.18), lineWidth: 1))
+				.overlay(Circle().strokeBorder(Color.rim, lineWidth: 1))
 				.frame(width: 24, height: 24)
 				.padding(4)
 				.overlay {

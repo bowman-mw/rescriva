@@ -9,6 +9,7 @@
 
 import SwiftUI
 import CoreData
+import UIKit
 
 struct ContentView: View {
 	@Environment(\.managedObjectContext) private var viewContext
@@ -19,6 +20,7 @@ struct ContentView: View {
 	/// (`PersistenceController.loadFailure`): an alert at launch, then a banner over the Library.
 	var libraryIsTemporary = false
 	@State private var showsTemporaryLibraryAlert = false
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 
 	var body: some View {
 		GeometryReader { proxy in
@@ -29,7 +31,7 @@ struct ContentView: View {
 		// System controls (menus, alerts, the text cursor) take indigo ink, not system blue.
 		.tint(.ink)
 		// The app follows the system's appearance; the camera is always in the dark.
-		.preferredColorScheme(router.isCameraVisible ? .dark : nil)
+		.background(WindowAppearance(style: router.isCameraVisible ? .dark : .unspecified))
 		.inboxImports(router: router)
 		.onChange(of: appState.openScan) { _, scan in
 			// Spotlight result or widget link.
@@ -111,7 +113,7 @@ struct ContentView: View {
 					.allowsHitTesting(isTop)
 					.accessibilityHidden(!isTop)
 					.zIndex(Double(index + 1))
-					.transition(.settle)
+					.transition(reduceMotion ? AnyTransition.opacity : AnyTransition.settle)
 			}
 
 			if let toast = router.toast {
@@ -127,7 +129,7 @@ struct ContentView: View {
 					Spacer()
 				}
 				.zIndex(100)
-				.transition(.settle)
+				.transition(reduceMotion ? AnyTransition.opacity : AnyTransition.settle)
 			}
 		}
 	}
@@ -222,6 +224,37 @@ struct ContentView: View {
 		case .none, .camera, .processing: return false
 		default: return true
 		}
+	}
+}
+
+/// Sets the appearance of the window it's in: dark while the camera shows, the system's otherwise.
+/// (`preferredColorScheme(nil)` doesn't reliably hand a window back to the system once it has
+/// been `.dark`; the window's own override does.)
+private struct WindowAppearance: UIViewRepresentable {
+	let style: UIUserInterfaceStyle
+
+	func makeUIView(context: Context) -> WindowAppearanceView {
+		WindowAppearanceView()
+	}
+
+	func updateUIView(_ view: WindowAppearanceView, context: Context) {
+		view.style = style
+	}
+}
+
+private final class WindowAppearanceView: UIView {
+	var style: UIUserInterfaceStyle = .unspecified {
+		didSet { apply() }
+	}
+
+	override func didMoveToWindow() {
+		super.didMoveToWindow()
+		apply()
+	}
+
+	private func apply() {
+		guard let window, window.overrideUserInterfaceStyle != style else { return }
+		window.overrideUserInterfaceStyle = style
 	}
 }
 

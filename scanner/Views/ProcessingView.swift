@@ -21,6 +21,7 @@ struct ProcessingView: View {
 	@State private var finished = false
 	/// The rebuild's latest count, shown under the step in progress.
 	@State private var latest: RebuildProgress?
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 
 	private let tier = DeviceTier.current
 
@@ -141,9 +142,9 @@ struct ProcessingView: View {
 				}
 			}
 			.foldedPage(radius: 3, fold: 16)
-			.rotationEffect(.degrees(finished ? 0 : 2))
+			.rotationEffect(.degrees(finished || reduceMotion ? 0 : 2))
 			.rescrivaShadow(.float)
-			.animation(RescrivaMotion.settle, value: finished)
+			.animation(reduceMotion ? nil : RescrivaMotion.settle, value: finished)
 		}
 		.frame(width: 150, height: 190)
 		.environment(\.colorScheme, .light)
@@ -214,6 +215,7 @@ struct ProcessingView: View {
 /// written in, left to right, as the rebuild reaches it.
 private struct PageBeingWritten: View {
 	let written: Double
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 8) {
@@ -232,12 +234,14 @@ private struct PageBeingWritten: View {
 			.padding(.top, 8)
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.animation(RescrivaMotion.load, value: written)
+		// With Reduce Motion each line appears whole instead of being written in.
+		.animation(reduceMotion ? nil : RescrivaMotion.load, value: written)
 	}
 
 	/// How much of row `index` (of five, top to bottom) is written.
 	private func share(_ index: Int) -> CGFloat {
-		CGFloat(min(max(written * 5 - Double(index), 0), 1))
+		let share = min(max(written * 5 - Double(index), 0), 1)
+		return CGFloat(reduceMotion ? share.rounded(.up) : share)
 	}
 }
 

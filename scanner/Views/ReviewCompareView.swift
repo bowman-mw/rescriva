@@ -205,6 +205,8 @@ struct OriginalPageView: View {
 						.offset(x: fitted.minX, y: fitted.minY)
 				}
 				Canvas { context, _ in drawBoxes(in: context, fitted: fitted, scale: zoom.scale) }
+					// The boxes are marks on the scanned page: paper colours in either appearance.
+					.environment(\.colorScheme, .light)
 					.allowsHitTesting(false)
 			}
 			.frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
@@ -263,7 +265,7 @@ struct OriginalPageView: View {
 				context.fill(frame, with: .color(Color.ink.opacity(0.14)))
 				context.stroke(frame, with: .color(.ink), lineWidth: 2 * unit)
 			} else if flaggedBlocks.contains(block.id) {
-				context.stroke(frame, with: .color(.highlighter), style: StrokeStyle(lineWidth: 1.5 * unit, dash: [4 * unit, 3 * unit]))
+				context.stroke(frame, with: .color(.markerInk), style: StrokeStyle(lineWidth: 1.5 * unit, dash: [4 * unit, 3 * unit]))
 			}
 		}
 	}

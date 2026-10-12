@@ -30,8 +30,10 @@ Each colour has a paper (light) and a chalkboard (dark) appearance, defined once
 | `bluePencil` | `#5A7BD0` | `#87A1EA` | Progress, secondary accent |
 | `wash` | `#E3E7F4` | `#343A4C` | Muted fills, the chosen row |
 | `highlighter` | `#F6C823` | `#F2D660` | **The one marker**: flags, highlights, pins, the camera's page outline |
+| `markerInk` | `#B88A00` | `#F2D660` | The highlighter as a thin line or an icon (pinned, favourites, an uncertain arrow) |
 | `vermilion` | `#CF4326` | `#F0866B` | Delete only, never errors or flags |
 | `shade` | `#1D2233` | `#000000` | Shadows and scrims |
+| `rim` | carbon at 18% | chalk at 45% | The hairline round a colour swatch |
 
 These colours look the same in either appearance:
 
@@ -53,7 +55,11 @@ Rules:
   colour, so dark mode can't leak into a file.
 - **The camera and page editor are always dark** and are drawn with `chalk`, `printInk` and the
   highlighter.
-- The app follows the system appearance. Only the camera forces dark.
+- The app follows the system appearance. The camera darkens its window
+  (`overrideUserInterfaceStyle`, set from `ContentView`), and the page editor pins
+  `.environment(\.colorScheme, .dark)`.
+- **The highlighter is a fill.** Where it has to be a hairline or an icon on paper, use
+  `markerInk`; where type sits on it, use `printInk`.
 
 ## Type
 

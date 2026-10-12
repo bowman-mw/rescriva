@@ -214,13 +214,15 @@ struct RescrivaSegmentedPicker<Option: Hashable>: View {
 	var otherText: Color = .graphite
 
 	@Namespace private var underline
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 
 	var body: some View {
 		HStack(spacing: 0) {
 			ForEach(options, id: \.self) { option in
 				let chosen = selection == option
 				Button {
-					withAnimation(RescrivaMotion.ui) { selection = option }
+					// With Reduce Motion the stroke moves at once instead of sliding across.
+					withAnimation(reduceMotion ? nil : RescrivaMotion.ui) { selection = option }
 				} label: {
 					Text(label(option))
 						.font(RescrivaFont.ui(13, weight: chosen ? .semibold : .medium))

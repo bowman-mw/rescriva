@@ -31,8 +31,10 @@ enum RescrivaPalette {
 	static let wash = UIColor(paper: 0xE3E7F4, chalkboard: 0x343A4C)
 	static let vermilion = UIColor(paper: 0xCF4326, chalkboard: 0xF0866B)
 	static let highlighter = UIColor(paper: 0xF6C823, chalkboard: 0xF2D660)
+	static let markerInk = UIColor(paper: 0xB88A00, chalkboard: 0xF2D660)
 	static let shade = UIColor(paper: 0x1D2233, chalkboard: 0x000000)
 	static let scanBackdrop = UIColor(paper: 0xE7E3D9, chalkboard: 0x1A1D1C)
+	static let rim = UIColor(paper: 0x1D2233, paperAlpha: 0.18, chalkboard: 0xECE9E1, chalkboardAlpha: 0.45)
 	/// Folder inks beyond the tokens.
 	static let plum = UIColor(paper: 0x7D4C76, chalkboard: 0xD3A6CC)
 	static let sepia = UIColor(paper: 0x80562F, chalkboard: 0xD2AB82)
@@ -57,10 +59,16 @@ extension Color {
 	static let vermilion = Color(uiColor: RescrivaPalette.vermilion)
 	/// The one marker: flags, highlights, pins. Type laid on it is `printInk`.
 	static let highlighter = Color(uiColor: RescrivaPalette.highlighter)
+	/// The highlighter as a line or an icon: a deeper marker yellow on paper, so it
+	/// reads at hairline weight; the highlighter itself on the chalkboard.
+	static let markerInk = Color(uiColor: RescrivaPalette.markerInk)
 	/// Shadows and scrims: ink-tinted on paper, plain black on the chalkboard.
 	static let shade = Color(uiColor: RescrivaPalette.shade)
 	/// The desk behind original scans in review.
 	static let scanBackdrop = Color(uiColor: RescrivaPalette.scanBackdrop)
+	/// The hairline round a colour swatch: faint on paper, firmer on the
+	/// chalkboard so a black swatch still shows.
+	static let rim = Color(uiColor: RescrivaPalette.rim)
 
 	/// The camera's dark surround, in either appearance.
 	static let darkroom = Color(hex: 0x15171C)
@@ -84,6 +92,7 @@ extension ShapeStyle where Self == Color {
 	static var wash: Color { Color.wash }
 	static var vermilion: Color { Color.vermilion }
 	static var highlighter: Color { Color.highlighter }
+	static var markerInk: Color { Color.markerInk }
 	static var chalk: Color { Color.chalk }
 	static var printInk: Color { Color.printInk }
 	static var ballpoint: Color { Color.ballpoint }
@@ -99,15 +108,15 @@ extension UIColor {
 
 private extension UIColor {
 	/// A colour that reads `paper` in the light and `chalkboard` in the dark.
-	convenience init(paper: UInt, chalkboard: UInt) {
+	convenience init(paper: UInt, paperAlpha: CGFloat = 1, chalkboard: UInt, chalkboardAlpha: CGFloat = 1) {
 		self.init(dynamicProvider: { traits in
-			UIColor(hex: traits.userInterfaceStyle == .dark ? chalkboard : paper)
+			traits.userInterfaceStyle == .dark ? UIColor(hex: chalkboard, alpha: chalkboardAlpha) : UIColor(hex: paper, alpha: paperAlpha)
 		})
 	}
 
-	convenience init(hex: UInt) {
+	convenience init(hex: UInt, alpha: CGFloat = 1) {
 		self.init(red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
-				  blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+				  blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
 	}
 }
 

@@ -187,7 +187,7 @@ struct SwatchDot: View {
 	var body: some View {
 		ZStack {
 			Circle().fill(color?.swiftUI ?? Color.paper)
-			Circle().strokeBorder(Color.carbon.opacity(0.18), lineWidth: 1)
+			Circle().strokeBorder(Color.rim, lineWidth: 1)
 			if color == nil {
 				Rectangle().fill(Color.vermilion).frame(width: 1.5, height: 30).rotationEffect(.degrees(45))
 			}

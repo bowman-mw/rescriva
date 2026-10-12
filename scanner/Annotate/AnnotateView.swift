@@ -245,7 +245,7 @@ private struct SwatchButton: View {
 		Button(action: action) {
 			Circle()
 				.fill(Color(hex: UInt(swatch.rgb)))
-				.overlay(Circle().strokeBorder(Color.carbon.opacity(0.18), lineWidth: 1))
+				.overlay(Circle().strokeBorder(Color.rim, lineWidth: 1))
 				.frame(width: 24, height: 24)
 				.padding(4)
 				.overlay {
@@ -274,7 +274,7 @@ private struct SizeButton: View {
 		Button(action: action) {
 			Circle()
 				.fill(Color(hex: UInt(color)))
-				.overlay(Circle().strokeBorder(Color.carbon.opacity(0.18), lineWidth: 1))
+				.overlay(Circle().strokeBorder(Color.rim, lineWidth: 1))
 				.frame(width: CGFloat(6 + index * 5), height: CGFloat(6 + index * 5))
 				.frame(width: 34, height: 34)
 				.background {
