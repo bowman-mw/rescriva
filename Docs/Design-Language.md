@@ -151,6 +151,8 @@ set `ICON` in the script and run it again.
 ## Tags
 
 The Library's home has no tag list. Tags show as chips under the search field while searching,
-to narrow the results (`TagFilterBar`). Rescriva adds some tags by itself when it first reads a
-scan's pages (`AutoTags`): #receipt, #invoice, #contract, #recipe and #whiteboard. They carry a
-small sparkle. Every other tag, like #todo, is added by hand.
+to narrow the results (`TagFilterBar`). Tags no scan carries come last, faded, so they can still
+be renamed or deleted. Rescriva adds some tags by itself when it reads pages added to a scan
+(`AutoTags`): #receipt, #invoice, #contract, #recipe and #whiteboard. It only looks at the new
+pages, so a tag someone removed isn't put back by the old ones. They carry a small sparkle. Every
+other tag, like #todo, is added by hand.

@@ -246,7 +246,8 @@ struct LibraryRowButton: View {
 
 /// The tags, as chips under a search field while searching: tap one to show only the scans with
 /// it (more than one narrows further), hold one to rename or delete it. Tags Rescriva adds by
-/// itself (`AutoTags`) carry a small sparkle.
+/// itself (`AutoTags`) carry a small sparkle. Tags no scan carries any more come last, faded,
+/// so they can still be renamed or deleted here.
 struct TagFilterBar: View {
 	@Environment(\.managedObjectContext) private var context
 	@FetchRequest(sortDescriptors: [SortDescriptor(\ScanTag.name)]) private var tags: FetchedResults<ScanTag>
@@ -255,7 +256,7 @@ struct TagFilterBar: View {
 	var inset: CGFloat = 20
 
 	var body: some View {
-		let shown = tags.filter { liveCount($0) > 0 || selection.contains($0.objectID) }
+		let shown = tags.filter { liveCount($0) > 0 } + tags.filter { liveCount($0) == 0 }
 		if !shown.isEmpty {
 			ScrollView(.horizontal, showsIndicators: false) {
 				HStack(spacing: 8) {
@@ -264,6 +265,8 @@ struct TagFilterBar: View {
 				.padding(.horizontal, inset)
 				.padding(.vertical, 4)
 			}
+			// Scrolling the chips keeps the search field (and so this bar) up.
+			.scrollDismissesKeyboard(.never)
 			.transition(.opacity)
 		}
 	}
@@ -271,6 +274,7 @@ struct TagFilterBar: View {
 	private func chip(_ tag: ScanTag) -> some View {
 		let isOn = selection.contains(tag.objectID)
 		let automatic = AutoTags.isAutomatic(tag)
+		let unused = liveCount(tag) == 0
 		return Button {
 			withAnimation(RescrivaMotion.fast) {
 				if isOn { selection.remove(tag.objectID) } else { selection.insert(tag.objectID) }
@@ -296,11 +300,12 @@ struct TagFilterBar: View {
 				RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous)
 					.strokeBorder(Color.carbon.opacity(isOn ? 0 : 0.14))
 			}
+			.opacity(unused && !isOn ? 0.55 : 1)
 			.animation(RescrivaMotion.ui, value: isOn)
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.95))
 		.accessibilityAddTraits(isOn ? .isSelected : [])
-		.accessibilityHint(automatic ? Text("Added by Rescriva. Shows only scans with this tag.") : Text("Shows only scans with this tag."))
+		.accessibilityHint(hint(automatic: automatic, unused: unused))
 		.contextMenu {
 			Button { controller.beginRename(tag) } label: { Label("Rename Tag", systemImage: "pencil") }
 			Button(role: .destructive) {
@@ -310,6 +315,11 @@ struct TagFilterBar: View {
 				Label("Delete Tag", systemImage: "trash")
 			}
 		}
+	}
+
+	private func hint(automatic: Bool, unused: Bool) -> Text {
+		let what = unused ? Text("No scans have this tag.") : Text("Shows only scans with this tag.")
+		return automatic ? Text("Added by Rescriva. ") + what : what
 	}
 
 	/// How many scans outside Recently Deleted carry `tag`.

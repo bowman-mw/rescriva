@@ -26,8 +26,14 @@ struct FoldedSheet: InsettableShape {
 		let f = max(0, min(fold, rect.width / 2, rect.height / 2))
 		var path = Path()
 		path.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
-		path.addLine(to: CGPoint(x: rect.maxX - f, y: rect.minY))
-		path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + f))
+		if f > 0 {
+			path.addLine(to: CGPoint(x: rect.maxX - f, y: rect.minY))
+			path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + f))
+		} else {
+			// No fold: an ordinary rounded corner like the other three.
+			path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+			path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY + r), radius: r)
+		}
 		path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
 		path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.maxX - r, y: rect.maxY), radius: r)
 		path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))

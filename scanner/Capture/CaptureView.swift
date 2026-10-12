@@ -122,6 +122,13 @@ struct CaptureView: View {
 						}
 					}
 					ShutterFlash(trigger: shots)
+					// The viewfinder dims behind the page and fades back: only the page shrinks away.
+					if held != nil {
+						Color.darkroom.opacity(0.55)
+							.allowsHitTesting(false)
+							.accessibilityHidden(true)
+							.transition(.opacity)
+					}
 					if let held {
 						HeldPageView(image: held.image)
 							.id(held.id)
@@ -437,22 +444,20 @@ private struct HeldPageView: View {
 	@State private var pass = 0
 
 	var body: some View {
-		ZStack {
-			Color.darkroom.opacity(0.55)
-			Image(uiImage: image)
-				.resizable()
-				.scaledToFit()
-				.overlay { ScanLinePass(trigger: pass, color: .highlighter, trail: 90, duration: 0.95) }
-				.foldedPage(radius: 3, fold: 18)
-				.shadow(color: .black.opacity(0.45), radius: 18, x: 0, y: 12)
-				.padding(.horizontal, 32)
-				.padding(.top, 24)
-				.padding(.bottom, 64)
-		}
-		.allowsHitTesting(false)
-		.accessibilityHidden(true)
-		// The pass starts once the page is up.
-		.onAppear { pass += 1 }
+		Image(uiImage: image)
+			.resizable()
+			.scaledToFit()
+			.overlay { ScanLinePass(trigger: pass, color: .highlighter, trail: 90, duration: 0.95) }
+			.foldedPage(radius: 3, fold: 18)
+			.shadow(color: .black.opacity(0.45), radius: 18, x: 0, y: 12)
+			.padding(.horizontal, 32)
+			.padding(.top, 24)
+			.padding(.bottom, 64)
+			.frame(maxWidth: .infinity, maxHeight: .infinity)
+			.allowsHitTesting(false)
+			.accessibilityHidden(true)
+			// The pass starts once the page is up.
+			.onAppear { pass += 1 }
 	}
 }
 

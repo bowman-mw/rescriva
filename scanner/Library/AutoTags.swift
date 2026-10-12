@@ -6,8 +6,8 @@
 //  receipt, an invoice, a contract, a recipe, a whiteboard — read from its
 //  words once its pages have been read. Everything else (#todo, #exam)
 //  people tag by hand. An automatic tag is an ordinary tag once it's there:
-//  it can be renamed or removed, and Rescriva only tags a scan's new pages,
-//  so a removed tag isn't put back.
+//  it can be renamed or removed, and Rescriva only reads a scan's new pages
+//  for tags, so a removed tag isn't put back by an older page.
 //
 
 import CoreData
@@ -63,14 +63,18 @@ enum AutoTag: String, CaseIterable {
 
 @MainActor
 enum AutoTags {
-	/// Adds the automatic tags that fit `scan`, from the text of all its pages.
-	/// Called once its newly added pages have been read (`PageOCR`); tags are
-	/// only ever added here, never taken away.
-	static func apply(to scan: Scan, in context: NSManagedObjectContext) {
-		guard scan.deletedAt == nil, !scan.isDeleted else { return }
-		let lines = scan.capturesArray.flatMap { $0.recognizedItemsArray.compactMap(\.transcript) }
-		let kinds = AutoTag.matching(lines: lines, source: scan.pageSource)
-		guard !kinds.isEmpty else { return }
+	/// Adds the automatic tags that `pages` (pages just added to `scan` and
+	/// read) earn. Only those pages are looked at, and a scan's source only
+	/// counts when they're the whole scan (`isNewScan`), so pages added later
+	/// don't bring back a tag someone removed. Tags are only ever added here,
+	/// never taken away. The words are weighed off the main thread.
+	static func apply(to scan: Scan, pages: [ScanCapture], isNewScan: Bool, in context: NSManagedObjectContext) async {
+		let lines = pages.filter { !$0.isDeleted && $0.managedObjectContext != nil }
+			.flatMap { $0.recognizedItemsArray.compactMap(\.transcript) }
+		let source = isNewScan ? scan.pageSource : nil
+		let kinds = await Task.detached(priority: .utility) { AutoTag.matching(lines: lines, source: source) }.value
+		// The scan may have been deleted while its words were weighed.
+		guard !kinds.isEmpty, scan.deletedAt == nil, !scan.isDeleted, scan.managedObjectContext != nil else { return }
 		let present = Set(scan.tagList.compactMap { $0.name?.lowercased() })
 		for kind in kinds where !present.contains(kind.rawValue) {
 			if let tag = Library.tag(named: kind.rawValue, creating: true, in: context) {
