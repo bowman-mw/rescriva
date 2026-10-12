@@ -404,7 +404,7 @@ final class LiveMarkView: UIView {
 								width: eraser.radius * 2, height: eraser.radius * 2)
 			context.setFillColor(UIColor.white.withAlphaComponent(0.35).cgColor)
 			context.fillEllipse(in: circle)
-			context.setStrokeColor(UIColor(Color.bark).withAlphaComponent(0.6).cgColor)
+			context.setStrokeColor(RescrivaPalette.carbon.onPaper.withAlphaComponent(0.6).cgColor)
 			context.setLineWidth(eraser.lineWidth)
 			context.strokeEllipse(in: circle)
 		}

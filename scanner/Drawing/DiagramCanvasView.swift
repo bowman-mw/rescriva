@@ -35,6 +35,8 @@ struct DiagramCanvasView: View {
 			.onChange(of: proxy.size) { _, size in model.layout(in: size) }
 		}
 		.clipped()
+		// The drawing is on paper, so it keeps its paper colours in the dark.
+		.environment(\.colorScheme, .light)
 	}
 
 	private var paper: some View {
@@ -96,7 +98,7 @@ private struct CanvasNode: View {
 			outline.stroke(node.stroke.swiftUI, lineWidth: 1.5 * zoom)
 			Text(node.label)
 				.font(RescrivaFont.ui(13 * zoom, weight: .medium))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.multilineTextAlignment(.center)
 				.lineLimit(4)
 				.minimumScaleFactor(0.5)
@@ -129,12 +131,12 @@ private struct CanvasEdges: View {
 	private func draw(_ edge: Diagram.Edge, from start: CGPoint, to end: CGPoint, in context: GraphicsContext) {
 		let zoom = model.zoom
 		let uncertain = edge.flag != nil && edge.flag?.resolution == nil
-		let colour = uncertain ? Color.goldenrod : Color.bark
+		let colour = uncertain ? Color.markerInk : Color.carbon
 		var line = Path()
 		line.move(to: start)
 		line.addLine(to: end)
 		if model.selection == .edge(edge.id) {
-			context.stroke(line, with: .color(Color.moss.opacity(0.3)), style: StrokeStyle(lineWidth: 10, lineCap: .round))
+			context.stroke(line, with: .color(Color.ink.opacity(0.3)), style: StrokeStyle(lineWidth: 10, lineCap: .round))
 		}
 		context.stroke(line, with: .color(colour),
 					   style: StrokeStyle(lineWidth: 1.5 * zoom, lineCap: .round, dash: uncertain ? [5 * zoom, 4 * zoom] : []))
@@ -152,7 +154,7 @@ private struct CanvasEdges: View {
 
 	/// A connector's label on a paper chip at the middle of the line.
 	private func drawLabel(_ label: String, at centre: CGPoint, zoom: CGFloat, in context: GraphicsContext) {
-		let text = context.resolve(Text(label).font(RescrivaFont.ui(12 * zoom)).foregroundStyle(Color.bark))
+		let text = context.resolve(Text(label).font(RescrivaFont.ui(12 * zoom)).foregroundStyle(Color.carbon))
 		let size = text.measure(in: CGSize(width: 180 * zoom, height: 60 * zoom))
 		let chip = CGRect(x: centre.x - size.width / 2 - 4 * zoom, y: centre.y - size.height / 2 - 2 * zoom,
 						  width: size.width + 8 * zoom, height: size.height + 4 * zoom)
@@ -188,15 +190,15 @@ private struct CanvasOverlay: View {
 				path.move(to: model.toView(CGPoint(x: guide.from, y: guide.position)))
 				path.addLine(to: model.toView(CGPoint(x: guide.to, y: guide.position)))
 			}
-			context.stroke(path, with: .color(.terracotta), lineWidth: 1)
+			context.stroke(path, with: .color(.vermilion), lineWidth: 1)
 		}
 	}
 
 	private func drawDraft(in context: GraphicsContext) {
 		guard let draft = model.draft, case .shape(let shape) = model.tool else { return }
 		let outline = DiagramGeometry.outline(shape, in: model.toView(draft))
-		context.fill(outline, with: .color(Color.moss.opacity(0.12)))
-		context.stroke(outline, with: .color(.moss), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+		context.fill(outline, with: .color(Color.ink.opacity(0.12)))
+		context.stroke(outline, with: .color(.ink), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
 	}
 
 	/// With the line tool, every shape shows where a connector can start.
@@ -208,7 +210,7 @@ private struct CanvasOverlay: View {
 						 CGPoint(x: box.midX, y: box.maxY), CGPoint(x: box.minX, y: box.midY)]
 			for side in sides {
 				let point = model.toView(side)
-				context.fill(Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)), with: .color(.slate))
+				context.fill(Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)), with: .color(.graphite))
 			}
 		}
 	}
@@ -219,10 +221,10 @@ private struct CanvasOverlay: View {
 		}
 		guard model.tool == .select, let node = model.selectedNode else { return }
 		let box = model.rect(of: node)
-		context.stroke(Path(model.toView(box)), with: .color(.moss), lineWidth: 1)
+		context.stroke(Path(model.toView(box)), with: .color(.ink), lineWidth: 1)
 		for point in model.connectionPoints(around: box) {
 			let centre = model.toView(point)
-			context.fill(Path(ellipseIn: CGRect(x: centre.x - 6, y: centre.y - 6, width: 12, height: 12)), with: .color(.moss))
+			context.fill(Path(ellipseIn: CGRect(x: centre.x - 6, y: centre.y - 6, width: 12, height: 12)), with: .color(.ink))
 			context.stroke(Path(ellipseIn: CGRect(x: centre.x - 6, y: centre.y - 6, width: 12, height: 12)), with: .color(.paper), lineWidth: 2)
 		}
 		for handle in ResizeHandle.allCases {
@@ -233,7 +235,7 @@ private struct CanvasOverlay: View {
 	private func dot(at centre: CGPoint, radius: CGFloat, in context: GraphicsContext) {
 		let circle = Path(ellipseIn: CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2))
 		context.fill(circle, with: .color(.paper))
-		context.stroke(circle, with: .color(.moss), lineWidth: 1.5)
+		context.stroke(circle, with: .color(.ink), lineWidth: 1.5)
 	}
 
 	private func drawPendingConnector(in context: GraphicsContext) {
@@ -247,14 +249,14 @@ private struct CanvasOverlay: View {
 		let start = model.toView(CGPoint(x: centre.x + delta.dx * exit, y: centre.y + delta.dy * exit))
 		let finish = model.toView(end)
 		if let target {
-			context.stroke(Path(model.toView(target).insetBy(dx: -3, dy: -3)), with: .color(.moss), lineWidth: 2.5)
+			context.stroke(Path(model.toView(target).insetBy(dx: -3, dy: -3)), with: .color(.ink), lineWidth: 2.5)
 		}
 		var line = Path()
 		line.move(to: start)
 		line.addLine(to: finish)
-		context.stroke(line, with: .color(.moss), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [6, 4]))
+		context.stroke(line, with: .color(.ink), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [6, 4]))
 		if pending.direction != .none {
-			context.fill(DiagramGeometry.arrowhead(at: finish, from: start), with: .color(.moss))
+			context.fill(DiagramGeometry.arrowhead(at: finish, from: start), with: .color(.ink))
 		}
 	}
 }
@@ -320,7 +322,7 @@ private struct DotGrid: View {
 				for row in 1...rows {
 					let point = CGPoint(x: CGFloat(column) * spacing, y: CGFloat(row) * spacing)
 					context.fill(Path(ellipseIn: CGRect(x: point.x - 0.75, y: point.y - 0.75, width: 1.5, height: 1.5)),
-								 with: .color(Color.bark.opacity(0.12)))
+								 with: .color(Color.carbon.opacity(0.12)))
 				}
 			}
 		}

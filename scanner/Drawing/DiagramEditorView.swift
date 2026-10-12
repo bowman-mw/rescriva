@@ -58,7 +58,7 @@ struct DiagramEditorView: View {
 				toolBar
 			}
 		}
-		.background(Color.parchment.ignoresSafeArea())
+		.background(Color.stock.ignoresSafeArea())
 		.onChange(of: model.labelRequest) { _, _ in openLabelEditor() }
 		.onChange(of: model.selection) { _, selection in
 			if editingLabel && selection != labelTarget { closeLabelEditor() }
@@ -77,7 +77,7 @@ struct DiagramEditorView: View {
 				if model.hasChanges { confirmingDiscard = true } else { dismiss() }
 			}
 			.font(RescrivaFont.ui(15, weight: .medium))
-			.foregroundStyle(.moss)
+			.foregroundStyle(.ink)
 			.frame(height: 40)
 			.padding(.horizontal, 8)
 			Spacer()
@@ -92,10 +92,10 @@ struct DiagramEditorView: View {
 			} label: {
 				Text("Done")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.cream)
+					.foregroundStyle(.vellum)
 					.frame(height: 40)
 					.padding(.horizontal, 18)
-					.background(Color.bark, in: Capsule())
+					.background(Color.carbon, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.94))
 		}
@@ -108,10 +108,10 @@ struct DiagramEditorView: View {
 			if let hint {
 				Text(hint)
 					.font(RescrivaFont.ui(12, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.padding(.vertical, 6)
 					.padding(.horizontal, 12)
-					.background(Color.cream.opacity(0.94), in: Capsule())
+					.background(Color.vellum.opacity(0.94), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 					.rescrivaShadow(.small)
 					.allowsHitTesting(false)
 					.transition(.opacity)
@@ -123,10 +123,10 @@ struct DiagramEditorView: View {
 				} label: {
 					Text("\(Int((model.zoom * 100).rounded()))%")
 						.font(RescrivaFont.ui(12, weight: .medium))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.padding(.vertical, 6)
 						.padding(.horizontal, 10)
-						.background(Color.cream, in: Capsule())
+						.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 						.rescrivaShadow(.small)
 				}
 				.buttonStyle(PressScaleStyle())
@@ -280,17 +280,17 @@ struct DiagramEditorView: View {
 			TextField(model.selectedEdge == nil ? "Label the shape" : "Label the line",
 					  text: Binding(get: { model.selectedLabel }, set: { model.setLabel($0) }))
 				.font(RescrivaFont.ui(16))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.focused($labelFocused)
 				.submitLabel(.done)
 				.onSubmit { closeLabelEditor() }
 				.onAppear { labelFocused = true }
 				.padding(.horizontal, 14)
 				.frame(height: 46)
-				.background(Color.cream, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 			Button("Done") { closeLabelEditor() }
 				.font(RescrivaFont.ui(15, weight: .medium))
-				.foregroundStyle(.moss)
+				.foregroundStyle(.ink)
 				.frame(height: 46)
 		}
 	}

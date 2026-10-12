@@ -57,6 +57,8 @@ struct WorkspaceView: View {
 
 	@State private var selectedID: NSManagedObjectID?
 	@State private var searchText = ""
+	/// Tags chosen under the search field: only scans with all of them show.
+	@State private var tagFilter: Set<NSManagedObjectID> = []
 	@State private var showsLibrary = false
 	@State private var showsDrawer = false
 	@State private var importingPhotos = false
@@ -92,7 +94,7 @@ struct WorkspaceView: View {
 				portrait
 			}
 			if isImporting {
-				ProgressView().tint(.moss).padding(20).background(Color.cream, in: RoundedRectangle(cornerRadius: 14))
+				ProgressView().tint(.ink).padding(20).background(Color.vellum, in: RoundedRectangle(cornerRadius: 14))
 			}
 		}
 		.overlay { if isDropTargeted { dropHint } }
@@ -118,8 +120,8 @@ struct WorkspaceView: View {
 	}
 
 	private var sidebar: some View {
-		WorkspaceSidebar(scans: LibrarySearch.matching(Array(scans), query: searchText), selected: selected,
-						 searchText: $searchText, showsLibrary: $showsLibrary,
+		WorkspaceSidebar(scans: LibrarySearch.matching(Array(scans), query: searchText, tags: tagFilter), selected: selected,
+						 searchText: $searchText, tagFilter: $tagFilter, showsLibrary: $showsLibrary,
 						 onSelect: { scan in
 							 withAnimation(RescrivaMotion.ui) {
 								 selectedID = scan.objectID
@@ -136,8 +138,11 @@ struct WorkspaceView: View {
 				.id(scan.objectID)
 		} else {
 			VStack {
-				ThoughtBubble(text: String(localized: "Nothing scanned yet. Tap Scan whenever you're ready."), showsTrail: false)
-					.padding(28)
+				EmptyState(text: String(localized: "Nothing scanned yet. Tap Scan whenever you're ready.")) {
+					SketchToCleanIllustration(subject: .flowchart, maxHeight: 120)
+				}
+				.frame(maxWidth: 520)
+				.padding(28)
 				Spacer()
 			}
 			.frame(maxWidth: .infinity)
@@ -152,11 +157,8 @@ struct WorkspaceView: View {
 				CircleIconButton(systemName: "sidebar.left", label: "Show the library") {
 					withAnimation(RescrivaMotion.ui) { showsDrawer = true }
 				}
-				Text("Rescriva")
-					.font(RescrivaFont.wordmark(28))
-					.foregroundStyle(.bark)
+				RescrivaWordmark(size: 28)
 					.frame(maxWidth: .infinity, alignment: .leading)
-					.accessibilityAddTraits(.isHeader)
 				CircleIconButton(systemName: "slider.vertical.3", label: "Settings") { router.push(.settings) }
 				WorkspaceScanMenu(height: 40, onStart: start)
 			}
@@ -179,12 +181,12 @@ struct WorkspaceView: View {
 					} label: {
 						Text(scan.displayTitle)
 							.font(RescrivaFont.ui(13, weight: .medium))
-							.foregroundStyle(isSelected ? Color.cream : Color.bark)
+							.foregroundStyle(isSelected ? Color.vellum : Color.carbon)
 							.lineLimit(1)
 							.frame(maxWidth: 200)
 							.padding(.vertical, 8)
 							.padding(.horizontal, 14)
-							.background(isSelected ? Color.bark : Color.cream, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+							.background(isSelected ? Color.carbon : Color.vellum, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 							.rescrivaShadow(.small)
 					}
 					.buttonStyle(PressScaleStyle(scale: 0.94))
@@ -204,12 +206,12 @@ struct WorkspaceView: View {
 				sidebar
 					.frame(width: WorkspaceLayout.sidebarWidth + 20)
 					.rescrivaShadow(.card)
-				Color.bark.opacity(0.18)
+				Color.shade.opacity(0.22)
 					.onTapGesture { withAnimation(RescrivaMotion.ui) { showsDrawer = false } }
 					.accessibilityLabel("Close the library")
 			}
 			.ignoresSafeArea(edges: .bottom)
-			.transition(.floatIn)
+			.transition(.settle)
 		}
 	}
 
@@ -258,12 +260,12 @@ struct WorkspaceView: View {
 	/// Shown while files are dragged over the window.
 	private var dropHint: some View {
 		RoundedRectangle(cornerRadius: 28, style: .continuous)
-			.strokeBorder(Color.moss, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-			.background(Color.lichen.opacity(0.25), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+			.strokeBorder(Color.ink, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+			.background(Color.wash.opacity(0.25), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
 			.overlay {
 				Text("Drop PDFs or images to import")
 					.font(RescrivaFont.header(22))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 			}
 			.padding(16)
 			.allowsHitTesting(false)
@@ -350,13 +352,13 @@ struct WorkspaceScanMenu: View {
 			}
 		} label: {
 			HStack(spacing: 6) {
-				Image(systemName: "plus").font(.system(size: 14, weight: .semibold))
+				Glyph("plus", size: 13)
 				Text("Scan").font(RescrivaFont.ui(14, weight: .medium))
 			}
-			.foregroundStyle(Color.cream)
+			.foregroundStyle(Color.vellum)
 			.padding(.horizontal, 14)
 			.frame(height: height)
-			.background(Color.moss, in: Capsule())
+			.background(Color.ink, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			.rescrivaShadow(.small)
 		}
 		.accessibilityLabel("Scan")
@@ -370,12 +372,13 @@ struct WorkspaceScanMenu: View {
 	}
 }
 
-/// The sidebar: the wordmark and Scan, search, then the scans, or the Library's folders, smart
-/// folders and tags.
+/// The sidebar: the wordmark and Scan, search (with the tags to filter by while searching), then
+/// the scans, or the Library's folders and smart folders.
 struct WorkspaceSidebar: View {
 	let scans: [Scan]
 	let selected: Scan?
 	@Binding var searchText: String
+	@Binding var tagFilter: Set<NSManagedObjectID>
 	@Binding var showsLibrary: Bool
 	let onSelect: (Scan) -> Void
 	let onStart: (ScanStart) -> Void
@@ -383,22 +386,28 @@ struct WorkspaceSidebar: View {
 	@Environment(\.managedObjectContext) private var viewContext
 	@Environment(RescrivaRouter.self) private var router
 	@State private var controller = LibraryController()
+	@FocusState private var searchFocused: Bool
+
+	private var isSearching: Bool {
+		!searchText.trimmingCharacters(in: .whitespaces).isEmpty || !tagFilter.isEmpty
+	}
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 14) {
 			HStack(spacing: 8) {
-				Text("Rescriva")
-					.font(RescrivaFont.wordmark(30))
-					.foregroundStyle(.bark)
+				RescrivaWordmark(size: 30)
 					.frame(maxWidth: .infinity, alignment: .leading)
-					.accessibilityAddTraits(.isHeader)
 				CircleIconButton(systemName: "slider.vertical.3", label: "Settings") { router.push(.settings) }
 				WorkspaceScanMenu(onStart: onStart)
 			}
 			.padding(.horizontal, 6)
 			searchField
+			if searchFocused || isSearching {
+				TagFilterBar(selection: $tagFilter, controller: controller, inset: 0)
+					.padding(.top, -6)
+			}
 			RescrivaSegmentedPicker(options: [false, true], selection: $showsLibrary) { $0 ? "Library" : "Scans" }
-			if showsLibrary && searchText.isEmpty {
+			if showsLibrary && !isSearching {
 				ScrollView { LibraryHomeView().padding(.horizontal, -12) }
 			} else {
 				scanList
@@ -406,42 +415,46 @@ struct WorkspaceSidebar: View {
 			if ProcessInfo.processInfo.isMacCatalystApp {
 				Text("Drop PDFs or images anywhere to import")
 					.font(RescrivaFont.ui(12))
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 					.padding(EdgeInsets(top: 4, leading: 6, bottom: 16, trailing: 6))
 			}
 		}
 		.padding(EdgeInsets(top: 20, leading: 16, bottom: 0, trailing: 16))
 		.frame(maxHeight: .infinity, alignment: .top)
-		.background(Color.cream.ignoresSafeArea())
-		.overlay(alignment: .trailing) { Rectangle().fill(Color.bark.opacity(0.08)).frame(width: 1).ignoresSafeArea() }
+		.background(Color.vellum.ignoresSafeArea())
+		.overlay(alignment: .trailing) { Rectangle().fill(Color.carbon.opacity(0.08)).frame(width: 1).ignoresSafeArea() }
 		.libraryPresentations(controller)
 	}
 
 	private var searchField: some View {
 		HStack(spacing: 8) {
-			Image(systemName: "magnifyingglass").font(.system(size: 15)).foregroundStyle(.slate)
+			Glyph("magnifyingglass", size: 14).foregroundStyle(.graphite)
 			TextField("Search scans", text: $searchText)
 				.font(RescrivaFont.ui(14))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.submitLabel(.search)
 				.autocorrectionDisabled()
 				.textInputAutocapitalization(.never)
-			if !searchText.isEmpty {
-				Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.slate) }
+				.focused($searchFocused)
+			if isSearching {
+				Button {
+					searchText = ""
+					tagFilter = []
+				} label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.graphite) }
 					.accessibilityLabel("Clear search")
 			}
 		}
 		.padding(.horizontal, 12)
 		.frame(height: 40)
-		.background(Color.parchment, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+		.background(Color.stock, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 	}
 
 	@ViewBuilder
 	private var scanList: some View {
 		if scans.isEmpty {
-			Text(searchText.isEmpty ? "No scans yet." : "Nothing here mentions that yet.")
-				.font(RescrivaFont.bubble(15))
-				.foregroundStyle(.slate)
+			Text(!isSearching ? "No scans yet." : searchText.isEmpty ? "No scans have all of these tags." : "Nothing here mentions that yet.")
+				.font(RescrivaFont.note(15))
+				.foregroundStyle(.graphite)
 				.padding(.horizontal, 6)
 				.padding(.top, 8)
 			Spacer()
@@ -487,17 +500,17 @@ struct WorkspaceScanRow: View {
 				VStack(alignment: .leading, spacing: 1) {
 					Text(scan.displayTitle)
 						.font(RescrivaFont.ui(14, weight: .medium))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.lineLimit(1)
 					Text(scan.libraryMeta)
 						.font(RescrivaFont.ui(12))
-						.foregroundStyle(.slate)
+						.foregroundStyle(.graphite)
 						.lineLimit(1)
 				}
 				Spacer(minLength: 0)
 			}
 			.padding(10)
-			.background(isSelected ? Color.moss.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+			.background(isSelected ? Color.ink.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 			.contentShape(Rectangle())
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.98))

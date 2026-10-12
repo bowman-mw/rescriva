@@ -51,7 +51,7 @@ struct ExportSheet: View {
 		.presentationDetents([.height(format == .pdf ? 668 : 514)])
 		.presentationDragIndicator(.visible)
 		.presentationCornerRadius(RescrivaRadius.large)
-		.presentationBackground(Color.cream)
+		.presentationBackground(Color.vellum)
 	}
 
 	/// The file, its format, a PDF's options, the notes switch and any failure.
@@ -73,7 +73,7 @@ struct ExportSheet: View {
 			Toggle(isOn: $includeNotes) {
 				Text(format.notesLabel)
 					.font(RescrivaFont.ui(14))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 			}
 			.toggleStyle(RescrivaToggleStyle())
 			.padding(.horizontal, 4)
@@ -81,7 +81,7 @@ struct ExportSheet: View {
 			if let failure {
 				Text(failure)
 					.font(RescrivaFont.ui(12))
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 			}
 		}
 	}
@@ -91,17 +91,17 @@ struct ExportSheet: View {
 		HStack(spacing: 6) {
 			Text(scan.displayTitle)
 				.font(RescrivaFont.ui(15))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.lineLimit(1)
 				.truncationMode(.tail)
 			Spacer(minLength: 0)
 			Text(format.fileExtension)
 				.font(RescrivaFont.ui(14, weight: .medium))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 		}
 		.padding(.horizontal, 14)
 		.frame(height: 44)
-		.background(Color.parchment, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+		.background(Color.stock, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 		.accessibilityElement(children: .combine)
 	}
 
@@ -115,13 +115,12 @@ struct ExportSheet: View {
 				RescrivaSegmentedPicker(options: PDFImageQuality.allCases, selection: $imageQuality) { $0.label }
 			}
 			HStack(spacing: 10) {
-				Image(systemName: "lock")
-					.font(.system(size: 15, weight: .regular))
-					.foregroundStyle(.slate)
+				Glyph("lock", size: 15, weight: .regular)
+					.foregroundStyle(.graphite)
 					.accessibilityHidden(true)
 				SecureField("Password (optional)", text: $password)
 					.font(RescrivaFont.ui(15))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.textInputAutocapitalization(.never)
 					.autocorrectionDisabled()
 					.submitLabel(.done)
@@ -130,7 +129,7 @@ struct ExportSheet: View {
 			}
 			.padding(.horizontal, 14)
 			.frame(height: 44)
-			.background(Color.parchment, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+			.background(Color.stock, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 		}
 	}
 
@@ -139,7 +138,7 @@ struct ExportSheet: View {
 		HStack(spacing: 12) {
 			Text(label)
 				.font(RescrivaFont.ui(14))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 			Spacer(minLength: 0)
 			choice()
 				.frame(width: 222)
@@ -158,23 +157,23 @@ struct ExportSheet: View {
 		} label: {
 			HStack(spacing: 12) {
 				ZStack {
-					Circle().strokeBorder(selected ? Color.moss : Color.bark.opacity(0.3), lineWidth: 1.5)
-					Circle().fill(selected ? Color.moss : Color.clear).frame(width: 10, height: 10)
+					Circle().strokeBorder(selected ? Color.ink : Color.carbon.opacity(0.3), lineWidth: 1.5)
+					Circle().fill(selected ? Color.ink : Color.clear).frame(width: 10, height: 10)
 				}
 				.frame(width: 20, height: 20)
 				VStack(alignment: .leading, spacing: 1) {
 					Text(option.label)
 						.font(RescrivaFont.ui(15, weight: .medium))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 					Text(option.detail)
 						.font(RescrivaFont.ui(12))
-						.foregroundStyle(.slate)
+						.foregroundStyle(.graphite)
 				}
 				Spacer(minLength: 0)
 			}
 			.padding(.vertical, 12)
 			.padding(.horizontal, 14)
-			.background(selected ? Color.lichen.opacity(0.5) : Color.parchment,
+			.background(selected ? Color.wash.opacity(0.5) : Color.stock,
 						in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 			.opacity(locked ? 0.4 : 1)
 		}

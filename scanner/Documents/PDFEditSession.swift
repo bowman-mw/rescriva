@@ -636,7 +636,7 @@ final class PDFEditSession {
 	}
 
 	fileprivate func found(_ selection: PDFSelection) {
-		selection.color = UIColor(Color.goldenrod).withAlphaComponent(0.45)
+		selection.color = RescrivaPalette.highlighter.onPaper.withAlphaComponent(0.45)
 		findResults.append(selection)
 		if findIndex == nil { findIndex = 0 }
 	}

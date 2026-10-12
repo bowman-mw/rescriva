@@ -2,11 +2,12 @@
 //  LibraryHomeView.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  The Library's home, laid out like Apple Notes' folder list: Pinned, All
-//  Scans, Favorites and Recently Deleted; smart folders; the folder tree
-//  (folders nest, and collapse with their chevron); and tags as chips.
-//  Each row shows how many scans it holds. Long-press a folder, smart folder
-//  or tag for its own actions.
+//  The Library's home, laid out like Apple Notes' folder list: All Scans and
+//  Favorites; smart folders; the folder tree (folders nest, and collapse with
+//  their chevron); then PDF Files and Recently Deleted when there are any.
+//  Pinned scans lead All Scans. Tags live in search (`TagFilterBar`). Each
+//  row shows how many scans it holds. Long-press a folder or smart folder for
+//  its own actions.
 //
 
 import CoreData
@@ -18,7 +19,7 @@ struct LibraryHomeView: View {
 	/// Fetched only so counts and rows refresh whenever the library changes.
 	@FetchRequest(sortDescriptors: []) private var scans: FetchedResults<Scan>
 	@FetchRequest(sortDescriptors: []) private var folders: FetchedResults<ScanFolder>
-	@FetchRequest(sortDescriptors: [SortDescriptor(\ScanTag.name)]) private var tags: FetchedResults<ScanTag>
+
 	@FetchRequest(sortDescriptors: [SortDescriptor(\SmartFolder.name)]) private var smartFolders: FetchedResults<SmartFolder>
 	@State private var controller = LibraryController()
 	@State private var collapsed: Set<UUID> = []
@@ -32,15 +33,7 @@ struct LibraryHomeView: View {
 				}
 			}
 			LibrarySection(title: String(localized: "Folders"), trailing: AnyView(addMenu)) { folderRows }
-			if !tags.isEmpty {
-				VStack(alignment: .leading, spacing: 10) {
-					Text("Tags").rescrivaSectionLabel().padding(.horizontal, 24)
-					ChipFlow(spacing: 8) {
-						ForEach(tags, id: \.objectID) { tag in tagChip(tag) }
-					}
-					.padding(.horizontal, 20)
-				}
-			}
+			fileRows
 		}
 		.padding(.top, 14)
 		.libraryPresentations(controller)
@@ -48,20 +41,30 @@ struct LibraryHomeView: View {
 
 	// MARK: Rows
 
+	/// All Scans and Favorites. (Pinned scans lead All Scans, so they need no row of their own.)
 	@ViewBuilder
 	private var libraryRows: some View {
 		let counts = liveCounts
-		if counts.pinned > 0 { scopeRow(.pinned, count: counts.pinned) }
 		scopeRow(.all, count: counts.all)
 		scopeRow(.favorites, count: counts.favorites)
-		// PDFs opened in Rescriva live as files, beside the scans.
+	}
+
+	/// Below the folders, when there are any: PDFs opened in Rescriva, which live as files beside the
+	/// scans, and Recently Deleted.
+	@ViewBuilder
+	private var fileRows: some View {
 		let pdfCount = PDFLibrary.shared.items.count
-		if pdfCount > 0 {
-			LibraryRowButton(symbol: PDFOpening.symbol, tint: PDFOpening.tint, title: String(localized: "PDF Files"), count: pdfCount) {
-				router.push(.pdfFiles)
+		let deleted = liveCounts.deleted
+		if pdfCount > 0 || deleted > 0 {
+			LibrarySection(title: nil) {
+				if pdfCount > 0 {
+					LibraryRowButton(symbol: PDFOpening.symbol, tint: PDFOpening.tint, title: String(localized: "PDF Files"), count: pdfCount) {
+						router.push(.pdfFiles)
+					}
+				}
+				if deleted > 0 { scopeRow(.recentlyDeleted, count: deleted) }
 			}
 		}
-		if counts.deleted > 0 { scopeRow(.recentlyDeleted, count: counts.deleted) }
 	}
 
 	private func scopeRow(_ scope: LibraryScope, count: Int) -> some View {
@@ -91,7 +94,7 @@ struct LibraryHomeView: View {
 			Button {
 				controller.sheet = .newFolder(parent: nil)
 			} label: {
-				FolderPickerRow(title: String(localized: "New Folder"), symbol: "folder.badge.plus", tint: .moss)
+				FolderPickerRow(title: String(localized: "New Folder"), symbol: "folder.badge.plus", tint: .ink)
 			}
 			.buttonStyle(.plain)
 		}
@@ -118,38 +121,15 @@ struct LibraryHomeView: View {
 		Button(role: .destructive) { controller.folderToDelete = folder } label: { Label("Delete Folder", systemImage: "trash") }
 	}
 
-	private func tagChip(_ tag: ScanTag) -> some View {
-		Button {
-			if let id = tag.id { router.push(.collection(.tag(id))) }
-		} label: {
-			HStack(spacing: 5) {
-				Text(tag.displayName).font(RescrivaFont.ui(13, weight: .medium)).foregroundStyle(.bark)
-				Text("\(tagCounts[tag.objectID] ?? 0)").font(RescrivaFont.ui(11)).foregroundStyle(.slate)
-			}
-			.padding(.vertical, 7)
-			.padding(.horizontal, 12)
-			.background(Color.cream, in: Capsule())
-			.rescrivaShadow(.small)
-		}
-		.buttonStyle(PressScaleStyle())
-		.contextMenu {
-			Button { controller.beginRename(tag) } label: { Label("Rename Tag", systemImage: "pencil") }
-			Button(role: .destructive) { withAnimation(RescrivaMotion.ui) { Library.delete(tag, in: context) } } label: {
-				Label("Delete Tag", systemImage: "trash")
-			}
-		}
-	}
-
 	private var addMenu: some View {
 		Menu {
 			Button { controller.sheet = .newFolder(parent: nil) } label: { Label("New Folder", systemImage: "folder.badge.plus") }
 			Button { controller.sheet = .newSmartFolder } label: { Label("New Smart Folder", systemImage: "gearshape") }
 		} label: {
-			Image(systemName: "plus")
-				.font(.system(size: 15, weight: .semibold))
-				.foregroundStyle(.moss)
+			Glyph("plus", size: 13, weight: .semibold)
+				.foregroundStyle(.ink)
 				.frame(width: 32, height: 32)
-				.background(Color.cream, in: Circle())
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.accessibilityLabel(Text("New folder or smart folder"))
@@ -157,23 +137,15 @@ struct LibraryHomeView: View {
 
 	// MARK: Counts
 
-	private var liveCounts: (all: Int, pinned: Int, favorites: Int, deleted: Int) {
+	private var liveCounts: (all: Int, favorites: Int, deleted: Int) {
 		let live = scans.filter { $0.deletedAt == nil }
-		return (live.count, live.filter(\.pinned).count, live.filter(\.fave).count, scans.count - live.count)
+		return (live.count, live.filter(\.fave).count, scans.count - live.count)
 	}
 
 	private var folderCounts: [NSManagedObjectID: Int] {
 		var counts: [NSManagedObjectID: Int] = [:]
 		for scan in scans where scan.deletedAt == nil {
 			if let folder = scan.folder { counts[folder.objectID, default: 0] += 1 }
-		}
-		return counts
-	}
-
-	private var tagCounts: [NSManagedObjectID: Int] {
-		var counts: [NSManagedObjectID: Int] = [:]
-		for scan in scans where scan.deletedAt == nil {
-			for tag in scan.tagList { counts[tag.objectID, default: 0] += 1 }
 		}
 		return counts
 	}
@@ -186,7 +158,7 @@ struct LibraryHomeView: View {
 	}
 }
 
-/// A titled group of rows on a cream card, like an inset grouped list.
+/// A titled group of rows on a flat vellum sheet, like an inset grouped list.
 struct LibrarySection<Rows: View>: View {
 	let title: String?
 	var trailing: AnyView?
@@ -205,8 +177,7 @@ struct LibrarySection<Rows: View>: View {
 			VStack(spacing: 0) {
 				rows
 			}
-			.background(Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
-			.rescrivaShadow(.card)
+			.paperCard(fold: 0)
 			.padding(.horizontal, 16)
 		}
 	}
@@ -230,22 +201,20 @@ struct LibraryRowButton: View {
 			disclosureButton
 			Button(action: action) {
 				HStack(spacing: 12) {
-					Image(systemName: symbol)
-						.font(.system(size: 18))
+					Glyph(symbol, size: 18)
 						.foregroundStyle(tint)
 						.frame(width: 26)
 					Text(title)
 						.font(RescrivaFont.ui(16))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.lineLimit(1)
 					Spacer(minLength: 8)
 					Text("\(count)")
 						.font(RescrivaFont.ui(14))
-						.foregroundStyle(.slate)
+						.foregroundStyle(.graphite)
 						.monospacedDigit()
-					Image(systemName: "chevron.right")
-						.font(.system(size: 12, weight: .semibold))
-						.foregroundStyle(Color.bark.opacity(0.3))
+					Glyph("chevron.right", size: 11, weight: .semibold)
+						.foregroundStyle(Color.carbon.opacity(0.3))
 				}
 				.padding(.vertical, 13)
 				.padding(.trailing, 14)
@@ -261,9 +230,8 @@ struct LibraryRowButton: View {
 	private var disclosureButton: some View {
 		if let disclosure {
 			Button(action: onDisclosure) {
-				Image(systemName: "chevron.right")
-					.font(.system(size: 11, weight: .semibold))
-					.foregroundStyle(.slate)
+				Glyph("chevron.right", size: 10, weight: .semibold)
+					.foregroundStyle(.graphite)
 					.rotationEffect(.degrees(disclosure ? 90 : 0))
 					.frame(width: 24, height: 44)
 					.contentShape(Rectangle())
@@ -273,5 +241,89 @@ struct LibraryRowButton: View {
 		} else {
 			Color.clear.frame(width: 24, height: 1)
 		}
+	}
+}
+
+/// The tags, as chips under a search field while searching: tap one to show only the scans with
+/// it (more than one narrows further), hold one to rename or delete it. Tags Rescriva adds by
+/// itself (`AutoTags`) carry a small sparkle. Tags no scan carries any more come last, faded,
+/// so they can still be renamed or deleted here.
+struct TagFilterBar: View {
+	@Environment(\.managedObjectContext) private var context
+	@FetchRequest(sortDescriptors: [SortDescriptor(\ScanTag.name)]) private var tags: FetchedResults<ScanTag>
+	@Binding var selection: Set<NSManagedObjectID>
+	let controller: LibraryController
+	var inset: CGFloat = 20
+
+	var body: some View {
+		let shown = tags.filter { liveCount($0) > 0 } + tags.filter { liveCount($0) == 0 }
+		if !shown.isEmpty {
+			ScrollView(.horizontal, showsIndicators: false) {
+				HStack(spacing: 8) {
+					ForEach(shown, id: \.objectID) { tag in chip(tag) }
+				}
+				.padding(.horizontal, inset)
+				.padding(.vertical, 4)
+			}
+			// Scrolling the chips keeps the search field (and so this bar) up.
+			.scrollDismissesKeyboard(.never)
+			.transition(.opacity)
+		}
+	}
+
+	private func chip(_ tag: ScanTag) -> some View {
+		let isOn = selection.contains(tag.objectID)
+		let automatic = AutoTags.isAutomatic(tag)
+		let unused = liveCount(tag) == 0
+		return Button {
+			withAnimation(RescrivaMotion.fast) {
+				if isOn { selection.remove(tag.objectID) } else { selection.insert(tag.objectID) }
+			}
+		} label: {
+			HStack(spacing: 4) {
+				if automatic {
+					Image(systemName: "sparkle")
+						.font(.system(size: 9, weight: .semibold))
+						.accessibilityHidden(true)
+				}
+				Text(tag.displayName)
+					.font(RescrivaFont.ui(13, weight: .medium))
+				Text("\(liveCount(tag))")
+					.font(RescrivaFont.ui(11))
+					.foregroundStyle(isOn ? Color.vellum.opacity(0.75) : Color.graphite)
+			}
+			.foregroundStyle(isOn ? Color.vellum : Color.carbon)
+			.padding(.vertical, 7)
+			.padding(.horizontal, 11)
+			.background(isOn ? Color.carbon : Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
+			.overlay {
+				RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous)
+					.strokeBorder(Color.carbon.opacity(isOn ? 0 : 0.14))
+			}
+			.opacity(unused && !isOn ? 0.55 : 1)
+			.animation(RescrivaMotion.ui, value: isOn)
+		}
+		.buttonStyle(PressScaleStyle(scale: 0.95))
+		.accessibilityAddTraits(isOn ? .isSelected : [])
+		.accessibilityHint(hint(automatic: automatic, unused: unused))
+		.contextMenu {
+			Button { controller.beginRename(tag) } label: { Label("Rename Tag", systemImage: "pencil") }
+			Button(role: .destructive) {
+				selection.remove(tag.objectID)
+				withAnimation(RescrivaMotion.ui) { Library.delete(tag, in: context) }
+			} label: {
+				Label("Delete Tag", systemImage: "trash")
+			}
+		}
+	}
+
+	private func hint(automatic: Bool, unused: Bool) -> Text {
+		let what = unused ? Text("No scans have this tag.") : Text("Shows only scans with this tag.")
+		return automatic ? Text("Added by Rescriva. ") + what : what
+	}
+
+	/// How many scans outside Recently Deleted carry `tag`.
+	private func liveCount(_ tag: ScanTag) -> Int {
+		(tag.scans as? Set<Scan>)?.filter { $0.deletedAt == nil }.count ?? 0
 	}
 }

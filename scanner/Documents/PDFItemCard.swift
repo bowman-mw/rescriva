@@ -24,8 +24,7 @@ struct PDFItemCard: View {
 			.padding(.top, 14)
 			.padding(.horizontal, 14)
 			.padding(.bottom, 12)
-			.background(Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
-			.rescrivaShadow(.card)
+			.paperCard()
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.97))
 		.accessibilityElement(children: .combine)
@@ -36,24 +35,24 @@ struct PDFItemCard: View {
 	private var thumbnails: some View {
 		HStack(alignment: .bottom, spacing: 10) {
 			if pages.isEmpty {
-				PaperThumbnail(image: nil, width: 46, height: 60, ink: .bark)
+				PaperThumbnail(image: nil, width: 46, height: 60, ink: .carbon)
 			}
 			ForEach(Array(pages.enumerated()), id: \.offset) { _, image in
 				let wide = image.size.width > image.size.height
-				PaperThumbnail(image: image, width: wide ? 84 : 46, height: wide ? 52 : 60, ink: .bark)
+				PaperThumbnail(image: image, width: wide ? 84 : 46, height: wide ? 52 : 60, ink: .carbon)
 			}
 			Spacer(minLength: 0)
 			if item.pageCount > 3 {
 				VStack(spacing: 0) {
 					Text("+\(item.pageCount - 3)")
 						.font(RescrivaFont.ui(13, weight: .medium))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 					Text("more")
 						.font(RescrivaFont.ui(10))
-						.foregroundStyle(.moss)
+						.foregroundStyle(.ink)
 				}
 				.frame(width: 40, height: 40)
-				.background(Color.lichen, in: Circle())
+				.background(Color.wash, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				.frame(maxHeight: .infinity)
 			}
 		}
@@ -65,23 +64,22 @@ struct PDFItemCard: View {
 			VStack(alignment: .leading, spacing: 2) {
 				Text(item.title)
 					.font(RescrivaFont.header(18))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.lineLimit(1)
 				Text(item.libraryMeta)
 					.font(RescrivaFont.ui(12))
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 			}
 			Spacer(minLength: 4)
 			Text("PDF file")
 				.font(RescrivaFont.ui(11, weight: .medium))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.padding(.vertical, 4)
 				.padding(.horizontal, 9)
-				.background(Color.bark.opacity(0.08), in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
+				.background(Color.carbon.opacity(0.08), in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
 			Button(action: onToggleFave) {
-				Image(systemName: item.fave ? "star.fill" : "star")
-					.font(.system(size: 17, weight: .light))
-					.foregroundStyle(item.fave ? Color.goldenrod : Color.bark.opacity(0.3))
+				Glyph(item.fave ? "star.fill" : "star", size: 17, weight: .light)
+					.foregroundStyle(item.fave ? Color.markerInk : Color.carbon.opacity(0.3))
 					.frame(width: 32, height: 32)
 					.contentShape(Rectangle())
 			}

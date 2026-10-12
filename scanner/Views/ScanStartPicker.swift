@@ -3,7 +3,7 @@
 //  Open Scanner → Rescriva
 //
 //  Created by Slaven Radic on 2024-09-01.
-//  Rescriva: the moss Scan button and the menu of ways to start a scan.
+//  Rescriva: the indigo Scan button and the menu of ways to start a scan.
 //
 
 import SwiftUI
@@ -51,17 +51,16 @@ struct ScanStartPicker: View {
 		VStack(alignment: .trailing, spacing: 10) {
 			if isOpen {
 				menu
-					.transition(.floatIn)
+					.transition(.settle)
 			}
 			Button {
 				withAnimation(RescrivaMotion.ui) { isOpen.toggle() }
 			} label: {
 				HStack(spacing: 10) {
 					if isBusy {
-						ProgressView().tint(.cream)
+						ProgressView().tint(.vellum)
 					} else {
-						Image(systemName: isOpen ? "xmark" : "plus.viewfinder")
-							.font(.system(size: isOpen ? 18 : 24, weight: .light))
+						Glyph(isOpen ? "xmark" : "plus.viewfinder", size: isOpen ? 15 : 20, weight: .light)
 							.frame(width: 26, height: 26)
 					}
 					Group {
@@ -73,12 +72,12 @@ struct ScanStartPicker: View {
 					}
 					.font(RescrivaFont.ui(16, weight: .medium))
 				}
-				.foregroundStyle(.cream)
+				.foregroundStyle(.vellum)
 				.frame(height: 60)
 				.padding(.leading, 18)
 				.padding(.trailing, 24)
-				.background(Color.moss, in: Capsule())
-				.shadow(color: Color.bark.opacity(0.22), radius: 12, x: 0, y: 8)
+				.background(Color.ink, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+				.shadow(color: Color.shade.opacity(0.22), radius: 12, x: 0, y: 8)
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.93))
 			.disabled(isBusy)
@@ -98,18 +97,17 @@ struct ScanStartPicker: View {
 					onChoose(start)
 				} label: {
 					HStack(spacing: 12) {
-						Image(systemName: start.systemImage)
-							.font(.system(size: 18, weight: .light))
-							.foregroundStyle(.moss)
+						Glyph(start.systemImage, size: 18, weight: .light)
+							.foregroundStyle(.ink)
 							.frame(width: 36, height: 36)
-							.background(Color.lichen, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+							.background(Color.wash, in: RoundedRectangle(cornerRadius: RescrivaRadius.small + 2, style: .continuous))
 						VStack(alignment: .leading, spacing: 1) {
 							Text(start.label)
 								.font(RescrivaFont.ui(14, weight: .medium))
-								.foregroundStyle(.bark)
+								.foregroundStyle(.carbon)
 							Text(start.detail)
 								.font(RescrivaFont.ui(12))
-								.foregroundStyle(.slate)
+								.foregroundStyle(.graphite)
 						}
 						Spacer(minLength: 0)
 					}
@@ -122,16 +120,16 @@ struct ScanStartPicker: View {
 		}
 		.padding(8)
 		.frame(minWidth: 236, maxWidth: 280)
-		.background(Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.large, style: .continuous))
-		.rescrivaShadow(.float)
+		.paperCard(radius: RescrivaRadius.large, fold: 18)
+		.rescrivaShadow(.small)
 	}
 }
 
-/// Picker rows tint softly with moss while pressed.
+/// Picker rows take a wash of ink while pressed.
 private struct PickerRowStyle: ButtonStyle {
 	func makeBody(configuration: Configuration) -> some View {
 		configuration.label
-			.background(Color.moss.opacity(configuration.isPressed ? 0.08 : 0), in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
+			.background(Color.ink.opacity(configuration.isPressed ? 0.08 : 0), in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 			.animation(RescrivaMotion.fast, value: configuration.isPressed)
 	}
 }
@@ -140,6 +138,6 @@ struct ScanStartPicker_Previews: PreviewProvider {
 	static var previews: some View {
 		ScanStartPicker(isOpen: .constant(true)) { _ in }
 			.padding()
-			.background(Color.parchment)
+			.background(Color.stock)
 	}
 }

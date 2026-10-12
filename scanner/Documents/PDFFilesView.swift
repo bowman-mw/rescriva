@@ -76,17 +76,16 @@ struct PDFFilesView: View {
 	private var header: some View {
 		VStack(alignment: .leading, spacing: 4) {
 			HStack(spacing: 10) {
-				Image(systemName: PDFOpening.symbol)
-					.font(.system(size: 22))
+				Glyph(PDFOpening.symbol, size: 22)
 					.foregroundStyle(PDFOpening.tint)
 				Text("PDF Files")
 					.font(RescrivaFont.header(28))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.accessibilityAddTraits(.isHeader)
 			}
 			Text(library.items.count == 1 ? String(localized: "1 PDF") : String(localized: "\(library.items.count) PDFs"))
 				.font(RescrivaFont.ui(12))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 		}
 		.padding(.horizontal, 20)
 		.padding(.top, 8)
@@ -114,7 +113,7 @@ struct PDFFilesView: View {
 enum PDFOpening {
 	/// The PDF Files row's symbol and tint, here and in the Library.
 	static let symbol = "doc.text"
-	static let tint = Color.terracotta
+	static let tint = Color.vermilion
 
 	/// Copies each PDF into the Library; opens it when it's the only one, else says how many were added.
 	static func open(_ urls: [URL], in library: PDFLibrary, router: RescrivaRouter) async {

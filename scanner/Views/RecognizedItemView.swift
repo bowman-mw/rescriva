@@ -3,7 +3,7 @@
 //  Open Scanner → Rescriva
 //
 //  Created by Slaven Radic on 2024-09-01.
-//  Rescriva: one recognized line — goldenrod rule (moss when selected), inline
+//  Rescriva: one recognized line — highlighter rule (ink when selected), inline
 //  editing, and chips for the links, emails, phone numbers and addresses
 //  Open Scanner detects.
 //
@@ -24,12 +24,12 @@ struct RecognizedItemView: View {
 		VStack(alignment: .leading, spacing: 6) {
 			HStack(alignment: .top, spacing: 12) {
 				Capsule()
-					.fill(isSelected ? Color.moss : Color.goldenrod)
+					.fill(isSelected ? Color.ink : Color.highlighter)
 					.frame(width: 4)
 				if isEditing {
 					TextField("Line text", text: $transcript, axis: .vertical)
 						.font(RescrivaFont.body(16))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.lineLimit(1...12)
 						.focused($focused)
 						.onChange(of: transcript) { _, changed in
@@ -44,14 +44,14 @@ struct RecognizedItemView: View {
 					Text(item.transcript ?? "")
 						.font(RescrivaFont.body(16))
 						.lineSpacing(3)
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.frame(maxWidth: .infinity, alignment: .leading)
 				}
 			}
 			.padding(.vertical, 10)
 			.padding(.leading, 8)
 			.padding(.trailing, 12)
-			.background(isSelected ? Color.moss.opacity(0.10) : Color.clear,
+			.background(isSelected ? Color.ink.opacity(0.10) : Color.clear,
 						in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 			.contentShape(Rectangle())
 			.onTapGesture(perform: onTap)
@@ -120,7 +120,7 @@ struct DataTag {
 	}
 }
 
-/// A lichen chip that opens the detected item.
+/// A wash chip that opens the detected item.
 struct DataTagChip: View {
 	let tag: DataTag
 	@Environment(\.openURL) private var openURL
@@ -130,16 +130,15 @@ struct DataTagChip: View {
 			if let url = tag.url { openURL(url) }
 		} label: {
 			HStack(spacing: 6) {
-				Image(systemName: tag.systemImage)
-					.font(.system(size: 13, weight: .regular))
+				Glyph(tag.systemImage, size: 13, weight: .regular)
 				Text(tag.text)
 					.font(RescrivaFont.ui(13, weight: .medium))
 					.lineLimit(1)
 			}
-			.foregroundStyle(.moss)
+			.foregroundStyle(.ink)
 			.padding(.vertical, 6)
 			.padding(.horizontal, 10)
-			.background(Color.lichen, in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
+			.background(Color.wash, in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.95))
 	}

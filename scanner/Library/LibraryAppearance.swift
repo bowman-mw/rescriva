@@ -2,49 +2,51 @@
 //  LibraryAppearance.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  Folder colours and symbols from the Fernlet palette, and how folders,
-//  tags, smart folders and scopes read on screen. Colour tokens and symbol
-//  names are stored on the entities; a token this version doesn't know
-//  shows as moss, and an unknown symbol as a plain folder.
+//  Folder colours (inks from Rescriva's palette) and symbols, and how
+//  folders, tags, smart folders and scopes read on screen. Colour tokens and
+//  symbol names are stored on the entities; a token this version doesn't
+//  know shows as indigo, and an unknown symbol as a plain folder.
 //
 
 import CoreData
 import SwiftUI
 
-/// A folder's colour. Stored token.
+/// A folder's colour. The raw values are stored (and synced) tokens from
+/// before the palette was renamed, so they stay as they are.
 enum FolderColor: String, CaseIterable, Identifiable {
-	case moss, fern, terracotta, goldenrod, slate, bark, plum, ink
+	case ink = "moss", bluePencil = "fern", vermilion = "terracotta", highlighter = "goldenrod"
+	case graphite = "slate", carbon = "bark", plum, sepia = "ink"
 
 	var id: String { rawValue }
 
 	var color: Color {
 		switch self {
-		case .moss: return .moss
-		case .fern: return .fern
-		case .terracotta: return .terracotta
-		case .goldenrod: return .goldenrod
-		case .slate: return .slate
-		case .bark: return .bark
-		case .plum: return Color(red: 0x8A / 255, green: 0x5A / 255, blue: 0x7A / 255)
 		case .ink: return .ink
+		case .bluePencil: return .bluePencil
+		case .vermilion: return .vermilion
+		case .highlighter: return .markerInk
+		case .graphite: return .graphite
+		case .carbon: return .carbon
+		case .plum: return Color(uiColor: RescrivaPalette.plum)
+		case .sepia: return Color(uiColor: RescrivaPalette.sepia)
 		}
 	}
 
 	var name: String {
 		switch self {
-		case .moss: return String(localized: "Moss")
-		case .fern: return String(localized: "Fern")
-		case .terracotta: return String(localized: "Terracotta")
-		case .goldenrod: return String(localized: "Goldenrod")
-		case .slate: return String(localized: "Slate")
-		case .bark: return String(localized: "Bark")
+		case .ink: return String(localized: "Indigo")
+		case .bluePencil: return String(localized: "Blue Pencil")
+		case .vermilion: return String(localized: "Vermilion")
+		case .highlighter: return String(localized: "Highlighter")
+		case .graphite: return String(localized: "Graphite")
+		case .carbon: return String(localized: "Carbon")
 		case .plum: return String(localized: "Plum")
-		case .ink: return String(localized: "Ink")
+		case .sepia: return String(localized: "Sepia")
 		}
 	}
 
 	static func token(_ raw: String?) -> FolderColor {
-		raw.flatMap(FolderColor.init(rawValue:)) ?? .moss
+		raw.flatMap(FolderColor.init(rawValue:)) ?? .ink
 	}
 }
 
@@ -109,20 +111,20 @@ struct ScopeAppearance {
 	@MainActor
 	static func of(_ scope: LibraryScope, in context: NSManagedObjectContext) -> ScopeAppearance {
 		switch scope {
-		case .all: return ScopeAppearance(title: String(localized: "All Scans"), symbol: "tray.full", tint: .moss)
-		case .pinned: return ScopeAppearance(title: String(localized: "Pinned"), symbol: "pin", tint: .goldenrod)
-		case .favorites: return ScopeAppearance(title: String(localized: "Favorites"), symbol: "star", tint: .goldenrod)
-		case .recentlyDeleted: return ScopeAppearance(title: String(localized: "Recently Deleted"), symbol: "trash", tint: .slate)
+		case .all: return ScopeAppearance(title: String(localized: "All Scans"), symbol: "tray.full", tint: .ink)
+		case .pinned: return ScopeAppearance(title: String(localized: "Pinned"), symbol: "pin", tint: .markerInk)
+		case .favorites: return ScopeAppearance(title: String(localized: "Favorites"), symbol: "star", tint: .markerInk)
+		case .recentlyDeleted: return ScopeAppearance(title: String(localized: "Recently Deleted"), symbol: "trash", tint: .graphite)
 		case .folder(let id):
 			let folder = Library.folder(id, in: context)
 			return ScopeAppearance(title: folder?.displayName ?? String(localized: "Folder"), symbol: folder?.symbolName ?? "folder",
-								   tint: folder?.tint ?? .moss)
+								   tint: folder?.tint ?? .ink)
 		case .tag(let id):
-			return ScopeAppearance(title: Library.tag(id, in: context)?.displayName ?? "#", symbol: "number", tint: .moss)
+			return ScopeAppearance(title: Library.tag(id, in: context)?.displayName ?? "#", symbol: "number", tint: .ink)
 		case .smart(let id):
 			let smart = Library.smartFolder(id, in: context)
 			return ScopeAppearance(title: smart?.displayName ?? String(localized: "Smart Folder"),
-								   symbol: smart?.symbolName ?? FolderSymbol.smartDefault, tint: smart?.tint ?? .moss)
+								   symbol: smart?.symbolName ?? FolderSymbol.smartDefault, tint: smart?.tint ?? .ink)
 		}
 	}
 }

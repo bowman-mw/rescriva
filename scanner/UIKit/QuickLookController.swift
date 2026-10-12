@@ -79,8 +79,8 @@ struct MacPageView: View {
 				.padding(24)
 		} else {
 			Text("This page couldn't be opened.")
-				.font(RescrivaFont.bubble(16))
-				.foregroundStyle(.slate)
+				.font(RescrivaFont.note(16))
+				.foregroundStyle(.graphite)
 		}
 	}
 }

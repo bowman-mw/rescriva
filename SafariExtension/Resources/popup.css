@@ -1,24 +1,26 @@
-/* Rescriva's palette (RescrivaTheme.swift): parchment and cream paper, bark ink, terracotta for actions. */
+/* Rescriva's palette (RescrivaTheme.swift): paper and ink, indigo for actions; a chalkboard in the dark. */
 :root {
 	color-scheme: light dark;
-	--paper: #FBF7EE;
-	--ink: #3D2E1E;
-	--quiet: #7B8B99;
-	--action: #C0674A;
-	--action-ink: #FFFDF8;
-	--line: #E9E4D8;
-	--good: #5A7A52;
-	--bad: #B4492E;
+	--paper: #FDFBF6;
+	--ink: #1D2233;
+	--quiet: #676C7A;
+	--action: #2B3B8C;
+	--action-ink: #FDFBF6;
+	--line: #E7E3D9;
+	--good: #2B3B8C;
+	--bad: #CF4326;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--paper: #1A1F2E;
-		--ink: #FBF7EE;
-		--quiet: #A3B0BC;
-		--line: #2E3A4A;
-		--good: #8AAD7E;
-		--bad: #E28B70;
+		--paper: #222625;
+		--ink: #ECE9E1;
+		--quiet: #A3A79F;
+		--action: #A9BAF2;
+		--action-ink: #222625;
+		--line: #343A4C;
+		--good: #A9BAF2;
+		--bad: #F0866B;
 	}
 }
 
@@ -88,7 +90,7 @@ section {
 button {
 	width: 100%;
 	min-height: 40px;
-	border-radius: 10px;
+	border-radius: 11px;
 	border: 1px solid transparent;
 	font: inherit;
 	font-weight: 600;

@@ -60,7 +60,7 @@ struct PDFInfoSheet: View {
 			}
 			.padding(20)
 		}
-		.background(Color.parchment)
+		.background(Color.stock)
 	}
 
 	private var report: PDFFormatReport { session.currentReport }
@@ -89,11 +89,11 @@ struct PDFInfoSheet: View {
 		HStack(alignment: .firstTextBaseline) {
 			Text(label)
 				.font(RescrivaFont.ui(14))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 			Spacer(minLength: 12)
 			Text(value)
 				.font(RescrivaFont.ui(14))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 				.multilineTextAlignment(.trailing)
 		}
 		.accessibilityElement(children: .combine)
@@ -106,7 +106,7 @@ struct PDFInfoSheet: View {
 	private func note(_ text: LocalizedStringKey) -> some View {
 		Text(text)
 			.font(RescrivaFont.ui(13))
-			.foregroundStyle(.slate)
+			.foregroundStyle(.graphite)
 			.fixedSize(horizontal: false, vertical: true)
 	}
 }

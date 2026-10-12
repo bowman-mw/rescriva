@@ -44,7 +44,7 @@ struct PDFKitView: UIViewRepresentable {
 		view.displaysAsBook = coverPage
 		view.autoScales = true
 		view.pageShadowsEnabled = true
-		view.backgroundColor = UIColor(Color.scanBackdrop)
+		view.backgroundColor = RescrivaPalette.scanBackdrop
 		context.coordinator.attach(to: view)
 		return view
 	}
@@ -171,11 +171,11 @@ struct PDFKitView: UIViewRepresentable {
 			overlay.lineCap = .round
 			overlay.lineJoin = .round
 			selectionOutline.fillColor = nil
-			selectionOutline.strokeColor = UIColor(Color.bark).cgColor
+			selectionOutline.strokeColor = RescrivaPalette.carbon.onPaper.cgColor
 			selectionOutline.lineWidth = 1.5
 			selectionOutline.lineDashPattern = [6, 4]
-			selectionHandles.fillColor = UIColor(Color.cream).cgColor
-			selectionHandles.strokeColor = UIColor(Color.bark).cgColor
+			selectionHandles.fillColor = RescrivaPalette.vellum.onPaper.cgColor
+			selectionHandles.strokeColor = RescrivaPalette.carbon.onPaper.cgColor
 			selectionHandles.lineWidth = 1.5
 			for layer in [overlay, selectionOutline, selectionHandles] {
 				view.layer.addSublayer(layer)
@@ -247,7 +247,7 @@ struct PDFKitView: UIViewRepresentable {
 			var shown = results
 			if let current, results.indices.contains(current), let emphasized = results[current].copy() as? PDFSelection {
 				// The match you're on, drawn stronger over the rest.
-				emphasized.color = UIColor(Color.terracotta).withAlphaComponent(0.5)
+				emphasized.color = RescrivaPalette.vermilion.onPaper.withAlphaComponent(0.5)
 				shown.append(emphasized)
 				view.go(to: results[current])
 			}

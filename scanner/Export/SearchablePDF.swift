@@ -139,7 +139,7 @@ enum SearchablePDF {
 				let y = pageHeight - (rect.minY + (note.box?.y ?? 0.04) * rect.height) - 20 - CGFloat(offset) * 4
 				let annotation = PDFAnnotation(bounds: CGRect(x: x, y: y, width: 20, height: 20), forType: .text, withProperties: nil)
 				annotation.contents = note.text
-				annotation.color = UIColor(red: 0.83, green: 0.66, blue: 0.26, alpha: 1)
+				annotation.color = RescrivaPalette.highlighter.onPaper
 				pdfPage.addAnnotation(annotation)
 			}
 		}

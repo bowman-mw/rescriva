@@ -43,7 +43,7 @@ struct MarkupToolbar: View {
 				.fill(.ultraThinMaterial)
 				.overlay {
 					UnevenRoundedRectangle(topLeadingRadius: RescrivaRadius.large, topTrailingRadius: RescrivaRadius.large, style: .continuous)
-						.fill(Color.parchment.opacity(0.78))
+						.fill(Color.stock.opacity(0.78))
 				}
 				.rescrivaShadow(.sheet)
 				.ignoresSafeArea(edges: .bottom)
@@ -109,7 +109,7 @@ struct MarkupToolbar: View {
 		Button { showsSizes = true } label: {
 			SizeDot(size: style.size, sizes: group.sizes, color: session.currentColor)
 				.frame(width: 36, height: 36)
-				.background(Circle().fill(Color.bark.opacity(showsSizes ? 0.14 : 0.06)))
+				.background(Circle().fill(Color.carbon.opacity(showsSizes ? 0.14 : 0.06)))
 				.contentShape(Circle())
 		}
 		.buttonStyle(PressScaleStyle())
@@ -119,13 +119,13 @@ struct MarkupToolbar: View {
 			VStack(alignment: .leading, spacing: 10) {
 				Text("Size")
 					.font(RescrivaFont.ui(13, weight: .medium))
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 				NotchedSizeSlider(sizes: group.sizes, value: session.currentStyle?.size ?? style.size, color: session.currentColor) { session.selectSize($0) }
 			}
 			.padding(16)
 			.frame(width: 300)
 			.presentationCompactAdaptation(.popover)
-			.presentationBackground(Color.cream)
+			.presentationBackground(Color.vellum)
 		}
 	}
 
@@ -142,7 +142,7 @@ struct MarkupToolbar: View {
 
 	private var divider: some View {
 		Rectangle()
-			.fill(Color.bark.opacity(0.14))
+			.fill(Color.carbon.opacity(0.14))
 			.frame(width: 1, height: 22)
 			.padding(.horizontal, 6)
 			.accessibilityHidden(true)
@@ -164,10 +164,10 @@ private struct MarkupHint: View {
 	var body: some View {
 		Text(text)
 			.font(RescrivaFont.ui(13, weight: .medium))
-			.foregroundStyle(.bark)
+			.foregroundStyle(.carbon)
 			.padding(.vertical, 7)
 			.padding(.horizontal, 14)
-			.background(Color.cream.opacity(0.96), in: Capsule())
+			.background(Color.vellum.opacity(0.96), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			.rescrivaShadow(.small)
 			.opacity(isShown ? 1 : 0)
 			.allowsHitTesting(false)
@@ -210,7 +210,7 @@ struct NotchedSizeSlider: View {
 				.frame(height: 28)
 			Text(Self.label(value))
 				.font(RescrivaFont.ui(12, weight: .medium))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 				.monospacedDigit()
 				.frame(width: 44, alignment: .trailing)
 		}
@@ -232,17 +232,17 @@ struct NotchedSizeSlider: View {
 			let width = proxy.size.width
 			let spacing = sizes.count > 1 ? width / CGFloat(sizes.count - 1) : 0
 			ZStack(alignment: .leading) {
-				Capsule().fill(Color.bark.opacity(0.14)).frame(height: 4)
-				Capsule().fill(Color.bark.opacity(0.55)).frame(width: CGFloat(index) * spacing, height: 4)
+				Capsule().fill(Color.carbon.opacity(0.14)).frame(height: 4)
+				Capsule().fill(Color.carbon.opacity(0.55)).frame(width: CGFloat(index) * spacing, height: 4)
 				ForEach(sizes.indices, id: \.self) { notch in
 					Circle()
-						.fill(notch <= index ? Color.bark.opacity(0.7) : Color.bark.opacity(0.28))
+						.fill(notch <= index ? Color.carbon.opacity(0.7) : Color.carbon.opacity(0.28))
 						.frame(width: 5, height: 5)
 						.offset(x: CGFloat(notch) * spacing - 2.5)
 				}
 				Circle()
-					.fill(Color.cream)
-					.overlay(Circle().strokeBorder(Color.bark.opacity(0.2), lineWidth: 1))
+					.fill(Color.vellum)
+					.overlay(Circle().strokeBorder(Color.carbon.opacity(0.2), lineWidth: 1))
 					.frame(width: 22, height: 22)
 					.rescrivaShadow(.small)
 					.offset(x: CGFloat(index) * spacing - 11)
@@ -276,7 +276,7 @@ private struct SizeDot: View {
 		let share = high > low ? (size - low) / (high - low) : 0.5
 		Circle()
 			.fill(Color(uiColor: color.withAlphaComponent(1)))
-			.overlay(Circle().strokeBorder(Color.bark.opacity(0.18), lineWidth: 1))
+			.overlay(Circle().strokeBorder(Color.rim, lineWidth: 1))
 			.frame(width: 5 + share * 19, height: 5 + share * 19)
 	}
 }
@@ -290,12 +290,11 @@ private struct MarkupToolButton: View {
 
 	var body: some View {
 		Button(action: action) {
-			Image(systemName: tool.systemImage)
-				.font(.system(size: 17, weight: .regular))
-				.foregroundStyle(isSelected ? Color.cream : Color.bark)
+			Glyph(tool.systemImage, size: 17, weight: .regular)
+				.foregroundStyle(isSelected ? Color.vellum : Color.carbon)
 				.frame(width: 40, height: 40)
 				.background {
-					if isSelected { Circle().fill(Color.bark) }
+					if isSelected { Circle().fill(Color.carbon) }
 				}
 				.contentShape(Circle())
 		}
@@ -314,11 +313,11 @@ private struct MarkupSwatchButton: View {
 		Button(action: action) {
 			Circle()
 				.fill(Color(uiColor: swatch.uiColor))
-				.overlay(Circle().strokeBorder(Color.bark.opacity(0.18), lineWidth: 1))
+				.overlay(Circle().strokeBorder(Color.rim, lineWidth: 1))
 				.frame(width: 24, height: 24)
 				.padding(4)
 				.overlay {
-					if isSelected { Circle().strokeBorder(Color.bark, lineWidth: 2) }
+					if isSelected { Circle().strokeBorder(Color.carbon, lineWidth: 2) }
 				}
 				.frame(width: 36, height: 36)
 				.contentShape(Circle())
@@ -345,7 +344,7 @@ private struct MarkupColorWell: View {
 		.frame(width: 28, height: 28)
 		.padding(4)
 		.overlay {
-			if isSelected { Circle().strokeBorder(Color.bark, lineWidth: 2) }
+			if isSelected { Circle().strokeBorder(Color.carbon, lineWidth: 2) }
 		}
 		.frame(width: 36, height: 36)
 		.accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -359,11 +358,10 @@ private struct MarkupActionButton: View {
 
 	var body: some View {
 		Button(action: action) {
-			Image(systemName: systemName)
-				.font(.system(size: 16, weight: .regular))
-				.foregroundStyle(.bark)
+			Glyph(systemName, size: 16, weight: .regular)
+				.foregroundStyle(.carbon)
 				.frame(width: 36, height: 36)
-				.background(Circle().fill(Color.bark.opacity(0.06)))
+				.background(Circle().fill(Color.carbon.opacity(0.06)))
 				.contentShape(Circle())
 		}
 		.buttonStyle(PressScaleStyle())

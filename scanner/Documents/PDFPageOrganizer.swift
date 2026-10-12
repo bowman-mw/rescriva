@@ -53,8 +53,8 @@ struct PDFPageOrganizer: View {
 					.padding(.bottom, 140)
 					if onlyMarked && shownIndexes.isEmpty {
 						Text("No pages have marks yet.")
-							.font(RescrivaFont.bubble(16))
-							.foregroundStyle(.slate)
+							.font(RescrivaFont.note(16))
+							.foregroundStyle(.graphite)
 							.padding(.top, 40)
 					}
 				}
@@ -117,16 +117,16 @@ struct PDFPageOrganizer: View {
 			Button { dismiss() } label: {
 				Text("Done")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.cream)
+					.foregroundStyle(.vellum)
 					.frame(height: 40)
 					.padding(.horizontal, 18)
-					.background(Color.moss, in: Capsule())
+					.background(Color.ink, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 					.rescrivaShadow(.small)
 			}
 			.buttonStyle(PressScaleStyle(scale: 0.94))
 			Text("Pages")
 				.font(RescrivaFont.header(22))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.accessibilityAddTraits(.isHeader)
 			Spacer(minLength: 4)
 			if session.canOrganize {
@@ -142,10 +142,10 @@ struct PDFPageOrganizer: View {
 				} label: {
 					Text(selecting ? "Cancel" : "Select")
 						.font(RescrivaFont.ui(14, weight: .medium))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.frame(height: 40)
 						.padding(.horizontal, 14)
-						.background(Color.cream, in: Capsule())
+						.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 						.rescrivaShadow(.small)
 				}
 				.buttonStyle(PressScaleStyle(scale: 0.94))
@@ -161,11 +161,10 @@ struct PDFPageOrganizer: View {
 			Button { importingPhotos = true } label: { Label("Photos", systemImage: "photo") }
 			Button { importingPDF = true } label: { Label("Pages from another PDF", systemImage: "doc.on.doc") }
 		} label: {
-			Image(systemName: "plus")
-				.font(.system(size: 17, weight: .regular))
-				.foregroundStyle(.bark)
+			Glyph("plus", size: 17, weight: .regular)
+				.foregroundStyle(.carbon)
 				.frame(width: 40, height: 40)
-				.background(Color.cream, in: Circle())
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.accessibilityLabel("Add pages")
@@ -184,20 +183,19 @@ struct PDFPageOrganizer: View {
 			PDFPageThumbnail(page: page, session: session)
 				.overlay(alignment: .topTrailing) {
 					if selecting {
-						Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-							.font(.system(size: 22))
-							.foregroundStyle(isSelected ? Color.moss : Color.bark.opacity(0.35))
-							.background(Circle().fill(Color.cream).padding(2))
+						Glyph(isSelected ? "checkmark.circle.fill" : "circle", size: 22)
+							.foregroundStyle(isSelected ? Color.ink : Color.carbon.opacity(0.35))
+							.background(Circle().fill(Color.vellum).padding(2))
 							.padding(6)
 					}
 				}
 				.overlay {
 					RoundedRectangle(cornerRadius: 6, style: .continuous)
-						.strokeBorder(isSelected ? Color.moss : Color.clear, lineWidth: 3)
+						.strokeBorder(isSelected ? Color.ink : Color.clear, lineWidth: 3)
 				}
 			Text("\(index + 1)")
 				.font(RescrivaFont.ui(12, weight: .medium))
-				.foregroundStyle(index == session.currentPageIndex ? Color.moss : Color.slate)
+				.foregroundStyle(index == session.currentPageIndex ? Color.ink : Color.graphite)
 				.monospacedDigit()
 		}
 		.contentShape(Rectangle())
@@ -240,23 +238,22 @@ struct PDFPageOrganizer: View {
 				barButton("rotate.left", label: "Rotate left") { session.rotate(Array(selection), degrees: -90) }
 				barButton("rotate.right", label: "Rotate right") { session.rotate(Array(selection), degrees: 90) }
 				barButton("square.and.arrow.up.on.square", label: "Save as new PDF") { extractSelection() }
-				barButton("trash", label: "Delete", tint: .terracotta) { confirmingDelete = true }
+				barButton("trash", label: "Delete", tint: .vermilion) { confirmingDelete = true }
 					.disabled(selection.count >= session.document.pageCount)
 			}
 			.disabled(selection.isEmpty)
 			.opacity(selection.isEmpty ? 0.4 : 1)
 			Text(selection.isEmpty ? "Choose pages, or drag one to move it" :
 					(selection.count == 1 ? "1 page chosen" : "\(selection.count) pages chosen"))
-				.font(RescrivaFont.bubble(14))
-				.foregroundStyle(.slate)
+				.font(RescrivaFont.note(14))
+				.foregroundStyle(.graphite)
 		}
 	}
 
-	private func barButton(_ systemName: String, label: LocalizedStringKey, tint: Color = .bark, action: @escaping () -> Void) -> some View {
+	private func barButton(_ systemName: String, label: LocalizedStringKey, tint: Color = .carbon, action: @escaping () -> Void) -> some View {
 		Button(action: action) {
 			VStack(spacing: 4) {
-				Image(systemName: systemName)
-					.font(.system(size: 19))
+				Glyph(systemName, size: 19)
 				Text(label)
 					.font(RescrivaFont.ui(11, weight: .medium))
 			}
@@ -345,7 +342,7 @@ struct PDFPageThumbnail: View {
 		}
 		.aspectRatio(max(aspect, 0.2), contentMode: .fit)
 		.clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-		.shadow(color: Color.bark.opacity(0.18), radius: 2, x: 0, y: 1)
+		.shadow(color: Color.shade.opacity(0.18), radius: 2, x: 0, y: 1)
 		.task(id: key) { await load(key: key, aspect: aspect) }
 	}
 

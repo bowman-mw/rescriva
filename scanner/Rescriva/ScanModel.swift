@@ -31,18 +31,18 @@ enum OutputKind: String, CaseIterable, Identifiable {
 
 	var chipColor: Color {
 		switch self {
-		case .pdf: return Color.bark.opacity(0.08)
-		case .docx: return .lichen
-		case .pptx: return Color.goldenrod.opacity(0.25)
+		case .pdf: return Color.carbon.opacity(0.08)
+		case .docx: return .wash
+		case .pptx: return Color.highlighter.opacity(0.25)
 		}
 	}
 
 	/// Placeholder ink for thumbnails without an image.
 	var ink: Color {
 		switch self {
-		case .pdf: return .bark
-		case .docx: return .moss
-		case .pptx: return .goldenrod
+		case .pdf: return .carbon
+		case .docx: return .ink
+		case .pptx: return .highlighter
 		}
 	}
 }

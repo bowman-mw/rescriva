@@ -78,7 +78,7 @@ struct ReviewView: View {
 			}
 		}
 		.sheet(item: $exportRequest) { request in
-			ExportSheet(scan: scan, initialFormat: request.format) { message in router.showToast(message) }
+			ExportSheet(scan: scan, initialFormat: request.format) { message in router.showToast(message, style: .exported) }
 		}
 		.fullScreenCover(item: $recreating) { request in
 			DiagramEditorView(request: request) { diagram in
@@ -108,7 +108,7 @@ struct ReviewView: View {
 				topBar
 				modePicker
 				if companionTips, mode == .rebuilt, openFlagCount > 0 {
-					ThoughtBubble(text: tip, showsTrail: false)
+					MarginNote(text: tip)
 						.padding(.horizontal, 20)
 						.padding(.bottom, 12)
 				}
@@ -151,10 +151,10 @@ struct ReviewView: View {
 		VStack(spacing: 12) {
 			Text("Not rebuilt yet")
 				.font(RescrivaFont.display(22))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 			Text("The rebuild didn’t finish. Run it again to see the rebuilt pages here.")
-				.font(RescrivaFont.bubble(15))
-				.foregroundStyle(Color.bark.opacity(0.7))
+				.font(RescrivaFont.note(15))
+				.foregroundStyle(Color.carbon.opacity(0.7))
 				.multilineTextAlignment(.center)
 			PrimaryButton(title: "Rebuild", systemImage: "arrow.clockwise", height: 48) {
 				router.replaceTop(with: .processing(scan))
@@ -163,8 +163,7 @@ struct ReviewView: View {
 		}
 		.padding(22)
 		.frame(maxWidth: .infinity)
-		.background(Color.paper, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
-		.rescrivaShadow(.card)
+		.paperCard()
 		.padding(.horizontal, 16)
 	}
 
@@ -191,15 +190,15 @@ struct ReviewView: View {
 			} label: {
 				HStack(spacing: 6) {
 					Circle()
-						.fill(openFlagCount > 0 ? Color.goldenrod : Color.moss)
+						.fill(openFlagCount > 0 ? Color.highlighter : Color.ink)
 						.frame(width: 8, height: 8)
 					Text(openFlagCount > 0 ? "\(openFlagCount) to check" : "All checked")
 						.font(RescrivaFont.ui(13, weight: .medium))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 				}
 				.frame(height: 34)
 				.padding(.horizontal, 12)
-				.background(openFlagCount > 0 ? Color.goldenrod.opacity(0.25) : Color.lichen,
+				.background(openFlagCount > 0 ? Color.highlighter.opacity(0.25) : Color.wash,
 							in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
 				.animation(RescrivaMotion.ui, value: openFlagCount)
 			}
@@ -228,7 +227,7 @@ struct ReviewView: View {
 						.frame(maxWidth: 330, maxHeight: 460)
 						.background(Color.paper)
 						.clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-						.shadow(color: Color.bark.opacity(0.14), radius: 12, x: 0, y: 10)
+						.shadow(color: Color.shade.opacity(0.14), radius: 12, x: 0, y: 10)
 						.rotationEffect(.degrees(-1.2))
 						.accessibilityLabel("Original page")
 				}
@@ -286,7 +285,7 @@ struct ReviewView: View {
 
 	private var tip: String {
 		openFlagCount == 1 ? String(localized: "Just one spot I wasn’t sure about.")
-			: String(localized: "\(openFlagCount) spots I wasn’t sure about — tap the dotted ones.")
+			: String(localized: "\(openFlagCount) spots I wasn’t sure about — tap the highlighted ones.")
 	}
 
 	private var selectedContent: BlockContent? {
@@ -417,10 +416,10 @@ private struct FormatButton: View {
 			Text(label)
 				.font(italic ? RescrivaFont.body(16, italic: true) : RescrivaFont.ui(15, weight: weight == .bold ? .bold : .medium))
 				.underline(underline)
-				.foregroundStyle(isOn ? Color.cream : Color.bark)
+				.foregroundStyle(isOn ? Color.vellum : Color.carbon)
 				.frame(minWidth: 40, minHeight: 40)
 				.padding(.horizontal, label.count > 1 ? 10 : 0)
-				.background(isOn ? Color.bark : Color.cream, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+				.background(isOn ? Color.carbon : Color.vellum, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 				.animation(RescrivaMotion.ui, value: isOn)
 		}
 		.buttonStyle(PressScaleStyle())
@@ -452,14 +451,14 @@ struct FlagSheet: View {
 		.presentationDetents([.height(flag.kind == .word ? 440 : 390)])
 		.presentationDragIndicator(.visible)
 		.presentationCornerRadius(RescrivaRadius.large)
-		.presentationBackground(Color.cream)
+		.presentationBackground(Color.vellum)
 	}
 
 	/// What was read, large, on ruled paper.
 	private var readCrop: some View {
 		Text(flag.read)
 			.font(RescrivaFont.body(30, italic: true))
-			.foregroundStyle(Color.ink)
+			.foregroundStyle(Color.ballpoint)
 			.rotationEffect(.degrees(-2))
 			.lineLimit(1)
 			.minimumScaleFactor(0.5)
@@ -467,7 +466,7 @@ struct FlagSheet: View {
 			.frame(height: 76)
 			.background { RuledPaper(spacing: 24) }
 			.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-			.overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.bark.opacity(0.08)) }
+			.overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.carbon.opacity(0.08)) }
 			.accessibilityLabel(Text("Read as \(flag.read)"))
 	}
 
@@ -481,15 +480,15 @@ struct FlagSheet: View {
 					HStack {
 						Text(option.label)
 							.font(RescrivaFont.body(18))
-							.foregroundStyle(.bark)
+							.foregroundStyle(.carbon)
 						Spacer()
 						Text(option.note)
 							.font(RescrivaFont.ui(12))
-							.foregroundStyle(.slate)
+							.foregroundStyle(.graphite)
 					}
 					.padding(.vertical, 14)
 					.padding(.horizontal, 16)
-					.background(index == 0 ? Color.lichen.opacity(0.55) : Color.parchment,
+					.background(index == 0 ? Color.wash.opacity(0.55) : Color.stock,
 								in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 				}
 				.buttonStyle(PressScaleStyle(scale: 0.97))
@@ -503,7 +502,7 @@ struct FlagSheet: View {
 			if flag.kind == .word {
 				TextField("Type it instead", text: $typed)
 					.font(RescrivaFont.ui(14))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.submitLabel(.done)
 					.onSubmit {
 						let text = typed.trimmingCharacters(in: .whitespaces)
@@ -511,13 +510,13 @@ struct FlagSheet: View {
 					}
 					.padding(.horizontal, 14)
 					.frame(height: 46)
-					.overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.bark.opacity(0.18)) }
+					.overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.carbon.opacity(0.18)) }
 			} else {
 				Spacer()
 			}
 			Button("Later") { dismiss() }
 				.font(RescrivaFont.ui(14, weight: .medium))
-				.foregroundStyle(.moss)
+				.foregroundStyle(.ink)
 				.frame(height: 46)
 				.padding(.horizontal, 18)
 		}

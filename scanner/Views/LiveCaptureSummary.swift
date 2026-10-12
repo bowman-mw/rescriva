@@ -35,12 +35,12 @@ struct LiveCaptureSummary: View {
 					HStack(alignment: .firstTextBaseline) {
 						Text("Recognized text")
 							.font(RescrivaFont.header(20))
-							.foregroundStyle(.bark)
+							.foregroundStyle(.carbon)
 							.accessibilityAddTraits(.isHeader)
 						Spacer()
 						Text("Tap a line")
 							.font(RescrivaFont.ui(12))
-							.foregroundStyle(.slate)
+							.foregroundStyle(.graphite)
 					}
 					.padding(.horizontal, 20)
 					.padding(.top, 16)
@@ -49,7 +49,7 @@ struct LiveCaptureSummary: View {
 					if let timestamp = capture.timestamp {
 						Text("Captured \(timestamp.formatted(date: .abbreviated, time: .shortened))")
 							.font(RescrivaFont.ui(12))
-							.foregroundStyle(.slate)
+							.foregroundStyle(.graphite)
 							.frame(maxWidth: .infinity, alignment: .trailing)
 							.padding(.horizontal, 20)
 							.padding(.top, 18)
@@ -64,7 +64,7 @@ struct LiveCaptureSummary: View {
 				actionBar(for: selected)
 					.padding(.horizontal, 16)
 					.padding(.bottom, 8)
-					.transition(.floatIn)
+					.transition(.settle)
 			}
 		}
 		.animation(RescrivaMotion.ui, value: selected)
@@ -87,7 +87,7 @@ struct LiveCaptureSummary: View {
 			Spacer()
 			Text("Page \(pageNumber) of \(scan.capturesArray.count)")
 				.font(RescrivaFont.ui(14, weight: .medium))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 			Spacer()
 			adjustButton
 		}
@@ -103,15 +103,14 @@ struct LiveCaptureSummary: View {
 			adjusting = true
 		} label: {
 			HStack(spacing: 5) {
-				Image(systemName: "crop.rotate")
-					.font(.system(size: 14, weight: .regular))
+				Glyph("crop.rotate", size: 14, weight: .regular)
 				Text("Adjust")
 					.font(RescrivaFont.ui(14, weight: .medium))
 			}
-			.foregroundStyle(.bark)
+			.foregroundStyle(.carbon)
 			.frame(height: 40)
 			.padding(.horizontal, 14)
-			.background(Color.cream, in: Capsule())
+			.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			.rescrivaShadow(.small)
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.94))
@@ -141,8 +140,8 @@ struct LiveCaptureSummary: View {
 			}
 			.background(Color.paper)
 			.clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-			.shadow(color: Color.bark.opacity(0.10), radius: 4, x: 0, y: 2)
-			.shadow(color: Color.bark.opacity(0.10), radius: 15, x: 0, y: 14)
+			.shadow(color: Color.shade.opacity(0.10), radius: 4, x: 0, y: 2)
+			.shadow(color: Color.shade.opacity(0.10), radius: 15, x: 0, y: 14)
 			.rotationEffect(.degrees(-1))
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.98))
@@ -158,8 +157,8 @@ struct LiveCaptureSummary: View {
 		let items = capture.recognizedItemsArray
 		if items.isEmpty {
 			Text(RecognitionTracker.shared.isReading(capture) ? "Reading this page…" : "No words on this page.")
-				.font(RescrivaFont.bubble(16))
-				.foregroundStyle(.slate)
+				.font(RescrivaFont.note(16))
+				.foregroundStyle(.graphite)
 				.frame(maxWidth: .infinity)
 				.padding(.vertical, 24)
 		} else {
@@ -198,13 +197,13 @@ struct LiveCaptureSummary: View {
 			LineAction(title: "Share", systemImage: "square.and.arrow.up") {
 				SharePresenter.share([item.transcript ?? ""])
 			}
-			LineAction(title: "Delete", systemImage: "trash", tint: .terracotta) {
+			LineAction(title: "Delete", systemImage: "trash", tint: .vermilion) {
 				delete(item)
 			}
 		}
 		.padding(10)
 		.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: RescrivaRadius.large, style: .continuous))
-		.background(Color.cream.opacity(0.9), in: RoundedRectangle(cornerRadius: RescrivaRadius.large, style: .continuous))
+		.background(Color.vellum.opacity(0.9), in: RoundedRectangle(cornerRadius: RescrivaRadius.large, style: .continuous))
 		.rescrivaShadow(.float)
 	}
 
@@ -242,14 +241,13 @@ struct LiveCaptureSummary: View {
 private struct LineAction: View {
 	let title: LocalizedStringKey
 	let systemImage: String
-	var tint: Color = .bark
+	var tint: Color = .carbon
 	let action: () -> Void
 
 	var body: some View {
 		Button(action: action) {
 			VStack(spacing: 4) {
-				Image(systemName: systemImage)
-					.font(.system(size: 18, weight: .light))
+				Glyph(systemImage, size: 18, weight: .light)
 					.frame(height: 22)
 				Text(title)
 					.font(RescrivaFont.ui(11, weight: .medium))

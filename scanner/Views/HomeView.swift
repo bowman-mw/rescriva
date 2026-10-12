@@ -4,9 +4,10 @@
 //
 //  Created by Slaven Radic on 2024-09-01.
 //  Rescriva: the Library — search every word you've scanned, the folder list
-//  (LibraryHomeView: Pinned, All Scans, smart folders, folders, tags), and
-//  the Scan button with its picker. A search shows matching scans as a
-//  gallery, and matching PDFs (PDFLibrary) below them.
+//  (LibraryHomeView: All Scans, Favorites, smart folders, folders), and the
+//  Scan button with its picker. While searching, the tags show as chips under
+//  the field to filter by. A search shows matching scans as a gallery, and
+//  matching PDFs (PDFLibrary) below them.
 //
 
 import SwiftUI
@@ -27,6 +28,9 @@ struct HomeView: View {
 	private var scans: FetchedResults<Scan>
 
 	@State private var searchText = ""
+	/// Tags chosen under the search field: only scans with all of them show.
+	@State private var tagFilter: Set<NSManagedObjectID> = []
+	@FocusState private var searchFocused: Bool
 	@State private var searchController = LibraryController()
 	@State private var pickerOpen = false
 	@State private var importingPhotos = false
@@ -44,6 +48,10 @@ struct HomeView: View {
 				VStack(alignment: .leading, spacing: 0) {
 					header
 					searchField
+					if searchFocused || isSearching {
+						TagFilterBar(selection: $tagFilter, controller: searchController)
+							.padding(.top, 8)
+					}
 					content
 				}
 				.padding(.bottom, 140)
@@ -52,7 +60,7 @@ struct HomeView: View {
 			.scrollDismissesKeyboard(.immediately)
 
 			if pickerOpen {
-				Color.bark.opacity(0.18)
+				Color.shade.opacity(0.22)
 					.background(.ultraThinMaterial.opacity(0.25))
 					.ignoresSafeArea()
 					.onTapGesture { withAnimation(RescrivaMotion.ui) { pickerOpen = false } }
@@ -91,10 +99,7 @@ struct HomeView: View {
 
 	private var header: some View {
 		HStack {
-			Text("Rescriva")
-				.font(RescrivaFont.wordmark(34))
-				.foregroundStyle(.bark)
-				.accessibilityAddTraits(.isHeader)
+			RescrivaWordmark(size: 34)
 			Spacer()
 			CircleIconButton(systemName: "slider.vertical.3", label: "Settings") {
 				router.push(.settings)
@@ -107,54 +112,64 @@ struct HomeView: View {
 
 	private var searchField: some View {
 		HStack(spacing: 8) {
-			Image(systemName: "magnifyingglass")
-				.font(.system(size: 16))
-				.foregroundStyle(.slate)
+			Glyph("magnifyingglass", size: 15)
+				.foregroundStyle(.graphite)
 			TextField("Search every word you've scanned", text: $searchText)
 				.font(RescrivaFont.ui(15))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.submitLabel(.search)
 				.autocorrectionDisabled()
 				.textInputAutocapitalization(.never)
-			if !searchText.isEmpty {
+				.focused($searchFocused)
+			if isSearching {
 				Button {
-					searchText = ""
+					withAnimation(RescrivaMotion.ui) {
+						searchText = ""
+						tagFilter = []
+					}
 				} label: {
 					Image(systemName: "xmark.circle.fill")
-						.foregroundStyle(Color.slate.opacity(0.6))
+						.foregroundStyle(Color.graphite.opacity(0.6))
 				}
 				.accessibilityLabel("Clear search")
 			}
 		}
 		.padding(.horizontal, 14)
 		.frame(height: 44)
-		.background(Color.cream, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-		.overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.bark.opacity(0.08)) }
+		.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
+		.overlay { RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous).strokeBorder(Color.carbon.opacity(0.08)) }
 		.padding(.horizontal, 20)
 		.padding(.top, 10)
 	}
 
 	// MARK: Content
 
-	/// Scans whose words, title or tags match the search.
-	private var matchingScans: [Scan] {
-		LibrarySearch.matching(Array(scans), query: searchText)
+	/// Searching by words, by tags or both.
+	private var isSearching: Bool {
+		!searchText.trimmingCharacters(in: .whitespaces).isEmpty || !tagFilter.isEmpty
 	}
 
-	/// PDFs whose title or text match the search.
+	/// Scans whose words, title or tags match the search, with every chosen tag.
+	private var matchingScans: [Scan] {
+		LibrarySearch.matching(Array(scans), query: searchText, tags: tagFilter)
+	}
+
+	/// PDFs whose title or text match the search. PDFs have no tags, so none match a tag filter.
 	private var matchingPDFs: [PDFItem] {
 		let query = searchText.trimmingCharacters(in: .whitespaces)
-		guard !query.hasPrefix("#") else { return [] }
+		guard !query.hasPrefix("#"), tagFilter.isEmpty else { return [] }
 		return pdfLibrary.items.filter { pdfLibrary.matches($0, query: query) }
 	}
 
 	@ViewBuilder
 	private var content: some View {
-		if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+		if !isSearching {
 			if scans.isEmpty && pdfLibrary.items.isEmpty {
-				ThoughtBubble(text: String(localized: "Nothing scanned yet. Tap Scan whenever you're ready."), showsTrail: false)
-					.padding(.horizontal, 20)
-					.padding(.top, 16)
+				EmptyState(text: String(localized: "Nothing scanned yet. Tap Scan whenever you're ready.")) {
+					SketchToCleanIllustration(subject: .flowchart)
+				}
+				.padding(.horizontal, 16)
+				.padding(.top, 16)
 			}
 			LibraryHomeView()
 		} else {
@@ -167,13 +182,11 @@ struct HomeView: View {
 		let found = matchingScans
 		let foundPDFs = matchingPDFs
 		if found.isEmpty && foundPDFs.isEmpty {
-			Text("Nothing here mentions that yet.")
-				.font(RescrivaFont.bubble(16))
-				.foregroundStyle(.slate)
-				.multilineTextAlignment(.center)
-				.frame(maxWidth: .infinity)
-				.padding(.horizontal, 32)
-				.padding(.vertical, 48)
+			EmptyState(text: searchText.trimmingCharacters(in: .whitespaces).isEmpty
+					   ? String(localized: "No scans have all of these tags.") : String(localized: "Nothing here mentions that yet."),
+					   ruling: .lines)
+				.padding(.horizontal, 16)
+				.padding(.top, 24)
 		} else {
 			if !found.isEmpty {
 				Text(found.count == 1 ? "1 scan" : "\(found.count) scans")
@@ -237,8 +250,10 @@ struct HomeView: View {
 /// The Library's search, shared by the phone's Library and the iPad workspace.
 @MainActor
 enum LibrarySearch {
-	/// `scans` whose words, title or tags match `query`; "#name" matches tags only.
-	static func matching(_ scans: [Scan], query: String) -> [Scan] {
+	/// `scans` whose words, title or tags match `query` ("#name" matches tags only) and that carry
+	/// every tag in `tags`.
+	static func matching(_ scans: [Scan], query: String, tags: Set<NSManagedObjectID> = []) -> [Scan] {
+		let scans = tags.isEmpty ? scans : scans.filter { tags.isSubset(of: Set($0.tagList.map(\.objectID))) }
 		let query = query.trimmingCharacters(in: .whitespaces)
 		guard !query.isEmpty else { return scans }
 		let tagQuery = query.hasPrefix("#") ? Library.tagName(query)?.lowercased() : nil

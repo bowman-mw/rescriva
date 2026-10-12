@@ -67,7 +67,9 @@ enum PageOCR {
 	/// once runs the phone out of memory (a 54-page PDF did). Every page shows
 	/// as "Reading…" from the start, so screens can count what's left. Each
 	/// page's revision is taken as it's queued: a page re-made while it waits
-	/// its turn is read by the re-make, not from the pixels it had here.
+	/// its turn is read by the re-make, not from the pixels it had here. Once
+	/// they're all read, the pages each scan gained earn it its automatic tags
+	/// (`AutoTags`): a receipt is tagged #receipt.
 	@MainActor
 	static func process(_ pages: [(ScanCapture, UIImage)], placeholderTitle: String? = nil) async {
 		var queued: [Int] = []
@@ -76,8 +78,26 @@ enum PageOCR {
 			RecognitionTracker.shared.begin(id)
 			queued.append(PageRevisions.shared.revision(of: id))
 		}
+		// Each scan's pages in this batch, and whether they're all it has (a new scan).
+		var batches: [(scan: Scan, pages: [ScanCapture], isNewScan: Bool)] = []
+		for (capture, _) in pages {
+			guard let scan = capture.parent else { continue }
+			if let index = batches.firstIndex(where: { $0.scan == scan }) {
+				batches[index].pages.append(capture)
+			} else {
+				batches.append((scan: scan, pages: [capture], isNewScan: false))
+			}
+		}
+		for index in batches.indices {
+			let batch = Set(batches[index].pages.map(\.objectID))
+			batches[index].isNewScan = batches[index].scan.capturesArray.allSatisfy { batch.contains($0.objectID) }
+		}
 		for ((capture, image), revision) in zip(pages, queued) {
 			await process(capture, image: image, placeholderTitle: placeholderTitle, revision: revision)
+		}
+		for batch in batches {
+			guard let context = batch.scan.managedObjectContext else { continue }
+			await AutoTags.apply(to: batch.scan, pages: batch.pages, isNewScan: batch.isNewScan, in: context)
 		}
 	}
 

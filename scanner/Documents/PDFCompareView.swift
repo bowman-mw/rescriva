@@ -3,9 +3,9 @@
 //  Rescriva (fork of Open Scanner)
 //
 //  Two PDFs side by side. When they're versions of one document (`PDFCompare`), each change is
-//  marked the way the Compare Doc design shows it: a few words read differently in goldenrod on
-//  both sides, added words in lichen on the right, removed words struck out on the left, and the
-//  change you're on ringed in moss. A wide screen (iPad in landscape, Mac) lists the changes beside
+//  marked the way the Compare Doc design shows it: a few words read differently in highlighter on
+//  both sides, added words in wash on the right, removed words struck out on the left, and the
+//  change you're on ringed in ink. A wide screen (iPad in landscape, Mac) lists the changes beside
 //  the two; an iPad in portrait puts the two one above the other under a strip of the changes; a
 //  half-and-half screen (the unfolded Duo) or a phone steps through them from a bar below.
 //  Rescriva runs on iPad and Mac as an iPhone app, which gets one window, so the two share a screen.
@@ -111,7 +111,7 @@ struct PDFCompareView: View {
 			BackPill(title: backTitle) { router.pop() }
 			Text(title)
 				.font(RescrivaFont.header(layout == .stacked ? 20 : 24))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.lineLimit(1)
 				.frame(maxWidth: .infinity, alignment: .leading)
 				.layoutPriority(-1)
@@ -122,10 +122,10 @@ struct PDFCompareView: View {
 				ShareLink(item: report) {
 					Text("Export report")
 						.font(RescrivaFont.ui(14, weight: .medium))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.padding(.horizontal, 14)
 						.frame(height: 36)
-						.background(Color.cream, in: Capsule())
+						.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 						.rescrivaShadow(.small)
 				}
 			}
@@ -148,7 +148,7 @@ struct PDFCompareView: View {
 			ForEach(CompareStyle.legend, id: \.label) { entry in
 				HStack(spacing: 6) {
 					RoundedRectangle(cornerRadius: 4).fill(entry.color).frame(width: 14, height: 14)
-					Text(entry.label).font(RescrivaFont.ui(13)).foregroundStyle(.bark)
+					Text(entry.label).font(RescrivaFont.ui(13)).foregroundStyle(.carbon)
 				}
 			}
 		}
@@ -195,11 +195,10 @@ struct PDFCompareView: View {
 			}
 			Button { router.replaceTop(with: .pdfCompare(right, left)) } label: { Label("Swap sides", systemImage: "arrow.left.arrow.right") }
 		} label: {
-			Image(systemName: "ellipsis")
-				.font(.system(size: 17, weight: .regular))
-				.foregroundStyle(.bark)
+			Glyph("ellipsis", size: 17, weight: .regular)
+				.foregroundStyle(.carbon)
 				.frame(width: 40, height: 40)
-				.background(Color.cream, in: Circle())
+				.background(Color.vellum, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				.rescrivaShadow(.small)
 		}
 		.accessibilityLabel("More")
@@ -243,14 +242,14 @@ struct PDFCompareView: View {
 			}
 		} else if didLoad {
 			Text("One of these PDFs couldn't be opened. It may be damaged, or it was removed.")
-				.font(RescrivaFont.bubble(16))
-				.foregroundStyle(.slate)
+				.font(RescrivaFont.note(16))
+				.foregroundStyle(.graphite)
 				.multilineTextAlignment(.center)
 				.padding(40)
 				.frame(maxHeight: .infinity)
 		} else {
 			ProgressView()
-				.tint(.moss)
+				.tint(.ink)
 				.frame(maxHeight: .infinity)
 		}
 	}
@@ -259,13 +258,13 @@ struct PDFCompareView: View {
 		VStack(alignment: .leading, spacing: 6) {
 			Text(caption(side, document: document))
 				.font(RescrivaFont.ui(12, weight: .medium))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 				.lineLimit(1)
 				.padding(.leading, 4)
 			if document.isLocked {
 				Text("This PDF is locked. Open it on its own to unlock it.")
 					.font(RescrivaFont.ui(14))
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 					.multilineTextAlignment(.center)
 					.padding(24)
 					.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -303,9 +302,9 @@ struct PDFCompareView: View {
 		VStack(alignment: .leading, spacing: 8) {
 			if let comparison, comparison.hasText, comparison.isSameDocument || comparesAnyway, !marks.isEmpty {
 				HStack(alignment: .firstTextBaseline) {
-					Text("\(marks.count) changes").font(RescrivaFont.header(20)).foregroundStyle(.bark)
+					Text("\(marks.count) changes").font(RescrivaFont.header(20)).foregroundStyle(.carbon)
 					Spacer()
-					Text(position).font(RescrivaFont.ui(12)).foregroundStyle(.slate)
+					Text(position).font(RescrivaFont.ui(12)).foregroundStyle(.graphite)
 				}
 				.padding(.horizontal, 4)
 				ScrollViewReader { reader in
@@ -333,7 +332,7 @@ struct PDFCompareView: View {
 		}
 		.padding(16)
 		.frame(maxHeight: .infinity, alignment: .top)
-		.background(Color.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+		.background(Color.vellum, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 		.rescrivaShadow(.small)
 	}
 
@@ -344,22 +343,22 @@ struct PDFCompareView: View {
 			VStack(alignment: .leading, spacing: 4) {
 				HStack(spacing: 8) {
 					RoundedRectangle(cornerRadius: 3).fill(CompareStyle.dot(change.kind)).frame(width: 10, height: 10)
-					Text(CompareStyle.label(change.kind)).font(RescrivaFont.ui(14, weight: .medium)).foregroundStyle(.bark)
+					Text(CompareStyle.label(change.kind)).font(RescrivaFont.ui(14, weight: .medium)).foregroundStyle(.carbon)
 					Spacer(minLength: 4)
-					Text("p. \(change.page)").font(RescrivaFont.ui(11)).foregroundStyle(.slate)
+					Text("p. \(change.page)").font(RescrivaFont.ui(11)).foregroundStyle(.graphite)
 				}
 				Text(change.summary)
-					.font(RescrivaFont.bubble(14))
-					.foregroundStyle(Color.bark.opacity(0.8))
+					.font(RescrivaFont.note(14))
+					.foregroundStyle(Color.carbon.opacity(0.8))
 					.lineLimit(2)
 					.multilineTextAlignment(.leading)
 			}
 			.padding(.vertical, 10)
 			.padding(.horizontal, 12)
 			.frame(maxWidth: .infinity, alignment: .leading)
-			.background(isCurrent ? Color.lichen.opacity(0.55) : Color.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+			.background(isCurrent ? Color.wash.opacity(0.55) : Color.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 			.overlay {
-				if isCurrent { RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.moss, lineWidth: 1.5) }
+				if isCurrent { RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.ink, lineWidth: 1.5) }
 			}
 		}
 		.buttonStyle(.plain)
@@ -369,10 +368,10 @@ struct PDFCompareView: View {
 		Button(action: action) {
 			Text(title)
 				.font(RescrivaFont.ui(14, weight: .medium))
-				.foregroundStyle(filled ? Color.cream : Color.bark)
+				.foregroundStyle(filled ? Color.vellum : Color.carbon)
 				.frame(maxWidth: .infinity)
 				.frame(height: 42)
-				.background(filled ? Color.moss : Color.parchment, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+				.background(filled ? Color.ink : Color.stock, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.94))
 	}
@@ -383,10 +382,10 @@ struct PDFCompareView: View {
 		VStack(alignment: .leading, spacing: 12) {
 			if !marks.isEmpty, showsDifferences {
 				HStack(alignment: .firstTextBaseline, spacing: 16) {
-					Text("\(marks.count) changes").font(RescrivaFont.header(20)).foregroundStyle(.bark)
+					Text("\(marks.count) changes").font(RescrivaFont.header(20)).foregroundStyle(.carbon)
 					legend
 					Spacer()
-					Text(position).font(RescrivaFont.ui(12)).foregroundStyle(.slate)
+					Text(position).font(RescrivaFont.ui(12)).foregroundStyle(.graphite)
 				}
 				changeChips
 				currentChange(summarySize: 17)
@@ -396,7 +395,7 @@ struct PDFCompareView: View {
 		}
 		.padding(16)
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.background(Color.cream, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+		.background(Color.vellum, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 		.rescrivaShadow(.small)
 	}
 
@@ -410,13 +409,13 @@ struct PDFCompareView: View {
 						Button { show(index) } label: {
 							HStack(spacing: 8) {
 								RoundedRectangle(cornerRadius: 3).fill(CompareStyle.dot(change.kind)).frame(width: 10, height: 10)
-								Text(change.short).font(RescrivaFont.ui(13, weight: .medium)).foregroundStyle(.bark).lineLimit(1)
+								Text(change.short).font(RescrivaFont.ui(13, weight: .medium)).foregroundStyle(.carbon).lineLimit(1)
 							}
 							.padding(.vertical, 8)
 							.padding(.horizontal, 12)
-							.background(index == current ? Color.lichen.opacity(0.55) : Color.parchment, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+							.background(index == current ? Color.wash.opacity(0.55) : Color.stock, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 							.overlay {
-								if index == current { RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.moss, lineWidth: 1.5) }
+								if index == current { RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.ink, lineWidth: 1.5) }
 							}
 						}
 						.buttonStyle(PressScaleStyle(scale: 0.94))
@@ -439,8 +438,8 @@ struct PDFCompareView: View {
 			roundStep("chevron.left", label: "Previous change", filled: false) { step(by: -1) }
 			VStack(alignment: .leading, spacing: 2) {
 				if let index = current, let change = marks[safe: index] {
-					Text("p. \(change.page) · \(CompareStyle.label(change.kind))").font(RescrivaFont.ui(12, weight: .medium)).foregroundStyle(.slate)
-					Text(change.summary).font(RescrivaFont.bubble(summarySize)).foregroundStyle(.bark).lineLimit(2)
+					Text("p. \(change.page) · \(CompareStyle.label(change.kind))").font(RescrivaFont.ui(12, weight: .medium)).foregroundStyle(.graphite)
+					Text(change.summary).font(RescrivaFont.note(summarySize)).foregroundStyle(.carbon).lineLimit(2)
 				}
 			}
 			.frame(maxWidth: .infinity, alignment: .leading)
@@ -458,10 +457,10 @@ struct PDFCompareView: View {
 				VStack(alignment: .leading, spacing: 2) {
 					HStack(spacing: 8) {
 						RoundedRectangle(cornerRadius: 3).fill(CompareStyle.dot(change.kind)).frame(width: 10, height: 10)
-						Text(CompareStyle.label(change.kind)).font(RescrivaFont.ui(15, weight: .medium)).foregroundStyle(.bark)
-						Text("p. \(change.page) · \(position)").font(RescrivaFont.ui(12)).foregroundStyle(.slate)
+						Text(CompareStyle.label(change.kind)).font(RescrivaFont.ui(15, weight: .medium)).foregroundStyle(.carbon)
+						Text("p. \(change.page) · \(position)").font(RescrivaFont.ui(12)).foregroundStyle(.graphite)
 					}
-					Text(change.summary).font(RescrivaFont.bubble(15)).foregroundStyle(.bark).lineLimit(1)
+					Text(change.summary).font(RescrivaFont.note(15)).foregroundStyle(.carbon).lineLimit(1)
 				}
 				.frame(maxWidth: .infinity, alignment: .leading)
 			} else {
@@ -475,17 +474,16 @@ struct PDFCompareView: View {
 		.padding(.vertical, 14)
 		.padding(.horizontal, 16)
 		.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-		.background(Color.cream.opacity(0.6), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+		.background(Color.vellum.opacity(0.6), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
 		.rescrivaShadow(.small)
 	}
 
 	private func roundStep(_ systemName: String, label: LocalizedStringKey, filled: Bool, action: @escaping () -> Void) -> some View {
 		Button(action: action) {
-			Image(systemName: systemName)
-				.font(.system(size: 18, weight: .regular))
-				.foregroundStyle(filled ? Color.cream : Color.bark)
+			Glyph(systemName, size: 18, weight: .regular)
+				.foregroundStyle(filled ? Color.vellum : Color.carbon)
 				.frame(width: 44, height: 44)
-				.background(filled ? Color.moss : Color.parchment, in: Circle())
+				.background(filled ? Color.ink : Color.stock, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.92))
 		.accessibilityLabel(Text(label))
@@ -495,18 +493,18 @@ struct PDFCompareView: View {
 	@ViewBuilder
 	private var statusCard: some View {
 		VStack(alignment: .leading, spacing: 6) {
-			Text(status.title).font(RescrivaFont.header(18)).foregroundStyle(.bark)
+			Text(status.title).font(RescrivaFont.header(18)).foregroundStyle(.carbon)
 			if let detail = status.detail {
-				Text(detail).font(RescrivaFont.ui(13)).foregroundStyle(.slate).fixedSize(horizontal: false, vertical: true)
+				Text(detail).font(RescrivaFont.ui(13)).foregroundStyle(.graphite).fixedSize(horizontal: false, vertical: true)
 			}
 			if let comparison, comparison.hasText, !comparison.isSameDocument, !comparesAnyway {
 				Button { Task { await compareAnyway() } } label: {
 					Text("Compare anyway")
 						.font(RescrivaFont.ui(14, weight: .medium))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.padding(.horizontal, 14)
 						.frame(height: 36)
-						.background(Color.parchment, in: Capsule())
+						.background(Color.stock, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 				}
 				.buttonStyle(PressScaleStyle(scale: 0.94))
 				.padding(.top, 4)
@@ -642,18 +640,19 @@ struct PDFCompareView: View {
 	}
 }
 
-/// The Compare Doc design's colours and names for each kind of change.
+/// The Compare Doc design's colours and names for each kind of change. The fills are marks on the
+/// page, so they're drawn in their paper colours whatever the screen's appearance.
 enum CompareStyle {
-	static let goldenrod = UIColor(Color.goldenrod)
-	static let lichen = UIColor(Color.lichen)
-	static let terracotta = UIColor(Color.terracotta)
+	static let highlighter = RescrivaPalette.highlighter.onPaper
+	static let bluePencil = RescrivaPalette.bluePencil.onPaper
+	static let vermilion = RescrivaPalette.vermilion.onPaper
 
 	/// The fill behind a change's words on one side.
 	static func fill(_ kind: PDFCompare.Kind, isLeft: Bool) -> UIColor {
-		let added = lichen.withAlphaComponent(0.8)
-		let removed = terracotta.withAlphaComponent(0.12)
+		let added = bluePencil.withAlphaComponent(0.24)
+		let removed = vermilion.withAlphaComponent(0.12)
 		switch kind {
-		case .changed: return goldenrod.withAlphaComponent(0.32)
+		case .changed: return highlighter.withAlphaComponent(0.36)
 		case .added: return added
 		case .removed: return removed
 		case .rewritten: return isLeft ? removed : added
@@ -663,9 +662,9 @@ enum CompareStyle {
 	/// The little square beside a change in the list.
 	static func dot(_ kind: PDFCompare.Kind) -> Color {
 		switch kind {
-		case .changed: return Color.goldenrod.opacity(0.75)
-		case .added: return .fern
-		case .removed, .rewritten: return .terracotta
+		case .changed: return Color.highlighter
+		case .added: return .bluePencil
+		case .removed, .rewritten: return .vermilion
 		}
 	}
 
@@ -679,9 +678,9 @@ enum CompareStyle {
 	}
 
 	static let legend: [(label: String, color: Color)] = [
-		(String(localized: "Changed"), Color.goldenrod.opacity(0.45)),
-		(String(localized: "Added"), Color.lichen),
-		(String(localized: "Removed"), Color.terracotta.opacity(0.25)),
+		(String(localized: "Changed"), Color.highlighter.opacity(0.5)),
+		(String(localized: "Added"), Color.bluePencil.opacity(0.3)),
+		(String(localized: "Removed"), Color.vermilion.opacity(0.25)),
 	]
 }
 
@@ -754,7 +753,7 @@ struct PDFComparePane: UIViewRepresentable {
 			added = []
 			for selection in strikes {
 				for page in selection.pages {
-					for mark in PDFMarkupFactory.textMarks(.strikeOut, over: selection, on: page, color: CompareStyle.terracotta) {
+					for mark in PDFMarkupFactory.textMarks(.strikeOut, over: selection, on: page, color: CompareStyle.vermilion) {
 						add(mark, to: page)
 					}
 				}
@@ -771,10 +770,10 @@ struct PDFComparePane: UIViewRepresentable {
 			added.append((annotation, page))
 		}
 
-		/// A moss ring around `bounds` (page space), drawn just outside the words.
+		/// A ink ring around `bounds` (page space), drawn just outside the words.
 		private static func ring(around bounds: CGRect) -> PDFAnnotation {
 			let annotation = PDFAnnotation(bounds: bounds.insetBy(dx: -2.5, dy: -2), forType: .square, withProperties: nil)
-			annotation.color = UIColor(Color.moss)
+			annotation.color = RescrivaPalette.ink.onPaper
 			let border = PDFBorder()
 			border.lineWidth = 1.5
 			annotation.border = border
@@ -798,7 +797,7 @@ struct PDFComparePicker: View {
 			HStack {
 				Text("Compare with")
 					.font(RescrivaFont.header(22))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 				Spacer()
 				CircleIconButton(systemName: "xmark", label: "Close") { dismiss() }
 			}
@@ -820,14 +819,14 @@ struct PDFComparePicker: View {
 					if pdfs.isEmpty && otherScans.isEmpty {
 						Text("Open a PDF or scan something to compare it with this.")
 							.font(RescrivaFont.ui(14))
-							.foregroundStyle(.slate)
+							.foregroundStyle(.graphite)
 							.padding(.top, 24)
 					}
 				}
 			}
 		}
 		.padding(20)
-		.background(Color.parchment)
+		.background(Color.stock)
 	}
 
 	/// Every PDF but the one being compared.
@@ -847,16 +846,16 @@ struct PDFComparePicker: View {
 			VStack(alignment: .leading, spacing: 2) {
 				Text(title)
 					.font(RescrivaFont.ui(15, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.lineLimit(1)
 				Text(detail)
 					.font(RescrivaFont.ui(12))
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 					.lineLimit(1)
 			}
 			.frame(maxWidth: .infinity, alignment: .leading)
 			.padding(14)
-			.background(Color.cream, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+			.background(Color.vellum, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 		}
 		.buttonStyle(PressScaleStyle(scale: 0.98))
 	}

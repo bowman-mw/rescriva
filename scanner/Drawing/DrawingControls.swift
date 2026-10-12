@@ -10,7 +10,7 @@
 
 import SwiftUI
 
-/// A tool or format button: an icon over a short caption, bark when on.
+/// A tool or format button: an icon over a short caption, carbon when on.
 struct DrawingButton<Icon: View>: View {
 	let title: LocalizedStringKey
 	var isOn = false
@@ -28,10 +28,10 @@ struct DrawingButton<Icon: View>: View {
 					.font(RescrivaFont.ui(10.5, weight: .medium))
 					.lineLimit(1)
 			}
-			.foregroundStyle(isOn ? Color.cream : (isDestructive ? Color.terracotta : Color.bark))
+			.foregroundStyle(isOn ? Color.vellum : (isDestructive ? Color.vermilion : Color.carbon))
 			.frame(minWidth: 52, minHeight: 50)
 			.padding(.horizontal, 4)
-			.background(isOn ? Color.bark : Color.cream, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+			.background(isOn ? Color.carbon : Color.vellum, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 			.animation(RescrivaMotion.fast, value: isOn)
 		}
 		.buttonStyle(PressScaleStyle())
@@ -90,9 +90,9 @@ struct ShapePalette: View {
 						onPick(shape)
 					} label: {
 						ShapeIcon(shape: shape, width: 32, height: 22)
-							.foregroundStyle(.bark)
+							.foregroundStyle(.carbon)
 							.frame(width: 48, height: 42)
-							.background(selected == shape ? Color.lichen : Color.parchment,
+							.background(selected == shape ? Color.wash : Color.stock,
 										in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 					}
 					.buttonStyle(PressScaleStyle())
@@ -103,7 +103,7 @@ struct ShapePalette: View {
 		}
 		.padding(14)
 		.presentationCompactAdaptation(.popover)
-		.presentationBackground(Color.cream)
+		.presentationBackground(Color.vellum)
 	}
 }
 
@@ -125,9 +125,9 @@ struct ConnectorPalette: View {
 							Text(direction.displayName)
 								.font(RescrivaFont.ui(11, weight: .medium))
 						}
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.frame(width: 78, height: 54)
-						.background(selected == direction ? Color.lichen : Color.parchment,
+						.background(selected == direction ? Color.wash : Color.stock,
 									in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 					}
 					.buttonStyle(PressScaleStyle())
@@ -138,7 +138,7 @@ struct ConnectorPalette: View {
 		}
 		.padding(14)
 		.presentationCompactAdaptation(.popover)
-		.presentationBackground(Color.cream)
+		.presentationBackground(Color.vellum)
 	}
 }
 
@@ -160,7 +160,7 @@ struct ColourPalette: View {
 		}
 		.padding(14)
 		.presentationCompactAdaptation(.popover)
-		.presentationBackground(Color.cream)
+		.presentationBackground(Color.vellum)
 	}
 
 	private func swatches(_ list: [DrawingPalette.Swatch], selected: RGBColor?, pick: @escaping (DrawingPalette.Swatch) -> Void) -> some View {
@@ -187,15 +187,15 @@ struct SwatchDot: View {
 	var body: some View {
 		ZStack {
 			Circle().fill(color?.swiftUI ?? Color.paper)
-			Circle().strokeBorder(Color.bark.opacity(0.18), lineWidth: 1)
+			Circle().strokeBorder(Color.rim, lineWidth: 1)
 			if color == nil {
-				Rectangle().fill(Color.terracotta).frame(width: 1.5, height: 30).rotationEffect(.degrees(45))
+				Rectangle().fill(Color.vermilion).frame(width: 1.5, height: 30).rotationEffect(.degrees(45))
 			}
 		}
 		.frame(width: 30, height: 30)
 		.clipShape(Circle())
 		.padding(3)
-		.overlay { Circle().strokeBorder(isSelected ? Color.moss : Color.clear, lineWidth: 2) }
+		.overlay { Circle().strokeBorder(isSelected ? Color.ink : Color.clear, lineWidth: 2) }
 	}
 }
 
@@ -223,17 +223,17 @@ struct BackdropControls: View {
 			Toggle(isOn: $isShown) {
 				Text("Show the original")
 					.font(RescrivaFont.ui(15, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 			}
 			.toggleStyle(RescrivaToggleStyle())
 			VStack(alignment: .leading, spacing: 6) {
 				HStack {
-					Text("See-through").font(RescrivaFont.ui(13)).foregroundStyle(.slate)
+					Text("See-through").font(RescrivaFont.ui(13)).foregroundStyle(.graphite)
 					Spacer()
-					Text("\(Int((opacity * 100).rounded()))%").font(RescrivaFont.ui(13, weight: .medium)).foregroundStyle(.bark)
+					Text("\(Int((opacity * 100).rounded()))%").font(RescrivaFont.ui(13, weight: .medium)).foregroundStyle(.carbon)
 				}
 				Slider(value: $opacity, in: 0.1...0.8)
-					.tint(.moss)
+					.tint(.ink)
 					.accessibilityLabel(Text("Original's opacity"))
 			}
 			.disabled(!isShown)
@@ -242,6 +242,6 @@ struct BackdropControls: View {
 		.padding(16)
 		.frame(width: 270)
 		.presentationCompactAdaptation(.popover)
-		.presentationBackground(Color.cream)
+		.presentationBackground(Color.vellum)
 	}
 }

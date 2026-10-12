@@ -2,10 +2,13 @@
 //  CaptureView.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  The Capture screen: a calm dark surround, the live camera with the page
-//  outlined in fern, auto-capture once the page is steady, document or
-//  whiteboard mode, and a stack of captured pages to Save. Replaces Open
-//  Scanner's VisionKit document camera (PageScan) with Rescriva's own camera.
+//  The Capture screen: a calm darkroom surround, the live camera with the
+//  page marked in highlighter, auto-capture once the page is steady,
+//  document or whiteboard mode, and a stack of captured pages to Save. Each
+//  page taken is held up in the viewfinder while a scan bar passes over it,
+//  then drops onto the stack. The screen is always dark, so it's drawn in
+//  chalk. Replaces Open Scanner's VisionKit document camera (PageScan) with
+//  Rescriva's own camera.
 //
 
 import CoreImage
@@ -23,7 +26,11 @@ struct CaptureView: View {
 	@State private var mode: CaptureKind
 	@State private var auto: Bool
 	@State private var captured: [CapturedPage] = []
-	@State private var flash = false
+	/// Counts shots; each one flashes the viewfinder softly.
+	@State private var shots = 0
+	/// The page just taken, held up in the viewfinder while the scan bar passes over it.
+	@State private var held: HeldPage?
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 	@State private var isCapturing = false
 	/// Set once Save hands the pages (and their staged originals) to a scan.
 	@State private var handedOff = false
@@ -46,7 +53,7 @@ struct CaptureView: View {
 
 	var body: some View {
 		ZStack {
-			Color.midnight.ignoresSafeArea()
+			Color.darkroom.ignoresSafeArea()
 			VStack(spacing: 0) {
 				topBar
 				viewfinder
@@ -72,24 +79,23 @@ struct CaptureView: View {
 		HStack {
 			Button("Cancel") { router.pop() }
 				.font(RescrivaFont.ui(14, weight: .medium))
-				.foregroundStyle(.cream)
+				.foregroundStyle(.chalk)
 				.frame(height: 36)
 				.padding(.horizontal, 16)
-				.background(Color.cream.opacity(0.12), in: Capsule())
+				.background(Color.chalk.opacity(0.12), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			Spacer()
 			Button {
 				withAnimation(RescrivaMotion.ui) { auto.toggle() }
 			} label: {
 				HStack(spacing: 6) {
-					Image(systemName: "bolt.fill")
-						.font(.system(size: 12))
+					Glyph("bolt.fill", size: 11)
 					Text(auto ? "Auto" : "Manual")
 						.font(RescrivaFont.ui(13, weight: .medium))
 				}
-				.foregroundStyle(auto ? Color.bark : Color.cream)
+				.foregroundStyle(auto ? Color.printInk : Color.chalk)
 				.frame(height: 36)
 				.padding(.horizontal, 14)
-				.background(auto ? Color.goldenrod : Color.cream.opacity(0.12), in: Capsule())
+				.background(auto ? Color.highlighter : Color.chalk.opacity(0.12), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			}
 			.accessibilityLabel(auto ? "Auto-capture on" : "Auto-capture off")
 		}
@@ -100,7 +106,7 @@ struct CaptureView: View {
 
 	private var viewfinder: some View {
 		ZStack(alignment: .bottom) {
-			Color(hex: 0x2A2F3C)
+			Color(hex: 0x24272D)
 			if isDemo {
 				DemoViewfinder(whiteboard: mode == .whiteboard)
 			} else {
@@ -113,22 +119,33 @@ struct CaptureView: View {
 					cameraMessage(reason, showsSettings: false)
 				default:
 					CameraPreviewView(session: camera.session, quad: camera.quad, isSteady: camera.isSteady)
-				}
-			}
-			Text(hint)
-				.font(RescrivaFont.bubble(15))
-				.foregroundStyle(.cream)
-				.padding(.vertical, 8)
-				.padding(.horizontal, 14)
-				.background(.ultraThinMaterial.opacity(0.6), in: Capsule())
-				.background(Color.midnight.opacity(0.6), in: Capsule())
-				.padding(.bottom, 18)
-				.animation(RescrivaMotion.ui, value: hint)
-				.accessibilityAddTraits(.updatesFrequently)
-			Color.cream
-				.opacity(flash ? 0.85 : 0)
-				.allowsHitTesting(false)
-				.animation(.easeOut(duration: 0.28), value: flash)
+						}
+					}
+					ShutterFlash(trigger: shots)
+					// The viewfinder dims behind the page and fades back: only the page shrinks away.
+					if held != nil {
+						Color.darkroom.opacity(0.55)
+							.allowsHitTesting(false)
+							.accessibilityHidden(true)
+							.transition(.opacity)
+					}
+					if let held {
+						HeldPageView(image: held.image)
+							.id(held.id)
+							.transition(AnyTransition.asymmetric(
+								insertion: .opacity,
+								removal: reduceMotion ? AnyTransition.opacity : AnyTransition.scale(scale: 0.2, anchor: .bottomLeading).combined(with: .opacity)))
+					}
+					Text(hint)
+						.font(RescrivaFont.note(15))
+						.foregroundStyle(.chalk)
+						.padding(.vertical, 8)
+						.padding(.horizontal, 14)
+						.background(.ultraThinMaterial.opacity(0.6), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
+						.background(Color.darkroom.opacity(0.6), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
+						.padding(.bottom, 18)
+						.animation(RescrivaMotion.ui, value: hint)
+						.accessibilityAddTraits(.updatesFrequently)
 		}
 		.clipShape(RoundedRectangle(cornerRadius: RescrivaRadius.large, style: .continuous))
 		.padding(.horizontal, 14)
@@ -137,40 +154,30 @@ struct CaptureView: View {
 	private func cameraMessage(_ text: String, showsSettings: Bool) -> some View {
 		VStack(spacing: 14) {
 			Text(text)
-				.font(RescrivaFont.bubble(16))
-				.foregroundStyle(.cream)
+				.font(RescrivaFont.note(16))
+				.foregroundStyle(.chalk)
 				.multilineTextAlignment(.center)
 			if showsSettings, let url = URL(string: UIApplication.openSettingsURLString) {
 				Button("Open Settings") { openURL(url) }
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.printInk)
 					.padding(.vertical, 10)
 					.padding(.horizontal, 18)
-					.background(Color.cream, in: Capsule())
+					.background(Color.chalk, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 			}
 		}
 		.padding(32)
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 	}
 
+	/// Document or whiteboard, as tabs in chalk with a highlighter stroke under the one chosen.
 	private var modeChips: some View {
-		HStack(spacing: 6) {
-			ForEach([CaptureKind.document, .whiteboard], id: \.self) { option in
-				Button {
-					withAnimation(RescrivaMotion.ui) { mode = option }
-				} label: {
-					Text(option == .document ? "Document" : "Whiteboard")
-						.font(RescrivaFont.ui(13, weight: .medium))
-						.foregroundStyle(mode == option ? Color.bark : Color.cream)
-						.padding(.vertical, 7)
-						.padding(.horizontal, 14)
-						.background(mode == option ? Color.cream : Color.cream.opacity(0.10), in: Capsule())
-				}
-				.accessibilityAddTraits(mode == option ? .isSelected : [])
-			}
-		}
-		.padding(.top, 16)
-		.padding(.bottom, 4)
+		RescrivaSegmentedPicker(options: [CaptureKind.document, .whiteboard], selection: $mode,
+								label: { $0 == .document ? "Document" : "Whiteboard" },
+								stroke: .highlighter, chosenText: .chalk, otherText: Color.chalk.opacity(0.6))
+			.frame(width: 240)
+			.padding(.top, 12)
+			.padding(.bottom, 2)
 	}
 
 	private var bottomControls: some View {
@@ -180,8 +187,8 @@ struct CaptureView: View {
 			Spacer()
 			Button(action: { Task { await capture() } }) {
 				ZStack {
-					Circle().strokeBorder(Color.cream, lineWidth: 4)
-					Circle().fill(Color.cream).padding(8)
+					Circle().strokeBorder(Color.chalk, lineWidth: 4)
+					Circle().fill(Color.chalk).padding(8)
 				}
 				.frame(width: 78, height: 78)
 			}
@@ -192,9 +199,9 @@ struct CaptureView: View {
 			Button(action: save) {
 				Text("Save")
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(captured.isEmpty ? Color.cream.opacity(0.4) : Color.bark)
+					.foregroundStyle(captured.isEmpty ? Color.chalk.opacity(0.4) : Color.printInk)
 					.frame(width: 64, height: 40)
-					.background(captured.isEmpty ? Color.cream.opacity(0.12) : Color.cream, in: Capsule())
+					.background(captured.isEmpty ? Color.chalk.opacity(0.12) : Color.chalk, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
 					.animation(RescrivaMotion.ui, value: captured.isEmpty)
 			}
 			.disabled(captured.isEmpty)
@@ -210,7 +217,7 @@ struct CaptureView: View {
 		if let last = captured.last {
 			ZStack(alignment: .topTrailing) {
 				ZStack {
-					RoundedRectangle(cornerRadius: 4)
+					FoldedSheet(radius: 3, fold: 8)
 						.fill(Color.paper.opacity(0.7))
 						.padding(EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 10))
 						.rotationEffect(.degrees(-6))
@@ -218,18 +225,18 @@ struct CaptureView: View {
 						.resizable()
 						.scaledToFill()
 						.frame(width: 48, height: 52)
-						.clipShape(RoundedRectangle(cornerRadius: 4))
+						.foldedPage(radius: 3, fold: 8)
 						.shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
 						.rotationEffect(.degrees(3))
 				}
 				Text("\(captured.count)")
 					.font(RescrivaFont.ui(12, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.printInk)
 					.frame(minWidth: 22, minHeight: 22)
-					.background(Color.goldenrod, in: Capsule())
+					.background(Color.highlighter, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
 					.offset(x: 4, y: -4)
 			}
-			.transition(.floatIn)
+			.transition(.settle)
 			.accessibilityElement(children: .ignore)
 			.accessibilityLabel("\(captured.count) pages captured")
 		}
@@ -286,33 +293,40 @@ struct CaptureView: View {
 		guard !isCapturing else { return }
 		isCapturing = true
 		defer { isCapturing = false }
-		flash = true
+		shots += 1
 		UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-		Task {
-			do {
-				try await Task.sleep(for: .milliseconds(160))
-			} catch {
-				// Cancelled: clear the flash anyway.
-			}
-			flash = false
-		}
 		if isDemo {
 			let page = await Self.demoPage(SampleLibrary.demoCapture(whiteboard: mode == .whiteboard, index: captured.count))
 			// The screen may have closed while the page was made; then nobody will save it.
-			guard router.isCameraVisible, !handedOff else {
-				OriginalStore.shared.discardLater([page.original].compactMap { $0 })
+				guard router.isCameraVisible, !handedOff else {
+					OriginalStore.shared.discardLater([page.original].compactMap { $0 })
+					return
+				}
+				withAnimation(RescrivaMotion.ui) { captured.append(page) }
+				hold(page.image)
 				return
 			}
-			withAnimation(RescrivaMotion.ui) { captured.append(page) }
-			return
-		}
-		do {
-			let page = try await camera.capturePage()
-			withAnimation(RescrivaMotion.ui) { captured.append(page) }
+			do {
+				let page = try await camera.capturePage()
+				withAnimation(RescrivaMotion.ui) { captured.append(page) }
+				hold(page.image)
 		} catch is CancellationError {
 			// The camera stopped while the shot was processed: the screen is closing.
 		} catch {
 			router.showToast(String(localized: "That shot didn’t take — try again."))
+		}
+	}
+
+	/// Holds the page just taken up in the viewfinder while the scan bar passes over it, then lets it
+	/// drop onto the stack. The page is already in the stack, so Save never waits for this.
+	private func hold(_ image: UIImage) {
+		let page = HeldPage(image: image)
+		withAnimation(RescrivaMotion.fast) { held = page }
+		Task {
+			try? await Task.sleep(for: .milliseconds(reduceMotion ? 500 : 1150))
+			// A newer page took its place: that one leaves on its own schedule.
+			guard held?.id == page.id else { return }
+			withAnimation(reduceMotion ? RescrivaMotion.ui : RescrivaMotion.settle) { held = nil }
 		}
 	}
 
@@ -361,17 +375,17 @@ extension CaptureKind {
 	}
 }
 
-/// The design's illustrated viewfinder: a page in perspective with the fern
-/// detection outline. Shown where there's no camera.
+/// The illustrated viewfinder, where there's no camera: a page in perspective
+/// on a desk (or a whiteboard), marked out in highlighter like the live view.
 private struct DemoViewfinder: View {
 	let whiteboard: Bool
 
 	var body: some View {
 		ZStack {
 			if whiteboard {
-				Color(hex: 0x8E9AA6)
+				Color(hex: 0x8E949C)
 			} else {
-				RadialGradient(colors: [Color(hex: 0x5B4A3A), Color(hex: 0x3A2E24)], center: UnitPoint(x: 0.4, y: 0.3), startRadius: 10, endRadius: 420)
+				RadialGradient(colors: [Color(hex: 0x3B3F46), Color(hex: 0x23262B)], center: UnitPoint(x: 0.4, y: 0.3), startRadius: 10, endRadius: 420)
 			}
 			page
 				.frame(width: whiteboard ? 300 : 220, height: whiteboard ? 210 : 300)
@@ -383,38 +397,85 @@ private struct DemoViewfinder: View {
 
 	private var page: some View {
 		ZStack {
-			RoundedRectangle(cornerRadius: 3)
-				.fill(whiteboard ? Color(hex: 0xF4F6F6) : Color.paper)
-				.shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 20)
-			VStack(alignment: .leading, spacing: 9) {
-				Capsule().fill(Color.bark.opacity(0.55)).frame(width: 110, height: 9)
-				ForEach([0.92, 0.84, 0.88], id: \.self) { fraction in
-					Capsule().fill(Color.bark.opacity(0.22)).frame(width: 180 * fraction, height: 4)
+			Group {
+				RoundedRectangle(cornerRadius: 3)
+					.fill(whiteboard ? Color(hex: 0xF4F6F6) : Color.paper)
+					.shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 20)
+				if whiteboard {
+					SketchedFlowchart(seed: 3)
+						.stroke(Color.ink, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+						.padding(28)
+				} else {
+					SketchedNotes(seed: 9)
+						.stroke(Color.ballpoint.opacity(0.8), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+						.padding(.horizontal, 18)
+						.padding(.vertical, 40)
 				}
-				HStack(spacing: 12) {
-					RoundedRectangle(cornerRadius: 6).strokeBorder(whiteboard ? Color.moss : Color.bark.opacity(0.35), lineWidth: 2).frame(width: 70, height: 36)
-					RoundedRectangle(cornerRadius: 18).strokeBorder(whiteboard ? Color.terracotta : Color.bark.opacity(0.35), lineWidth: 2).frame(width: 70, height: 36)
-				}
-				.padding(.top, 10)
-				Capsule().fill(Color.bark.opacity(0.22)).frame(width: 126, height: 4).padding(.top, 8)
-				Capsule().fill(Color.bark.opacity(0.22)).frame(width: 144, height: 4)
 			}
-			.padding(.vertical, 22)
-			.padding(.horizontal, 20)
-			.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+			// The page is paper (or whiteboard): its ink keeps its paper colours under the dark camera.
+			.environment(\.colorScheme, .light)
 			RoundedRectangle(cornerRadius: 4)
-				.fill(Color.fern.opacity(0.10))
-				.overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(Color.fern, lineWidth: 2.5) }
+				.fill(Color.highlighter.opacity(0.10))
+				.overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(Color.highlighter, lineWidth: 2.5) }
 				.padding(-4)
 			GeometryReader { proxy in
 				ForEach(0..<4, id: \.self) { corner in
-					Circle()
-						.fill(Color.cream)
-						.overlay { Circle().strokeBorder(Color.fern, lineWidth: 2.5) }
-						.frame(width: 14, height: 14)
+					RoundedRectangle(cornerRadius: 1.5)
+						.fill(Color.chalk)
+						.overlay { RoundedRectangle(cornerRadius: 1.5).strokeBorder(Color.highlighter, lineWidth: 2.5) }
+						.frame(width: 13, height: 13)
 						.position(x: corner % 2 == 0 ? -2 : proxy.size.width + 2, y: corner < 2 ? -2 : proxy.size.height + 2)
 				}
 			}
 		}
+	}
+}
+
+/// The page just taken, held up in the viewfinder.
+private struct HeldPage: Identifiable {
+	let id = UUID()
+	let image: UIImage
+}
+
+/// The page just taken, cleaned up and squared, held up over the dimmed viewfinder while the scan
+/// bar passes down it.
+private struct HeldPageView: View {
+	let image: UIImage
+	@State private var pass = 0
+
+	var body: some View {
+		Image(uiImage: image)
+			.resizable()
+			.scaledToFit()
+			.overlay { ScanLinePass(trigger: pass, color: .highlighter, trail: 90, duration: 0.95) }
+			.foldedPage(radius: 3, fold: 18)
+			.shadow(color: .black.opacity(0.45), radius: 18, x: 0, y: 12)
+			.padding(.horizontal, 32)
+			.padding(.top, 24)
+			.padding(.bottom, 64)
+			.frame(maxWidth: .infinity, maxHeight: .infinity)
+			.allowsHitTesting(false)
+			.accessibilityHidden(true)
+			// The pass starts once the page is up.
+			.onAppear { pass += 1 }
+	}
+}
+
+/// A soft flash of the viewfinder as the shutter fires.
+private struct ShutterFlash: View {
+	let trigger: Int
+
+	var body: some View {
+		KeyframeAnimator(initialValue: 0.0, trigger: trigger) { opacity in
+			Color.chalk.opacity(opacity)
+		} keyframes: { _ in
+			KeyframeTrack {
+				MoveKeyframe(0.0)
+				LinearKeyframe(0.45, duration: 0.06)
+				CubicKeyframe(0.0, duration: 0.26)
+			}
+		}
+		.allowsHitTesting(false)
+		.accessibilityHidden(true)
 	}
 }

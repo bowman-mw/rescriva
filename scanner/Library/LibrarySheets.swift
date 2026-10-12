@@ -28,7 +28,7 @@ struct LibrarySheetView: View {
 		}
 		.presentationDragIndicator(.visible)
 		.presentationCornerRadius(RescrivaRadius.large)
-		.presentationBackground(Color.cream)
+		.presentationBackground(Color.vellum)
 	}
 }
 
@@ -43,17 +43,16 @@ struct FolderPickerRow: View {
 
 	var body: some View {
 		HStack(spacing: 12) {
-			Image(systemName: symbol)
-				.font(.system(size: 17))
+			Glyph(symbol, size: 17)
 				.foregroundStyle(tint)
 				.frame(width: 26)
 			Text(title)
 				.font(RescrivaFont.ui(16))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 				.lineLimit(1)
 			Spacer(minLength: 0)
 			if isCurrent {
-				Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(.moss)
+				Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(.ink)
 			}
 		}
 		.padding(.leading, CGFloat(depth) * 18)
@@ -81,7 +80,7 @@ struct MoveScansSheet: View {
 			ScrollView {
 				VStack(spacing: 0) {
 					pickerButton(folder: nil) {
-						FolderPickerRow(title: String(localized: "No Folder"), symbol: "tray.full", tint: .slate,
+						FolderPickerRow(title: String(localized: "No Folder"), symbol: "tray.full", tint: .graphite,
 										isCurrent: scans.allSatisfy { $0.folder == nil })
 					}
 					ForEach(Library.tree(in: context)) { row in
@@ -91,14 +90,14 @@ struct MoveScansSheet: View {
 						}
 					}
 				}
-				.background(Color.paper, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
+				.background(Color.stock, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 			}
 			Button {
 				creatingFolder = true
 			} label: {
 				Label("New Folder", systemImage: "folder.badge.plus")
 					.font(RescrivaFont.ui(15, weight: .medium))
-					.foregroundStyle(.moss)
+					.foregroundStyle(.ink)
 			}
 		}
 		.padding(20)
@@ -124,14 +123,15 @@ struct MoveScansSheet: View {
 	}
 
 	private func createAndMove() {
-		let folder = Library.createFolder(named: newName, symbol: "folder", color: .moss, parent: nil, in: context)
+		let folder = Library.createFolder(named: newName, symbol: "folder", color: .ink, parent: nil, in: context)
 		Library.move(scans, to: folder, in: context)
 		onFinished()
 		dismiss()
 	}
 }
 
-/// "Tags": tick tags on or off for every scan given, or make a new one.
+/// "Tags": tick tags on or off for every scan given, or make a new one. Tags Rescriva adds by
+/// itself (`AutoTags`) carry a sparkle, and a line says which they are.
 struct TagScansSheet: View {
 	@Environment(\.managedObjectContext) private var context
 	@Environment(\.dismiss) private var dismiss
@@ -145,7 +145,7 @@ struct TagScansSheet: View {
 						subtitle: scans.count == 1 ? scans.first?.displayTitle : String(localized: "\(scans.count) scans"),
 						trailing: (String(localized: "Done"), { dismiss() }))
 			HStack(spacing: 8) {
-				Text("#").font(RescrivaFont.ui(16, weight: .medium)).foregroundStyle(.moss)
+				Text("#").font(RescrivaFont.ui(16, weight: .medium)).foregroundStyle(.ink)
 				TextField("New tag", text: $draft)
 					.font(RescrivaFont.ui(16))
 					.textInputAutocapitalization(.never)
@@ -154,23 +154,23 @@ struct TagScansSheet: View {
 					.onSubmit { addDraft() }
 				Button("Add") { addDraft() }
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.moss)
+					.foregroundStyle(.ink)
 					.disabled(Library.tagName(draft) == nil)
 			}
 			.padding(.horizontal, 14)
 			.frame(height: 46)
-			.background(Color.paper, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+			.background(Color.stock, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 			ScrollView {
 				VStack(spacing: 0) {
 					ForEach(tags, id: \.objectID) { tag in tagRow(tag) }
 				}
-				.background(Color.paper, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
+				.background(Color.stock, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 			}
-			if tags.isEmpty {
-				Text("No tags yet. Type one above, like exam or todo.")
-					.font(RescrivaFont.bubble(15))
-					.foregroundStyle(.slate)
-			}
+			Text(tags.isEmpty ? "No tags yet. Type one above, like exam or todo. Rescriva tags receipts, invoices, contracts, recipes and whiteboards by itself."
+				 : "Rescriva tags receipts, invoices, contracts, recipes and whiteboards by itself. Add your own, like todo.")
+				.font(RescrivaFont.note(14))
+				.foregroundStyle(.graphite)
+				.fixedSize(horizontal: false, vertical: true)
 		}
 		.padding(20)
 		.presentationDetents([.medium, .large])
@@ -181,12 +181,17 @@ struct TagScansSheet: View {
 		return Button {
 			Library.setTag(tag, on: scans, to: count < scans.count, in: context)
 		} label: {
-			HStack {
-				Text(tag.displayName).font(RescrivaFont.ui(16)).foregroundStyle(.bark)
+			HStack(spacing: 6) {
+				Text(tag.displayName).font(RescrivaFont.ui(16)).foregroundStyle(.carbon)
+				if AutoTags.isAutomatic(tag) {
+					Image(systemName: "sparkle")
+						.font(.system(size: 10, weight: .semibold))
+						.foregroundStyle(.graphite)
+						.accessibilityLabel("Added by Rescriva")
+				}
 				Spacer()
-				Image(systemName: count == scans.count ? "checkmark.circle.fill" : (count > 0 ? "minus.circle.fill" : "circle"))
-					.font(.system(size: 20))
-					.foregroundStyle(count > 0 ? Color.moss : Color.bark.opacity(0.3))
+				Glyph(count == scans.count ? "checkmark.circle.fill" : (count > 0 ? "minus.circle.fill" : "circle"), size: 20)
+					.foregroundStyle(count > 0 ? Color.ink : Color.carbon.opacity(0.3))
 			}
 			.padding(.vertical, 11)
 			.padding(.horizontal, 14)
@@ -227,8 +232,7 @@ struct FolderEditorSheet: View {
 						subtitle: parent.map { String(localized: "Inside \($0.displayName)") },
 						trailing: (String(localized: "Cancel"), { dismiss() }))
 			HStack(spacing: 12) {
-				Image(systemName: symbol)
-					.font(.system(size: 22))
+				Glyph(symbol, size: 22)
 					.foregroundStyle(color.color)
 					.frame(width: 44, height: 44)
 					.background(color.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -238,7 +242,7 @@ struct FolderEditorSheet: View {
 					.onSubmit { save() }
 			}
 			.padding(12)
-			.background(Color.paper, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
+			.background(Color.stock, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 			FolderStylePicker(color: $color, symbol: $symbol)
 			PrimaryButton(title: folder == nil ? "Create Folder" : "Save", height: 50) { save() }
 		}
@@ -273,7 +277,7 @@ struct FolderStylePicker: View {
 							.fill(option.color)
 							.frame(width: 30, height: 30)
 							.padding(3)
-							.overlay { Circle().strokeBorder(color == option ? Color.bark : Color.clear, lineWidth: 2) }
+							.overlay { Circle().strokeBorder(color == option ? Color.carbon : Color.clear, lineWidth: 2) }
 					}
 					.buttonStyle(PressScaleStyle())
 					.accessibilityLabel(Text(option.name))
@@ -286,12 +290,11 @@ struct FolderStylePicker: View {
 					Button {
 						symbol = name
 					} label: {
-						Image(systemName: name)
-							.font(.system(size: 18))
-							.foregroundStyle(symbol == name ? Color.cream : color.color)
+						Glyph(name, size: 18)
+							.foregroundStyle(symbol == name ? Color.vellum : color.color)
 							.frame(maxWidth: .infinity)
 							.frame(height: 42)
-							.background(symbol == name ? color.color : Color.paper,
+							.background(symbol == name ? color.color : Color.stock,
 										in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 					}
 					.buttonStyle(PressScaleStyle())
@@ -316,12 +319,12 @@ struct MoveFolderSheet: View {
 						trailing: (String(localized: "Cancel"), { dismiss() }))
 			ScrollView {
 				VStack(spacing: 0) {
-					target(nil, title: String(localized: "Top Level"), symbol: "square.stack", tint: .slate, depth: 0)
+					target(nil, title: String(localized: "Top Level"), symbol: "square.stack", tint: .graphite, depth: 0)
 					ForEach(Library.tree(in: context)) { row in
 						target(row.folder, title: row.folder.displayName, symbol: row.folder.symbolName, tint: row.folder.tint, depth: row.depth)
 					}
 				}
-				.background(Color.paper, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
+				.background(Color.stock, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 			}
 		}
 		.padding(20)

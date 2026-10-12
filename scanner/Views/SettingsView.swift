@@ -40,7 +40,7 @@ struct SettingsView: View {
 
 					Text("Settings")
 						.font(RescrivaFont.header(30))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 						.padding(.horizontal, 20)
 						.padding(.top, 12)
 						.padding(.bottom, 16)
@@ -88,7 +88,7 @@ struct SettingsView: View {
 				Spacer()
 				Text(tier.displayName)
 					.font(RescrivaFont.ui(12, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.padding(.vertical, 4)
 					.padding(.horizontal, 10)
 					.background(tierChipColor, in: RoundedRectangle(cornerRadius: RescrivaRadius.small, style: .continuous))
@@ -96,7 +96,7 @@ struct SettingsView: View {
 			Text(tier.summary)
 				.font(RescrivaFont.body(17))
 				.lineSpacing(4)
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 			VStack(alignment: .leading, spacing: 6) {
 				capability("Searchable PDF", on: true)
 				capability("Word and Slides from typed pages", on: tier.canRebuild)
@@ -111,22 +111,21 @@ struct SettingsView: View {
 
 	private var tierChipColor: Color {
 		switch tier {
-		case .smart: return .lichen
-		case .basic: return Color.goldenrod.opacity(0.25)
-		case .pdf: return Color.bark.opacity(0.08)
+		case .smart: return .wash
+		case .basic: return Color.highlighter.opacity(0.25)
+		case .pdf: return Color.carbon.opacity(0.08)
 		}
 	}
 
 	private func capability(_ label: LocalizedStringKey, on: Bool) -> some View {
 		HStack(spacing: 10) {
-			Image(systemName: "checkmark")
-				.font(.system(size: 9, weight: .bold))
-				.foregroundStyle(.cream)
+			Glyph("checkmark", size: 9, weight: .bold)
+				.foregroundStyle(.vellum)
 				.frame(width: 18, height: 18)
-				.background(on ? Color.fern : Color.bark.opacity(0.25), in: Circle())
+				.background(on ? Color.bluePencil : Color.carbon.opacity(0.25), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
 			Text(label)
 				.font(RescrivaFont.ui(14))
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 		}
 		.opacity(on ? 1 : 0.45)
 		.accessibilityElement(children: .combine)
@@ -136,15 +135,14 @@ struct SettingsView: View {
 	private var toggles: some View {
 		VStack(spacing: 0) {
 			settingRow("Auto-capture", detail: "Takes the shot once the page is steady", isOn: $autoCapture)
-			Divider().overlay(Color.bark.opacity(0.06))
+			Divider().overlay(Color.carbon.opacity(0.06))
 			settingRow("Remove shadows", detail: "Evens out lighting on paper", isOn: $removeShadows)
-			Divider().overlay(Color.bark.opacity(0.06))
+			Divider().overlay(Color.carbon.opacity(0.06))
 			settingRow("Keep marker colors", detail: "Whiteboard diagrams keep their ink", isOn: $keepMarkerColors)
-			Divider().overlay(Color.bark.opacity(0.06))
-			settingRow("Companion tips", detail: "Little notes about what I see on the page", isOn: $companionTips)
+			Divider().overlay(Color.carbon.opacity(0.06))
+			settingRow("Margin notes", detail: "Little notes about what I see on the page", isOn: $companionTips)
 		}
-		.background(Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
-		.rescrivaShadow(.card)
+		.paperCard()
 		.padding(.horizontal, 16)
 	}
 
@@ -153,10 +151,10 @@ struct SettingsView: View {
 			VStack(alignment: .leading, spacing: 2) {
 				Text(title)
 					.font(RescrivaFont.ui(15, weight: .medium))
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 				Text(detail)
 					.font(RescrivaFont.ui(12))
-					.foregroundStyle(.slate)
+					.foregroundStyle(.graphite)
 			}
 		}
 		.toggleStyle(RescrivaToggleStyle())
@@ -169,20 +167,20 @@ struct SettingsView: View {
 	private var originalsCard: some View {
 		VStack(spacing: 0) {
 			settingRow("Keep originals", detail: "So you can fix a page's crop later. They stay on this iPhone.", isOn: $keepOriginals)
-			Divider().overlay(Color.bark.opacity(0.06))
+			Divider().overlay(Color.carbon.opacity(0.06))
 			HStack(spacing: 12) {
 				VStack(alignment: .leading, spacing: 2) {
 					Text("Space used")
 						.font(RescrivaFont.ui(15, weight: .medium))
-						.foregroundStyle(.bark)
+						.foregroundStyle(.carbon)
 					Text(originalsSummary)
 						.font(RescrivaFont.ui(12))
-						.foregroundStyle(.slate)
+						.foregroundStyle(.graphite)
 				}
 				Spacer(minLength: 0)
 				Button("Remove") { confirmingRemoveOriginals = true }
 					.font(RescrivaFont.ui(14, weight: .medium))
-					.foregroundStyle(.terracotta)
+					.foregroundStyle(.vermilion)
 					.disabled(keptOriginals == 0)
 					.opacity(keptOriginals == 0 ? 0.4 : 1)
 					.accessibilityLabel("Remove originals")
@@ -191,8 +189,7 @@ struct SettingsView: View {
 			.padding(.horizontal, 16)
 			.accessibilityElement(children: .contain)
 		}
-		.background(Color.cream, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
-		.rescrivaShadow(.card)
+		.paperCard()
 		.padding(.horizontal, 16)
 	}
 
@@ -242,21 +239,21 @@ struct SettingsView: View {
 			Text("Everything you scan is read and rebuilt on this iPhone. No accounts, no uploads, no per-page fees.")
 				.font(RescrivaFont.body(16))
 				.lineSpacing(4)
-				.foregroundStyle(.bark)
+				.foregroundStyle(.carbon)
 			Text("Built on Open Scanner by Pencil Research (MIT).")
 				.font(RescrivaFont.ui(13))
 				.lineSpacing(3)
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 			HStack(spacing: 16) {
 				Button("Need help?") { sheet = .help }
 				Button("Acknowledgements") { sheet = .acknowledgements }
 				Button("Privacy") { sheet = .privacy }
 			}
 			.font(RescrivaFont.ui(14, weight: .medium))
-			.foregroundStyle(.moss)
+			.foregroundStyle(.ink)
 			Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "•.•") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "•"))")
 				.font(RescrivaFont.ui(12))
-				.foregroundStyle(.slate)
+				.foregroundStyle(.graphite)
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
 		.rescrivaCard()
@@ -282,7 +279,7 @@ private struct InfoSheetView: View {
 				Text(text)
 					.font(sheet == .acknowledgements ? RescrivaFont.ui(13) : RescrivaFont.body(16))
 					.lineSpacing(4)
-					.foregroundStyle(.bark)
+					.foregroundStyle(.carbon)
 					.frame(maxWidth: .infinity, alignment: .leading)
 					.textSelection(.enabled)
 			}
@@ -291,7 +288,7 @@ private struct InfoSheetView: View {
 		.presentationDetents([.medium, .large])
 		.presentationDragIndicator(.visible)
 		.presentationCornerRadius(RescrivaRadius.large)
-		.presentationBackground(Color.cream)
+		.presentationBackground(Color.vellum)
 	}
 
 	private var title: String {
