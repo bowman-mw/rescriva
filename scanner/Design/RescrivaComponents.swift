@@ -398,24 +398,15 @@ struct SheetHeader: View {
 	}
 }
 
-/// "Rescriva" set in New York with a swipe of highlighter under it.
+/// "Rescriva" set in New York.
 struct RescrivaWordmark: View {
 	var size: CGFloat = 34
-	@Environment(\.colorScheme) private var colorScheme
 
 	var body: some View {
 		Text("Rescriva")
 			.font(RescrivaFont.wordmark(size))
 			.tracking(-0.3)
 			.foregroundStyle(.carbon)
-			.background(alignment: .bottomLeading) {
-				InkStroke()
-					.fill(Color.highlighter.opacity(colorScheme == .dark ? 0.45 : 0.7))
-					.frame(height: size * 0.3)
-					.padding(.leading, -size * 0.06)
-					.padding(.trailing, -size * 0.14)
-					.offset(y: -size * 0.1)
-			}
 			.accessibilityLabel(Text(verbatim: "Rescriva"))
 			.accessibilityAddTraits(.isHeader)
 	}

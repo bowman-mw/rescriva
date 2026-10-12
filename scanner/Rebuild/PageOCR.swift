@@ -67,7 +67,9 @@ enum PageOCR {
 	/// once runs the phone out of memory (a 54-page PDF did). Every page shows
 	/// as "Reading…" from the start, so screens can count what's left. Each
 	/// page's revision is taken as it's queued: a page re-made while it waits
-	/// its turn is read by the re-make, not from the pixels it had here.
+	/// its turn is read by the re-make, not from the pixels it had here. Once
+	/// they're all read, each scan they belong to gets its automatic tags
+	/// (`AutoTags`): a receipt is tagged #receipt.
 	@MainActor
 	static func process(_ pages: [(ScanCapture, UIImage)], placeholderTitle: String? = nil) async {
 		var queued: [Int] = []
@@ -78,6 +80,11 @@ enum PageOCR {
 		}
 		for ((capture, image), revision) in zip(pages, queued) {
 			await process(capture, image: image, placeholderTitle: placeholderTitle, revision: revision)
+		}
+		var tagged = Set<NSManagedObjectID>()
+		for (capture, _) in pages {
+			guard let scan = capture.parent, let context = scan.managedObjectContext, tagged.insert(scan.objectID).inserted else { continue }
+			AutoTags.apply(to: scan, in: context)
 		}
 	}
 

@@ -369,7 +369,8 @@ private struct OutputCard: View {
 }
 
 /// A page in the list: thumbnail, number, a peek at its text, and the
-/// reorder controls while editing.
+/// reorder controls while editing. While its text is being read, a scan bar
+/// passes down the thumbnail.
 private struct PageRow: View {
 	@ObservedObject var capture: ScanCapture
 	let number: Int
@@ -384,6 +385,13 @@ private struct PageRow: View {
 	var body: some View {
 		HStack(spacing: 14) {
 			LookThumbnail(capture: capture, look: look, width: 50, height: 66)
+				.overlay {
+					if RecognitionTracker.shared.isReading(capture) {
+						ScanLineLoop(color: .highlighter, trail: 22)
+							.clipShape(FoldedSheet(radius: 3, fold: 8))
+							.transition(.opacity)
+					}
+				}
 			VStack(alignment: .leading, spacing: 3) {
 				Text("Page \(number)")
 					.font(RescrivaFont.ui(14, weight: .medium))

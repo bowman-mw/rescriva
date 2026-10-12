@@ -57,6 +57,8 @@ struct WorkspaceView: View {
 
 	@State private var selectedID: NSManagedObjectID?
 	@State private var searchText = ""
+	/// Tags chosen under the search field: only scans with all of them show.
+	@State private var tagFilter: Set<NSManagedObjectID> = []
 	@State private var showsLibrary = false
 	@State private var showsDrawer = false
 	@State private var importingPhotos = false
@@ -118,8 +120,8 @@ struct WorkspaceView: View {
 	}
 
 	private var sidebar: some View {
-		WorkspaceSidebar(scans: LibrarySearch.matching(Array(scans), query: searchText), selected: selected,
-						 searchText: $searchText, showsLibrary: $showsLibrary,
+		WorkspaceSidebar(scans: LibrarySearch.matching(Array(scans), query: searchText, tags: tagFilter), selected: selected,
+						 searchText: $searchText, tagFilter: $tagFilter, showsLibrary: $showsLibrary,
 						 onSelect: { scan in
 							 withAnimation(RescrivaMotion.ui) {
 								 selectedID = scan.objectID
@@ -370,12 +372,13 @@ struct WorkspaceScanMenu: View {
 	}
 }
 
-/// The sidebar: the wordmark and Scan, search, then the scans, or the Library's folders, smart
-/// folders and tags.
+/// The sidebar: the wordmark and Scan, search (with the tags to filter by while searching), then
+/// the scans, or the Library's folders and smart folders.
 struct WorkspaceSidebar: View {
 	let scans: [Scan]
 	let selected: Scan?
 	@Binding var searchText: String
+	@Binding var tagFilter: Set<NSManagedObjectID>
 	@Binding var showsLibrary: Bool
 	let onSelect: (Scan) -> Void
 	let onStart: (ScanStart) -> Void
@@ -383,6 +386,11 @@ struct WorkspaceSidebar: View {
 	@Environment(\.managedObjectContext) private var viewContext
 	@Environment(RescrivaRouter.self) private var router
 	@State private var controller = LibraryController()
+	@FocusState private var searchFocused: Bool
+
+	private var isSearching: Bool {
+		!searchText.trimmingCharacters(in: .whitespaces).isEmpty || !tagFilter.isEmpty
+	}
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 14) {
@@ -394,8 +402,12 @@ struct WorkspaceSidebar: View {
 			}
 			.padding(.horizontal, 6)
 			searchField
+			if searchFocused || isSearching {
+				TagFilterBar(selection: $tagFilter, controller: controller, inset: 0)
+					.padding(.top, -6)
+			}
 			RescrivaSegmentedPicker(options: [false, true], selection: $showsLibrary) { $0 ? "Library" : "Scans" }
-			if showsLibrary && searchText.isEmpty {
+			if showsLibrary && !isSearching {
 				ScrollView { LibraryHomeView().padding(.horizontal, -12) }
 			} else {
 				scanList
@@ -423,8 +435,12 @@ struct WorkspaceSidebar: View {
 				.submitLabel(.search)
 				.autocorrectionDisabled()
 				.textInputAutocapitalization(.never)
-			if !searchText.isEmpty {
-				Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.graphite) }
+				.focused($searchFocused)
+			if isSearching {
+				Button {
+					searchText = ""
+					tagFilter = []
+				} label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.graphite) }
 					.accessibilityLabel("Clear search")
 			}
 		}
@@ -436,7 +452,7 @@ struct WorkspaceSidebar: View {
 	@ViewBuilder
 	private var scanList: some View {
 		if scans.isEmpty {
-			Text(searchText.isEmpty ? "No scans yet." : "Nothing here mentions that yet.")
+			Text(!isSearching ? "No scans yet." : searchText.isEmpty ? "No scans have all of these tags." : "Nothing here mentions that yet.")
 				.font(RescrivaFont.note(15))
 				.foregroundStyle(.graphite)
 				.padding(.horizontal, 6)

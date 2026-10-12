@@ -130,7 +130,8 @@ struct MoveScansSheet: View {
 	}
 }
 
-/// "Tags": tick tags on or off for every scan given, or make a new one.
+/// "Tags": tick tags on or off for every scan given, or make a new one. Tags Rescriva adds by
+/// itself (`AutoTags`) carry a sparkle, and a line says which they are.
 struct TagScansSheet: View {
 	@Environment(\.managedObjectContext) private var context
 	@Environment(\.dismiss) private var dismiss
@@ -165,11 +166,11 @@ struct TagScansSheet: View {
 				}
 				.background(Color.stock, in: RoundedRectangle(cornerRadius: RescrivaRadius.medium, style: .continuous))
 			}
-			if tags.isEmpty {
-				Text("No tags yet. Type one above, like exam or todo.")
-					.font(RescrivaFont.note(15))
-					.foregroundStyle(.graphite)
-			}
+			Text(tags.isEmpty ? "No tags yet. Type one above, like exam or todo. Rescriva tags receipts, invoices, contracts, recipes and whiteboards by itself."
+				 : "Rescriva tags receipts, invoices, contracts, recipes and whiteboards by itself. Add your own, like todo.")
+				.font(RescrivaFont.note(14))
+				.foregroundStyle(.graphite)
+				.fixedSize(horizontal: false, vertical: true)
 		}
 		.padding(20)
 		.presentationDetents([.medium, .large])
@@ -180,8 +181,14 @@ struct TagScansSheet: View {
 		return Button {
 			Library.setTag(tag, on: scans, to: count < scans.count, in: context)
 		} label: {
-			HStack {
+			HStack(spacing: 6) {
 				Text(tag.displayName).font(RescrivaFont.ui(16)).foregroundStyle(.carbon)
+				if AutoTags.isAutomatic(tag) {
+					Image(systemName: "sparkle")
+						.font(.system(size: 10, weight: .semibold))
+						.foregroundStyle(.graphite)
+						.accessibilityLabel("Added by Rescriva")
+				}
 				Spacer()
 				Glyph(count == scans.count ? "checkmark.circle.fill" : (count > 0 ? "minus.circle.fill" : "circle"), size: 20)
 					.foregroundStyle(count > 0 ? Color.ink : Color.carbon.opacity(0.3))

@@ -98,7 +98,8 @@ struct FoldedCorner: View {
 
 extension View {
 	/// Lays the view on a sheet with its top corner folded over, a hairline
-	/// edge and the card shadow: Rescriva's card.
+	/// edge and the card shadow: Rescriva's card. A `fold` of 0 lays the sheet
+	/// flat, for lists (the Library's folders).
 	func paperCard(radius: CGFloat = RescrivaRadius.medium, fold: CGFloat = 14, fill: Color = .vellum) -> some View {
 		self.background {
 			ZStack {
@@ -107,7 +108,9 @@ extension View {
 					.rescrivaShadow(.card)
 				FoldedSheet(radius: radius, fold: fold)
 					.strokeBorder(Color.carbon.opacity(0.07), lineWidth: 1)
-				FoldedCorner(fold: fold, fill: fill)
+				if fold > 0 {
+					FoldedCorner(fold: fold, fill: fill)
+				}
 			}
 		}
 	}
@@ -265,10 +268,9 @@ struct MarginNote: View {
 
 /// The scan line: a crisp rule with a soft glow trailing above it.
 struct ScanLine: View {
-	/// Height of the glow above the rule.
-	static let trail: CGFloat = 60
-
 	var color: Color = .highlighter
+	/// Height of the glow above the rule.
+	var trail: CGFloat = 60
 
 	var body: some View {
 		VStack(spacing: 0) {
@@ -278,7 +280,7 @@ struct ScanLine: View {
 				.frame(height: 2)
 				.shadow(color: color.opacity(0.9), radius: 3)
 		}
-		.frame(height: Self.trail)
+		.frame(height: trail)
 		.allowsHitTesting(false)
 		.accessibilityHidden(true)
 	}
@@ -291,10 +293,13 @@ struct ScanPass {
 }
 
 /// One pass of the scan line down whatever it overlays each time `trigger`
-/// changes: the shutter's signature. With Reduce Motion, a soft flash instead.
+/// changes, taking `duration` seconds: a scan bar passing over a page just
+/// taken. With Reduce Motion, a soft flash instead.
 struct ScanLinePass<Trigger: Equatable>: View {
 	let trigger: Trigger
 	var color: Color = .highlighter
+	var trail: CGFloat = 60
+	var duration: Double = 0.62
 	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 
 	var body: some View {
@@ -303,19 +308,19 @@ struct ScanLinePass<Trigger: Equatable>: View {
 				if reduceMotion {
 					color.opacity(pass.opacity * 0.22)
 				} else {
-					ScanLine(color: color)
-						.offset(y: pass.position * (proxy.size.height + ScanLine.trail) - ScanLine.trail)
+					ScanLine(color: color, trail: trail)
+						.offset(y: pass.position * (proxy.size.height + trail) - trail)
 						.opacity(pass.opacity)
 				}
 			}
 		} keyframes: { _ in
 			KeyframeTrack(\.position) {
 				MoveKeyframe(0)
-				CubicKeyframe(1, duration: 0.62)
+				CubicKeyframe(1, duration: duration)
 			}
 			KeyframeTrack(\.opacity) {
 				MoveKeyframe(1)
-				LinearKeyframe(1, duration: 0.47)
+				LinearKeyframe(1, duration: max(duration - 0.15, 0.05))
 				LinearKeyframe(0, duration: 0.15)
 			}
 		}
@@ -328,6 +333,7 @@ struct ScanLinePass<Trigger: Equatable>: View {
 /// that's under way. Nothing moves with Reduce Motion.
 struct ScanLineLoop: View {
 	var color: Color = .highlighter
+	var trail: CGFloat = 60
 	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 
 	var body: some View {
@@ -336,8 +342,8 @@ struct ScanLineLoop: View {
 		} else {
 			KeyframeAnimator(initialValue: ScanPass(), repeating: true) { pass in
 				GeometryReader { proxy in
-					ScanLine(color: color)
-						.offset(y: pass.position * (proxy.size.height + ScanLine.trail) - ScanLine.trail)
+					ScanLine(color: color, trail: trail)
+						.offset(y: pass.position * (proxy.size.height + trail) - trail)
 						.opacity(pass.opacity)
 				}
 			} keyframes: { _ in

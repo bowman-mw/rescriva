@@ -73,6 +73,7 @@ in the margin.
 
 - **Folded corner**: cards (`paperCard()`) and page thumbnails (`foldedPage()`) have their
   top-right corner folded over. The flap casts a small shadow and the fold leaves a crease.
+  Lists lie flat (`paperCard(fold: 0)`): the Library's folder cards have no fold.
 - **Paper grain**: `GrainBackground` tiles mottling and short fibres over the stock. It
   multiplies on paper and lifts like chalk dust on the chalkboard.
 - **Ruled and dot-grid paper**: empty states (`EmptyState`) sit on dot-grid or notebook-ruled
@@ -119,9 +120,11 @@ The sketch is seeded, so it's the same every time.
 Motion is ease-out or spring, never linear. Rescriva has three signatures, and each one falls
 back to a fade or a still image with Reduce Motion on:
 
-1. **A scan line sweeping the page.** Each shot sends a highlighter scan line down the camera's
-   viewfinder (`ScanLinePass`). One sweeps the page on the processing screen while a rebuild
-   runs (`ScanLineLoop`).
+1. **A scan bar sweeping the page.** Each page taken is held up in the viewfinder, cleaned up
+   and squared, while a highlighter scan bar passes down it (`ScanLinePass`); then it drops
+   onto the stack. The shutter itself is a soft flash. A scan bar also sweeps each page's
+   thumbnail while its text is being read, and the page on the processing screen while a
+   rebuild runs (`ScanLineLoop`).
 2. **Ink drawing itself onto the screen.** As the rebuild recognises text, the page's lines
    write themselves in from left to right (`inked(_:)`). The empty-state sketches draw
    themselves in too.
@@ -132,11 +135,22 @@ back to a fade or a still image with Reduce Motion on:
 
 ## App icon
 
-The icon is a stylized R written in a single broad-nib stroke of indigo ink, over a highlighter
-swipe, on paper. Its top-right corner is folded over to show the ink-blue desk beneath. It has
-dark (chalkboard) and tinted variants for iOS 18. To regenerate the icons (app and Safari
-extension), run this from the repository root:
+The icon is a sheet of paper with its top-right corner folded over to show the ink-blue desk
+beneath, and a stylized R written on it in a single broad-nib stroke of indigo ink. It has dark
+(chalkboard) and tinted variants for iOS 18. To regenerate the icons (app and Safari extension),
+run this from the repository root:
 
 ```sh
 python3 Tools/AppIcon/make_icon.py
 ```
+
+The script also draws other variants that keep the fold (`--preview DIR` renders them all):
+typeset lines, lines with a scan bar, or the R on a page lying on an indigo tile. To ship one,
+set `ICON` in the script and run it again.
+
+## Tags
+
+The Library's home has no tag list. Tags show as chips under the search field while searching,
+to narrow the results (`TagFilterBar`). Rescriva adds some tags by itself when it first reads a
+scan's pages (`AutoTags`): #receipt, #invoice, #contract, #recipe and #whiteboard. They carry a
+small sparkle. Every other tag, like #todo, is added by hand.

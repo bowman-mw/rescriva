@@ -5,9 +5,10 @@
 //  The Capture screen: a calm darkroom surround, the live camera with the
 //  page marked in highlighter, auto-capture once the page is steady,
 //  document or whiteboard mode, and a stack of captured pages to Save. Each
-//  shot sends a scan line down the viewfinder. The screen is always dark, so
-//  it's drawn in chalk. Replaces Open Scanner's VisionKit document camera
-//  (PageScan) with Rescriva's own camera.
+//  page taken is held up in the viewfinder while a scan bar passes over it,
+//  then drops onto the stack. The screen is always dark, so it's drawn in
+//  chalk. Replaces Open Scanner's VisionKit document camera (PageScan) with
+//  Rescriva's own camera.
 //
 
 import CoreImage
@@ -25,8 +26,11 @@ struct CaptureView: View {
 	@State private var mode: CaptureKind
 	@State private var auto: Bool
 	@State private var captured: [CapturedPage] = []
-	/// Counts shots; each one sends the scan line down the viewfinder.
+	/// Counts shots; each one flashes the viewfinder softly.
 	@State private var shots = 0
+	/// The page just taken, held up in the viewfinder while the scan bar passes over it.
+	@State private var held: HeldPage?
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 	@State private var isCapturing = false
 	/// Set once Save hands the pages (and their staged originals) to a scan.
 	@State private var handedOff = false
@@ -115,19 +119,26 @@ struct CaptureView: View {
 					cameraMessage(reason, showsSettings: false)
 				default:
 					CameraPreviewView(session: camera.session, quad: camera.quad, isSteady: camera.isSteady)
-				}
-			}
-			Text(hint)
-				.font(RescrivaFont.note(15))
-				.foregroundStyle(.chalk)
-				.padding(.vertical, 8)
-				.padding(.horizontal, 14)
-				.background(.ultraThinMaterial.opacity(0.6), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
-				.background(Color.darkroom.opacity(0.6), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
-				.padding(.bottom, 18)
-				.animation(RescrivaMotion.ui, value: hint)
-				.accessibilityAddTraits(.updatesFrequently)
-			ScanLinePass(trigger: shots, color: .highlighter)
+						}
+					}
+					ShutterFlash(trigger: shots)
+					if let held {
+						HeldPageView(image: held.image)
+							.id(held.id)
+							.transition(AnyTransition.asymmetric(
+								insertion: .opacity,
+								removal: reduceMotion ? AnyTransition.opacity : AnyTransition.scale(scale: 0.2, anchor: .bottomLeading).combined(with: .opacity)))
+					}
+					Text(hint)
+						.font(RescrivaFont.note(15))
+						.foregroundStyle(.chalk)
+						.padding(.vertical, 8)
+						.padding(.horizontal, 14)
+						.background(.ultraThinMaterial.opacity(0.6), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
+						.background(Color.darkroom.opacity(0.6), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
+						.padding(.bottom, 18)
+						.animation(RescrivaMotion.ui, value: hint)
+						.accessibilityAddTraits(.updatesFrequently)
 		}
 		.clipShape(RoundedRectangle(cornerRadius: RescrivaRadius.large, style: .continuous))
 		.padding(.horizontal, 14)
@@ -280,20 +291,35 @@ struct CaptureView: View {
 		if isDemo {
 			let page = await Self.demoPage(SampleLibrary.demoCapture(whiteboard: mode == .whiteboard, index: captured.count))
 			// The screen may have closed while the page was made; then nobody will save it.
-			guard router.isCameraVisible, !handedOff else {
-				OriginalStore.shared.discardLater([page.original].compactMap { $0 })
+				guard router.isCameraVisible, !handedOff else {
+					OriginalStore.shared.discardLater([page.original].compactMap { $0 })
+					return
+				}
+				withAnimation(RescrivaMotion.ui) { captured.append(page) }
+				hold(page.image)
 				return
 			}
-			withAnimation(RescrivaMotion.ui) { captured.append(page) }
-			return
-		}
-		do {
-			let page = try await camera.capturePage()
-			withAnimation(RescrivaMotion.ui) { captured.append(page) }
+			do {
+				let page = try await camera.capturePage()
+				withAnimation(RescrivaMotion.ui) { captured.append(page) }
+				hold(page.image)
 		} catch is CancellationError {
 			// The camera stopped while the shot was processed: the screen is closing.
 		} catch {
 			router.showToast(String(localized: "That shot didn’t take — try again."))
+		}
+	}
+
+	/// Holds the page just taken up in the viewfinder while the scan bar passes over it, then lets it
+	/// drop onto the stack. The page is already in the stack, so Save never waits for this.
+	private func hold(_ image: UIImage) {
+		let page = HeldPage(image: image)
+		withAnimation(RescrivaMotion.fast) { held = page }
+		Task {
+			try? await Task.sleep(for: .milliseconds(reduceMotion ? 500 : 1150))
+			// A newer page took its place: that one leaves on its own schedule.
+			guard held?.id == page.id else { return }
+			withAnimation(reduceMotion ? RescrivaMotion.ui : RescrivaMotion.settle) { held = nil }
 		}
 	}
 
@@ -395,5 +421,56 @@ private struct DemoViewfinder: View {
 				}
 			}
 		}
+	}
+}
+
+/// The page just taken, held up in the viewfinder.
+private struct HeldPage: Identifiable {
+	let id = UUID()
+	let image: UIImage
+}
+
+/// The page just taken, cleaned up and squared, held up over the dimmed viewfinder while the scan
+/// bar passes down it.
+private struct HeldPageView: View {
+	let image: UIImage
+	@State private var pass = 0
+
+	var body: some View {
+		ZStack {
+			Color.darkroom.opacity(0.55)
+			Image(uiImage: image)
+				.resizable()
+				.scaledToFit()
+				.overlay { ScanLinePass(trigger: pass, color: .highlighter, trail: 90, duration: 0.95) }
+				.foldedPage(radius: 3, fold: 18)
+				.shadow(color: .black.opacity(0.45), radius: 18, x: 0, y: 12)
+				.padding(.horizontal, 32)
+				.padding(.top, 24)
+				.padding(.bottom, 64)
+		}
+		.allowsHitTesting(false)
+		.accessibilityHidden(true)
+		// The pass starts once the page is up.
+		.onAppear { pass += 1 }
+	}
+}
+
+/// A soft flash of the viewfinder as the shutter fires.
+private struct ShutterFlash: View {
+	let trigger: Int
+
+	var body: some View {
+		KeyframeAnimator(initialValue: 0.0, trigger: trigger) { opacity in
+			Color.chalk.opacity(opacity)
+		} keyframes: { _ in
+			KeyframeTrack {
+				MoveKeyframe(0.0)
+				LinearKeyframe(0.45, duration: 0.06)
+				CubicKeyframe(0.0, duration: 0.26)
+			}
+		}
+		.allowsHitTesting(false)
+		.accessibilityHidden(true)
 	}
 }
