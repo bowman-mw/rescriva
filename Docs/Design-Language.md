@@ -136,17 +136,17 @@ back to a fade or a still image with Reduce Motion on:
 ## App icon
 
 The icon is a sheet of paper with its top-right corner folded over to show the ink-blue desk
-beneath, and a stylized R written on it in a single broad-nib stroke of indigo ink. It has dark
-(chalkboard) and tinted variants for iOS 18. To regenerate the icons (app and Safari extension),
-run this from the repository root:
+beneath. On the page are an indigo heading and four lines of type, with a scan bar passing over
+them. It has dark (chalkboard) and tinted variants for iOS 18. To regenerate the icons (app and
+Safari extension), run this from the repository root:
 
 ```sh
 python3 Tools/AppIcon/make_icon.py
 ```
 
-The script also draws other variants that keep the fold (`--preview DIR` renders them all):
-typeset lines, lines with a scan bar, or the R on a page lying on an indigo tile. To ship one,
-set `ICON` in the script and run it again.
+The script also draws other variants that keep the fold (`--preview DIR` renders them all): an R
+in a single broad-nib stroke, typeset lines without the bar, or the R on a page lying on an
+indigo tile. To ship one, set `ICON` in the script and run it again.
 
 ## Tags
 

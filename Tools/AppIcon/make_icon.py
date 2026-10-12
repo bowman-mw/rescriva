@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rescriva's app icon: a sheet of paper whose top-right corner is folded over
-to show the ink-blue desk beneath, with a stylized R written on it in a
-single stroke of indigo ink.
+to show the ink-blue desk beneath, with an indigo heading and lines of type
+and a scan bar passing over them.
 
 Run from the repository root (needs Pillow):
 
@@ -11,7 +11,8 @@ Run from the repository root (needs Pillow):
 Writes the 1024 pt app icons (light, dark and tinted) into
 scanner/Assets.xcassets/AppIcon.appiconset and the Safari extension's icons.
 Other variants (`VARIANTS`) keep the fold and put something else on the
-page: typeset lines, lines with a scan bar, or the page on an indigo tile.
+page: an R in a single stroke of ink, typeset lines without the bar, or the
+R on a page lying on an indigo tile.
 """
 import math
 import random
@@ -187,7 +188,7 @@ def render(theme, variant="r"):
 
 VARIANTS = ["r", "lines", "scan", "indigo"]
 # The variant the app ships.
-ICON = "r"
+ICON = "scan"
 
 
 if __name__ == "__main__":
