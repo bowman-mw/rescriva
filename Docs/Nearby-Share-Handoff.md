@@ -96,7 +96,7 @@ when this was handed off. Make website and relay changes in `rescriva-share`, no
    service worker for offline loads, the vendored QR library (qrcode-generator 1.4.4, MIT),
    `CNAME`, `.nojekyll`, and `tests/index.html`. **The tests page passes 23/23** in Chromium. The
    page renders with no console errors with `?relay=off`. **It has never talked to the app yet.**
-4. **The relay**: see §8. The relay agent's report is filled in there.
+4. **The relay**: built and tested, not deployed. See §8.
 
 ### Not started
 
@@ -249,7 +249,28 @@ To do: check it at phone width (the iPhone opening the Mac's QR link).
 
 ## 8. Relay status
 
-_(Filled in from the relay agent's report; see the end of this file.)_
+**Built and tested; not deployed.** It's in `relay/` in bowman-mw/rescriva-share (fe2d69b): `worker.js`
+(one Durable Object per room, WebSocket Hibernation API, ping→pong answered without waking the object),
+`wrangler.toml` (SQLite-backed DO migration, `compatibility_date` 2026-09-20, custom-domain example
+commented out), `dev_relay.py` (Python standard library only, `127.0.0.1:8787`), `test_relay.py`, and a
+README with the deploy steps.
+
+- `test_relay.py` passed every case against both `dev_relay.py` and the real Worker under
+  `wrangler dev` 4.142.0 (Node 24.21.0, local mode). The cases: routes, welcome/join/leave,
+  name/device cleanup, signal forwarding, ignored junk, bad room/role/device, Origin allow/deny, ping,
+  the 64 KB limit, fragmented frames, the auto room (same /64 → same room, `::ffff:a.b.c.d` = IPv4),
+  abrupt disconnects, the 32-peer cap, and stale peers. `wrangler deploy --dry-run` succeeds.
+- **What it means for clients:**
+  - **Ping every 25 s.** The relay drops a peer that's been silent for 120 s (close code 4408
+    "stale"), so a phone that lost signal doesn't linger. Reconnect if the relay closes the socket.
+  - **`device` must be one of** `iphone`, `ipad`, `mac`, `phone`, `tablet`, `computer`. Anything else
+    gets a 400. A missing one means `computer`.
+  - Names are clipped to 64 characters, with control and bidi characters stripped. Messages over
+    65,536 bytes are dropped silently.
+  - Only `/health` sends CORS headers, so the page can check whether the relay is reachable.
+  - The relay doesn't check that signals go between `web` and `app`. That would be easy hardening.
+- **Shared public IPs** (carrier NAT, offices) put strangers in one `auto` room. That's why PINs exist,
+  and a busy network could hit the 32-peer cap.
 
 ## 9. Risks and open questions
 
