@@ -34,13 +34,16 @@ struct HandDrawn {
 		let ux = dx / length, uy = dy / length
 		let nx = -uy, ny = ux
 		let before = random(overshoot), after = random(overshoot)
-		let start = CGPoint(x: a.x - ux * before + nx * random(-0.6...0.6), y: a.y - uy * before + ny * random(-0.6...0.6))
-		let end = CGPoint(x: b.x + ux * after + nx * random(-0.6...0.6), y: b.y + uy * after + ny * random(-0.6...0.6))
+		let startJitter = random(-0.6...0.6), endJitter = random(-0.6...0.6)
+		let start = CGPoint(x: a.x - ux * before + nx * startJitter, y: a.y - uy * before + ny * startJitter)
+		let end = CGPoint(x: b.x + ux * after + nx * endJitter, y: b.y + uy * after + ny * endJitter)
 		let bow1 = random(-wobble...wobble), bow2 = random(-wobble...wobble)
+		let third = CGPoint(x: a.x + dx / 3, y: a.y + dy / 3)
+		let twoThirds = CGPoint(x: a.x + dx * 2 / 3, y: a.y + dy * 2 / 3)
 		path.move(to: start)
 		path.addCurve(to: end,
-					  control1: CGPoint(x: a.x + dx / 3 + nx * bow1, y: a.y + dy / 3 + ny * bow1),
-					  control2: CGPoint(x: a.x + dx * 2 / 3 + nx * bow2, y: a.y + dy * 2 / 3 + ny * bow2))
+					  control1: CGPoint(x: third.x + nx * bow1, y: third.y + ny * bow1),
+					  control2: CGPoint(x: twoThirds.x + nx * bow2, y: twoThirds.y + ny * bow2))
 	}
 
 	/// A box of four strokes, each overshooting its corners.

@@ -139,7 +139,7 @@ private struct DOCXWriter {
 	private var nextControlID = 1
 
 	/// Dark ink used for diagram text and arrows (the palette's dk1).
-	static let ink = "3D2E1E"
+	static let ink = "1D2233"
 	static let maxFigureWidthInches = 6.0
 	static let maxFigureHeightInches = 8.0
 
@@ -720,7 +720,7 @@ private enum DOCXParts {
 				+ "<w:basedOn w:val=\"Normal\"/><w:next w:val=\"Normal\"/><w:uiPriority w:val=\"9\"/><w:qFormat/>"
 				+ "<w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before=\"\(level == 1 ? 360 : 240)\" w:after=\"120\"/>"
 				+ "<w:outlineLvl w:val=\"\(level - 1)\"/></w:pPr>"
-				+ "<w:rPr><w:b/><w:bCs/>\(italic ? "<w:i/><w:iCs/>" : "")<w:color w:val=\"3D2E1E\"/>"
+				+ "<w:rPr><w:b/><w:bCs/>\(italic ? "<w:i/><w:iCs/>" : "")<w:color w:val=\"1D2233\"/>"
 				+ "<w:sz w:val=\"\(size)\"/><w:szCs w:val=\"\(size)\"/></w:rPr></w:style>"
 		}
 		let border = "w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"auto\""

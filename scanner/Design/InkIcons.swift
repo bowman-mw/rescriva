@@ -32,13 +32,17 @@ extension InkIcon {
 	func nibs(width: CGFloat) -> Path {
 		var path = Path()
 		for end in terminals {
-			let nx = -end.dy, ny = end.dx
-			let inner = -0.45 * width, outer = 0.5 * width
+			// Where the flare starts (back along the stroke) and where it ends (past the square cap)…
+			let inner = CGPoint(x: end.x - end.dx * 0.45 * width, y: end.y - end.dy * 0.45 * width)
+			let outer = CGPoint(x: end.x + end.dx * 0.5 * width, y: end.y + end.dy * 0.5 * width)
+			// …and its half-widths either side of the stroke, across it.
+			let across = CGVector(dx: -end.dy * width, dy: end.dx * width)
+			let half: CGFloat = 0.5, left: CGFloat = 0.64, right: CGFloat = 0.58
 			path.addLines([
-				CGPoint(x: end.x + end.dx * inner + nx * 0.5 * width, y: end.y + end.dy * inner + ny * 0.5 * width),
-				CGPoint(x: end.x + end.dx * outer + nx * 0.64 * width, y: end.y + end.dy * outer + ny * 0.64 * width),
-				CGPoint(x: end.x + end.dx * outer - nx * 0.58 * width, y: end.y + end.dy * outer - ny * 0.58 * width),
-				CGPoint(x: end.x + end.dx * inner - nx * 0.5 * width, y: end.y + end.dy * inner - ny * 0.5 * width),
+				CGPoint(x: inner.x + across.dx * half, y: inner.y + across.dy * half),
+				CGPoint(x: outer.x + across.dx * left, y: outer.y + across.dy * left),
+				CGPoint(x: outer.x - across.dx * right, y: outer.y - across.dy * right),
+				CGPoint(x: inner.x - across.dx * half, y: inner.y - across.dy * half),
 			])
 			path.closeSubpath()
 		}

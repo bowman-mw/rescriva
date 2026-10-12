@@ -112,7 +112,7 @@ private struct PPTXWriter {
 	private var media: [(path: String, data: Data)] = []
 	private var mediaByAsset: [String: (name: String, info: RescrivaImageInfo)] = [:]
 
-	static let ink = "3D2E1E"
+	static let ink = "1D2233"
 	static let tableStyleID = "{5940675A-B579-460E-94D1-54222C63F5DA}"
 	static let margin = 0.06875
 	static let titleTop = 365_125.0
@@ -528,9 +528,9 @@ private struct PPTXWriter {
 		guard grid.columnCount > 0, !grid.rows.isEmpty else { return "" }
 		let columnWidth = Int((rect.width / Double(grid.columnCount)).rounded())
 		let rowHeight = Int((rect.height / Double(grid.rows.count)).rounded())
-		let border = "<a:solidFill><a:srgbClr val=\"7B8B99\"/></a:solidFill>"
+		let border = "<a:solidFill><a:srgbClr val=\"676C7A\"/></a:solidFill>"
 		let lines = ["lnL", "lnR", "lnT", "lnB"].map { "<a:\($0) w=\"9525\">\(border)</a:\($0)>" }.joined()
-		let headerFill = Self.tint(accents.first ?? "5A7A52", amount: 0.75)
+		let headerFill = Self.tint(accents.first ?? "2B3B8C", amount: 0.75)
 		var out = "<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"\(id)\" name=\"Table \(id)\"/>"
 			+ "<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp=\"1\"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>"
 			+ "<p:xfrm>\(rect.offsetAndExtent)</p:xfrm><a:graphic>"
@@ -770,10 +770,10 @@ private enum PPTXParts {
 		let font = { (latin: String) in "<a:latin typeface=\"\(latin)\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/>" }
 		return OOXML.declaration
 			+ "<a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"\(OOXML.escape(name))\"><a:themeElements>"
-			+ "<a:clrScheme name=\"Rescriva\"><a:dk1><a:srgbClr val=\"3D2E1E\"/></a:dk1><a:lt1><a:srgbClr val=\"FFFFFF\"/></a:lt1>"
+			+ "<a:clrScheme name=\"Rescriva\"><a:dk1><a:srgbClr val=\"1D2233\"/></a:dk1><a:lt1><a:srgbClr val=\"FFFFFF\"/></a:lt1>"
 			+ "<a:dk2><a:srgbClr val=\"2F3D2B\"/></a:dk2><a:lt2><a:srgbClr val=\"F4F1EA\"/></a:lt2>"
 			+ accentXML
-			+ "<a:hlink><a:srgbClr val=\"5A7A52\"/></a:hlink><a:folHlink><a:srgbClr val=\"7B8B99\"/></a:folHlink></a:clrScheme>"
+			+ "<a:hlink><a:srgbClr val=\"2B3B8C\"/></a:hlink><a:folHlink><a:srgbClr val=\"676C7A\"/></a:folHlink></a:clrScheme>"
 			+ "<a:fontScheme name=\"Rescriva\"><a:majorFont>\(font("Calibri Light"))</a:majorFont>"
 			+ "<a:minorFont>\(font("Calibri"))</a:minorFont></a:fontScheme>"
 			+ "<a:fmtScheme name=\"Rescriva\"><a:fillStyleLst><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>"

@@ -362,7 +362,7 @@ final class RescrivaRendererTests: XCTestCase {
 		XCTAssertTrue(xml["ppt/presentation.xml"]?.contains("<p:sldSz cx=\"12192000\" cy=\"6858000\"/>") ?? false)
 		XCTAssertTrue(xml["ppt/notesSlides/notesSlide1.xml"]?.contains("Ask Priya whether trial 3 used fresh buffer.") ?? false)
 		XCTAssertTrue(xml["ppt/notesSlides/notesSlide2.xml"]?.contains("Bring the figure on Thursday.") ?? false)
-		XCTAssertTrue(xml["ppt/theme/theme1.xml"]?.contains("<a:accent3><a:srgbClr val=\"C0674A\"/></a:accent3>") ?? false)
+		XCTAssertTrue(xml["ppt/theme/theme1.xml"]?.contains("<a:accent3><a:srgbClr val=\"\(PPTXRenderer.defaultAccents[2])\"/></a:accent3>") ?? false)
 	}
 
 	func testPPTXSlideContent() throws {
