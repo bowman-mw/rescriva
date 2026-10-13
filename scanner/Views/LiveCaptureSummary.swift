@@ -15,6 +15,7 @@ import CoreData
 struct LiveCaptureSummary: View {
 	@Environment(\.managedObjectContext) private var viewContext
 	@Environment(RescrivaRouter.self) private var router
+	@Environment(\.scenePhase) private var scenePhase
 
 	@ObservedObject var scan: Scan
 	@ObservedObject var capture: ScanCapture
@@ -23,6 +24,7 @@ struct LiveCaptureSummary: View {
 	@State private var editing = false
 	@State private var showingImage = false
 	@State private var adjusting = false
+	@State private var reader = SpeechReader()
 
 	var body: some View {
 		ZStack(alignment: .bottom) {
@@ -70,7 +72,15 @@ struct LiveCaptureSummary: View {
 		.animation(RescrivaMotion.ui, value: selected)
 		.fullScreenCover(isPresented: $showingImage) {
 			QuickLookView(scanCapture: capture)
-				.ignoresSafeArea()
+		}
+		.onDisappear { reader.stop() }
+		.onChange(of: scenePhase) { _, phase in
+			if phase == .background { reader.stop() }
+		}
+		// The router keeps a covered screen alive, hidden, so a screen pushed over this one doesn't
+		// make it disappear.
+		.onChange(of: router.stack.last?.route) { _, top in
+			if top != .page(scan, capture) { reader.stop() }
 		}
 	}
 
@@ -123,6 +133,10 @@ struct LiveCaptureSummary: View {
 
 	private var pageImage: some View {
 		Button {
+			finishEditing()
+			// Quick Look markup re-makes the page and deletes its lines, so the action bar mustn't
+			// outlive the selected one.
+			selected = nil
 			showingImage = true
 		} label: {
 			Group {
@@ -186,11 +200,11 @@ struct LiveCaptureSummary: View {
 				selected = nil
 				router.showToast(String(localized: "Copied to clipboard"))
 			}
-			LineAction(title: AppState.shared.isSpeaking ? "Stop" : "Speak", systemImage: "speaker.wave.2") {
-				if AppState.shared.isSpeaking {
-					AppState.shared.stopSpeaking()
+			LineAction(title: reader.isSpeaking ? "Stop" : "Speak", systemImage: "speaker.wave.2") {
+				if reader.isSpeaking {
+					reader.stop()
 				} else {
-					AppState.shared.speak(text: item.transcript)
+					reader.speak(item.transcript ?? "")
 					router.showToast(String(localized: "Reading aloud"))
 				}
 			}

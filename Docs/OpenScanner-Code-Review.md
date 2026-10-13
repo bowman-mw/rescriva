@@ -32,8 +32,8 @@ Two things stay as they are and frozen: the Core Data model and the container se
 2. **A stale Spotlight result can crash the app.** `scanFromUri` and `recognizedItemFromUri` (`Persistence.swift`) use `object(with:)`, which returns a fault even for a purged row. Example: a scan is purged on one device while another device's index still lists it; tapping the result throws "could not fulfill a fault". Use `existingObject(with:)`, skip deleted scans, and log.
 3. **The link detector produces wrong links.** It mixes character and UTF-16 offsets (`DataExtensions.swift` ~377–380): "👉 rescriva.com/help" becomes "escriva.com/help". It also builds 4 `NSDataDetector`s per line on every render. Use one static detector and `Range(_:in:)`.
 4. **Pages can swap order.** `capturesArray` sorts by `order` alone. When two devices add pages offline, pages can share an `order`, Set order changes on every launch, and Rebuilder's `sourceCaptureIDs` check then throws away the cached rebuild. Add a timestamp/id tiebreak.
-5. **The page screen's action bar can act on a deleted line.** Select a line, open the page image and save a Quick Look markup. `invalidateText` deletes every line, but `selected` stays set, so Copy copies "" and Delete/Undo can bring back a blank line. Clear `selected` when opening the image (`LiveCaptureSummary.swift:126–127`), as `adjustButton` already does.
-6. **The page viewer's back pill sits under the status bar.** `LiveCaptureSummary.swift:73` adds `.ignoresSafeArea()` to `QuickLookView`. Remove it.
+5. **The page screen's action bar can act on a deleted line.** Select a line, open the page image and save a Quick Look markup. `invalidateText` deletes every line, but `selected` stays set, so Copy copies "" and Delete/Undo can bring back a blank line. Clear `selected` when opening the image (`LiveCaptureSummary.swift:126–127`), as `adjustButton` already does. **Fixed on branch `speech-reader`.**
+6. **The page viewer's back pill sits under the status bar.** `LiveCaptureSummary.swift:73` adds `.ignoresSafeArea()` to `QuickLookView`. Remove it. **Fixed on branch `speech-reader`.**
 7. **Quick Look is blank for a page with no image.** `QuickLookController.swift:126` writes a 0-byte file and returns its URL. Show the Mac path's "This page couldn't be opened." instead. Write errors should log with `Rescriva:` and the error.
 8. **Speak button problems** (`AppState` 61–81, `LiveCaptureSummary.swift:190–197`):
    - `isSpeaking` isn't observed, so the button can say "Stop" after speech ends.
@@ -42,6 +42,8 @@ Two things stay as they are and frozen: the Core Data model and the container se
    - There's no audio session, which probably means silence with the ringer off (unverified).
 
    Replace with a small `@Observable` reader owned by the page screen.
+
+   **Fixed on branch `speech-reader`.** What prompted it was Xcode's Thread Performance Checker on a Mac Catalyst build. It reported a hang risk at `AppState.swift:78`: reading the synthesizer's `isSpeaking` on the main thread waited on its lower-QoS queue. `SpeechReader` (`scanner/Views/SpeechReader.swift`) replaces AppState's speech code and is owned by the page screen. It never reads the synthesizer's `isSpeaking`, and it picks the voice from the line's language. It also sets up a `.playback` / `.spokenAudio` session that ducks other audio, and it stops when you leave the page or the app goes to the background.
 9. **Siri "Scan Document" on a cold launch may do nothing** until the app is force-quit. This is likely but unconfirmed on a device: the flag is set before `onChange` is attached, and later true→true changes don't fire. **On Mac it says "Okay, starting a scan." and does nothing** (`ContentView.swift:50`).
 10. **The Mac menu bar probably says "scanner".** The built app's `CFBundleName` is `scanner`. Set `INFOPLIST_KEY_CFBundleName = Rescriva`.
 
@@ -97,7 +99,7 @@ Two things stay as they are and frozen: the Core Data model and the container se
 ## Not verified on a device
 
 - Bug 9: the Siri cold-launch race.
-- Bug 8: Speak being silent with the ringer off.
+- Bug 8: Speak with the ringer off, other audio ducking under it, and the voice for each language (fixed on `speech-reader`, still to be checked on a device).
 - Typing lag when editing a line.
 - VoiceOver: `RecognizedItemView.swift:59–61` (Rescriva's own code) merges the editing TextField into one button element, so a double-tap probably ends editing. Apply the merge only when not editing.
 
