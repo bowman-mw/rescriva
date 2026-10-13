@@ -942,6 +942,7 @@
 				A30E5C87288A2FF40099985F /* Frameworks */,
 				A30E5C88288A2FF40099985F /* Resources */,
 				A3233D4028BC49B70088268F /* Embed Foundation Extensions */,
+				FAD702818EB0D6B76A776B7C /* Make WebRTC dSYM */,
 			);
 			buildRules = (
 			);
@@ -1113,6 +1114,31 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		FAD702818EB0D6B76A776B7C /* Make WebRTC dSYM */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 8;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/WebRTC.framework/WebRTC",
+			);
+			name = "Make WebRTC dSYM";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DWARF_DSYM_FOLDER_PATH)/WebRTC.framework.dSYM/Contents/Resources/DWARF/WebRTC",
+				"$(DWARF_DSYM_FOLDER_PATH)/WebRTC.framework.dSYM/Contents/Info.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 1;
+			shellPath = /bin/sh;
+			shellScript = "# The WebRTC package ships its framework stripped and without a dSYM, so App Store Connect\n# warns that the archive has none for it. dsymutil makes one with the binary's UUID (it holds\n# no symbols: WebRTC frames in crash reports stay unsymbolicated either way).\nxcrun dsymutil \"${SCRIPT_INPUT_FILE_0}\" -o \"${DWARF_DSYM_FOLDER_PATH}/WebRTC.framework.dSYM\" 2>&1 | grep -v \"no debug symbols\" || true\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		5AFE7E000000000000000302 /* Sources */ = {
