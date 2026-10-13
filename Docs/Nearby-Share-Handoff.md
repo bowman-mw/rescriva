@@ -317,3 +317,33 @@ The user wants a cloud session to make these changes. That session's notes:
   verified on a device" at the end of the review.
 - **Questions about a finding:** ask the "Folio to Rescriva domain migration" session, if it's still
   running. It isn't changing any of these files on `main`.
+
+### §10 addendum: the review rechecked on 1d2cded (PR #1, "paper and ink")
+
+The review's line numbers were taken at 7c54fd7. PR #1 changed 8 of the files it covers, and Share
+Nearby shifts lines further in ContentView and HomeView, so **find things by symbol, not by line
+number**. The migration session rechecked every affected finding on 1d2cded, and all of them still
+hold, with two exceptions:
+
+- **Keep `Color.accent`.** `ScannerWidget/WidgetView.swift` now uses it. Delete only
+  `Color.background` and `Color.foreground`, with their two colour assets. `DefaultBackgroundGradient`
+  is still used only by the widget.
+- **Widget:** its caption already says "Scan", in Rescriva's look. The rest of the finding stands:
+  - the fetched data is unused;
+  - it opens the widget's own empty store;
+  - the widget target has no entitlements;
+  - the gallery text still says "Document Scanner" / "Open Scanner widget" (`ScannerWidget.swift`
+    `configurationDisplayName`/`description`).
+
+Where the code moved, on 1d2cded:
+- `LiveCaptureSummary.swift`: `.ignoresSafeArea()` on `QuickLookView` is at about 72–73, the page
+  image's `showingImage = true` at about 124–126, and Speak at about 189–190.
+- `ScanGallery.swift`: `capturesArray.first?.thumbnail` is still at about 144. **A new instance of the
+  same problem:** `scan.capturesArray.count` (about 200) faults in every page just to count them. Use
+  `captures?.count`.
+- `HomeView.swift`: search goes through `scan.containsText` (about 262).
+- `RecognizedItemView.swift`: `lastUpdate` is set on every keystroke (about 37).
+- `ReviewView.swift`: `originalPages` (about 220).
+- `QuickLookController.swift`: "Error loading image" (about 136).
+- `ContentView.swift`: the Spotlight `.preview(scan)` push, the Mac guard on the scan request, and
+  the `requestedClassicScan` handler. Find them by symbol; Share Nearby's edits move them.
