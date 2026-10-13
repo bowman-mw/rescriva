@@ -74,12 +74,20 @@ function watch(relay, secret) {
       connection.close("failed");
     });
   };
-  relay.addEventListener("peers", (e) => e.detail.forEach(dial));
-  relay.addEventListener("join", (e) => dial(e.detail));
+  // Who's in the room changes the status line and the "Connecting…" cards, so render after each change.
+  relay.addEventListener("peers", (e) => {
+    e.detail.forEach(dial);
+    render();
+  });
+  relay.addEventListener("join", (e) => {
+    dial(e.detail);
+    render();
+  });
   relay.addEventListener("leave", (e) => {
     // A connection that's open carries on without the relay; the app says bye when it stops.
     const connection = connections.get(e.detail.id);
     if (connection && connection.state === "connecting") connection.close("left");
+    render();
   });
   relay.addEventListener("signal", (e) => connections.get(e.detail.from)?.signal(e.detail.data));
   relay.addEventListener("status", render);
@@ -190,26 +198,36 @@ function render() {
 }
 
 function renderStatus() {
-  const ready = [...connections.values()].some((c) => c.state === "ready");
+  const count = [...connections.values()].filter((c) => c.state === "ready").length;
   let text;
   if (mode === "link") {
     if (!RELAY) text = "This link needs the relay, which is turned off here.";
     else if (linkRelay.status === "unavailable") text = "Can't reach the relay. Check this device's internet connection, then reload.";
-    else if (ready) text = "Connected. Files go straight between the two devices.";
+    else if (count) text = "Connected. Files go straight between the two devices.";
     else if (linkRelay.status === "open" && ![...linkRelay.peers.values()].some((p) => p.role === "app")) {
       text = "Waiting for the device. If its Share screen was closed, scan the new code it shows.";
     } else text = "Connecting to the device that showed you the code…";
   } else if (!RELAY) {
-    text = "Relay off. Pair with the code.";
-  } else if (autoRelay.status === "open") {
-    text = "Looking for Rescriva on this network.";
-  } else if (autoRelay.status === "unavailable") {
-    text = "Can't reach the relay, so devices won't appear on their own. Pair with the code instead.";
+    text = count ? "Paired. Files go straight between the two devices." : "Relay off. Pair with the code.";
   } else {
-    text = "Connecting…";
+    text = nearbyStatus(autoRelay.status, count);
   }
   $("status").textContent = text;
   $("status").dataset.tone = mode === "nearby" && autoRelay?.status === "unavailable" ? "warn" : "";
+}
+
+/** The status line on the nearby page, with `count` devices connected. */
+function nearbyStatus(relayStatus, count) {
+  const connected = count === 1 ? "Connected to 1 device." : `Connected to ${count} devices.`;
+  if (relayStatus === "open") {
+    return count ? `${connected} Others on this network show up here too.` : "Looking for Rescriva on this network.";
+  }
+  if (relayStatus === "unavailable") {
+    return count
+      ? `${connected} Can't reach the relay, so others won't appear on their own. Pair them with the code.`
+      : "Can't reach the relay, so devices won't appear on their own. Pair with the code instead.";
+  }
+  return count ? connected : "Connecting…";
 }
 
 function renderDevices() {
@@ -428,7 +446,7 @@ class DocRow {
     this.message.textContent = {
       wrong: result.left > 0
         ? `That's not it. ${result.left} ${result.left === 1 ? "try" : "tries"} left before the PIN changes.`
-        : "That's not it. The PIN has changed. Check Rescriva for the new one.",
+        : `That's not it. The PIN has changed. Check Rescriva for the new one, then try again in ${result.retryIn || 30} seconds.`,
       cooldown: `Too many wrong PINs. Try again in ${result.retryIn || 30} seconds, using the new PIN in Rescriva.`,
       locked: "This file isn't shared any more.",
       gone: "This file isn't shared any more.",
@@ -484,11 +502,13 @@ function percent(t) {
   return t.size ? `${Math.floor((t.done / t.size) * 100)}%` : "";
 }
 
+/** Like the app's sizes (Apple's file sizes): 1 KB is 1,000 bytes, so both show "731 KB". */
 function formatBytes(bytes) {
   if (!(bytes >= 0)) return "";
-  if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+  if (bytes < 1000) return `${bytes} bytes`;
+  if (Math.round(bytes / 1e3) < 1000) return `${Math.round(bytes / 1e3)} KB`;
+  if (bytes < 1e9) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${(bytes / 1e9).toFixed(2)} GB`;
 }
 
 let toastTimer;
