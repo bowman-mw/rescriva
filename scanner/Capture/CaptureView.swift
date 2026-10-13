@@ -123,6 +123,10 @@ struct CaptureView: View {
 						}
 					}
 					ShutterFlash(trigger: shots)
+					if let look = camera.secondLook {
+						SlideGuide(direction: look.direction, phase: look.phase)
+							.transition(.opacity)
+					}
 					// The viewfinder dims behind the page and fades back: only the page shrinks away.
 					if held != nil {
 						Color.darkroom.opacity(0.55)
@@ -137,16 +141,27 @@ struct CaptureView: View {
 								insertion: .opacity,
 								removal: reduceMotion ? AnyTransition.opacity : AnyTransition.scale(scale: 0.2, anchor: .bottomLeading).combined(with: .opacity)))
 					}
-					Text(hint)
-						.font(RescrivaFont.note(15))
-						.foregroundStyle(.chalk)
-						.padding(.vertical, 8)
-						.padding(.horizontal, 14)
-						.background(.ultraThinMaterial.opacity(0.6), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
-						.background(Color.darkroom.opacity(0.6), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
-						.padding(.bottom, 18)
-						.animation(RescrivaMotion.ui, value: hint)
-						.accessibilityAddTraits(.updatesFrequently)
+					HStack(spacing: 12) {
+						Text(hint)
+							.font(RescrivaFont.note(15))
+							.foregroundStyle(.chalk)
+							.accessibilityAddTraits(.updatesFrequently)
+						if camera.secondLook != nil {
+							Button("Skip") { camera.skipSecondLook() }
+								.font(RescrivaFont.ui(13, weight: .medium))
+								.foregroundStyle(.printInk)
+								.padding(.vertical, 5)
+								.padding(.horizontal, 10)
+								.background(Color.chalk, in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
+								.accessibilityHint("Keeps the first photo as it is")
+						}
+					}
+					.padding(.vertical, 8)
+					.padding(.horizontal, 14)
+					.background(.ultraThinMaterial.opacity(0.6), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
+					.background(Color.darkroom.opacity(0.6), in: RoundedRectangle(cornerRadius: RescrivaRadius.control, style: .continuous))
+					.padding(.bottom, 18)
+					.animation(RescrivaMotion.ui, value: hint)
 		}
 		.clipShape(RoundedRectangle(cornerRadius: RescrivaRadius.large, style: .continuous))
 		.padding(.horizontal, 14)
@@ -196,7 +211,7 @@ struct CaptureView: View {
 			.buttonStyle(PressScaleStyle())
 			// During a second look the shutter stays live: it keeps the page as it is.
 			.disabled((isCapturing && camera.secondLook == nil) || !canCapture)
-			.accessibilityLabel(camera.secondLook == nil ? "Take picture" : "Keep the page as it is")
+			.accessibilityLabel(camera.secondLook == nil ? "Take picture" : "Take the second photo")
 			Spacer()
 			Button(action: save) {
 				Text("Save")
@@ -246,7 +261,14 @@ struct CaptureView: View {
 
 	private var hint: String {
 		if let look = camera.secondLook {
-			return Self.secondLookHint(look.direction)
+			switch look.phase {
+			case .move: return Self.secondLookHint(look.direction)
+			case .hold: return String(localized: "That’s far enough — hold it there")
+			case .taking: return String(localized: "Got it — merging the two photos…")
+			}
+		}
+		if camera.isMergingPhotos {
+			return String(localized: "Got it — merging the two photos…")
 		}
 		// Only while the page in view is still to be taken: not over the page just captured.
 		if !isDemo, camera.status == .running, camera.quad != nil, camera.showsGlare, !isCapturing, !auto || camera.awaitsCapture {
@@ -258,8 +280,13 @@ struct CaptureView: View {
 			}
 			return auto ? String(localized: "Hold still — I’ll take it when it’s steady") : String(localized: "Tap the shutter when ready")
 		}
-		if camera.lastPageWasFused {
+		switch camera.lastGlareOutcome {
+		case .fused:
 			return String(localized: "That’s it — shine’s gone. Got page \(captured.count).")
+		case .notAligned:
+			return String(localized: "Couldn’t line the two photos up, so I kept the first. Got page \(captured.count).")
+		case nil:
+			break
 		}
 		return String(localized: "Got page \(captured.count). Next one whenever you are.")
 	}
@@ -267,10 +294,10 @@ struct CaptureView: View {
 	/// Asks for a slide, not a tilt: only moving the phone moves the lamp's reflection on the page.
 	private static func secondLookHint(_ direction: PageDirection) -> String {
 		switch direction {
-		case .left: return String(localized: "A little shine on the page — ease the phone left")
-		case .right: return String(localized: "A little shine on the page — ease the phone right")
-		case .up: return String(localized: "A little shine on the page — ease the phone away from you")
-		case .down: return String(localized: "A little shine on the page — ease the phone toward you")
+		case .left: return String(localized: "Shine on the page — slide the phone left a little")
+		case .right: return String(localized: "Shine on the page — slide the phone right a little")
+		case .up: return String(localized: "Shine on the page — slide the phone away from you a little")
+		case .down: return String(localized: "Shine on the page — slide the phone toward you a little")
 		}
 	}
 
@@ -312,26 +339,35 @@ struct CaptureView: View {
 		}
 	}
 
+	/// During a second look the shutter takes its photo now, wherever the phone is.
 	private func shutterTapped() {
 		if camera.secondLook != nil {
-			camera.finishSecondLook()
+			camera.takeSecondPhoto()
 		} else {
 			Task { await capture() }
 		}
 	}
 
-	/// A second look began (one soft tap, and the hint read out once) or took another photo (the
-	/// viewfinder flashes as for any shot).
+	/// A second look began (a soft tap, and the hint read out once), reached "hold it there" (a
+	/// light tick, read out), or took its photo (the viewfinder flashes as for any shot).
 	private func secondLookChanged(from old: CaptureCamera.SecondLook?, to new: CaptureCamera.SecondLook?) {
-		guard let new else { return }
-		if let old {
-			guard new.shots > old.shots else { return }
-			shots += 1
+		guard let new, new != old else { return }
+		guard let old else {
 			UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+			AccessibilityNotification.Announcement(Self.secondLookHint(new.direction)).post()
 			return
 		}
-		UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-		AccessibilityNotification.Announcement(Self.secondLookHint(new.direction)).post()
+		guard new.phase != old.phase else { return }
+		switch new.phase {
+		case .move:
+			break
+		case .hold:
+			UISelectionFeedbackGenerator().selectionChanged()
+			AccessibilityNotification.Announcement(String(localized: "Hold it there")).post()
+		case .taking:
+			shots += 1
+			UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+		}
 	}
 
 	private func capture() async {
@@ -503,6 +539,54 @@ private struct HeldPageView: View {
 			.accessibilityHidden(true)
 			// The pass starts once the page is up.
 			.onAppear { pass += 1 }
+	}
+}
+
+/// Over the viewfinder during a second look: a big arrow nudging the way to slide the phone, then,
+/// once it has moved far enough, a steady ring for "hold it there". The hint pill says the same in
+/// words (and VoiceOver reads it), so this is decoration for sighted users.
+private struct SlideGuide: View {
+	let direction: PageDirection
+	let phase: CaptureCamera.SecondLook.Phase
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
+	@State private var nudged = false
+
+	var body: some View {
+		ZStack {
+			switch phase {
+			case .move:
+				Image(systemName: "arrow.right")
+					.font(.system(size: 54, weight: .semibold))
+					.foregroundStyle(Color.highlighter)
+					.shadow(color: .black.opacity(0.5), radius: 6, x: 0, y: 2)
+					.offset(x: nudged ? 18 : -6)
+					.rotationEffect(angle)
+					.onAppear {
+						guard !reduceMotion else { return }
+						withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { nudged = true }
+					}
+			case .hold:
+				Circle()
+					.strokeBorder(Color.highlighter, lineWidth: 5)
+					.frame(width: 76, height: 76)
+					.shadow(color: .black.opacity(0.5), radius: 6, x: 0, y: 2)
+			case .taking:
+				EmptyView()
+			}
+		}
+		.frame(maxWidth: .infinity, maxHeight: .infinity)
+		.allowsHitTesting(false)
+		.accessibilityHidden(true)
+		.animation(RescrivaMotion.ui, value: phase)
+	}
+
+	private var angle: Angle {
+		switch direction {
+		case .right: return .degrees(0)
+		case .down: return .degrees(90)
+		case .left: return .degrees(180)
+		case .up: return .degrees(-90)
+		}
 	}
 }
 

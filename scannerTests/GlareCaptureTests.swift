@@ -3,10 +3,12 @@
 //  Rescriva (fork of Open Scanner)
 //
 //  The camera's second look at a glary page: the debounced live check
-//  (one bright frame doesn't count), the cells a live map clears, and the
-//  trigger that takes the next still only once the phone has moved, settled
-//  and sees the pending glare clean, firing once per still and reporting a
-//  lost page. The fusion itself is checked by Tools/GlareFusionHarness.
+//  (one bright frame doesn't count), the cells a live map clears, the
+//  trigger that takes the next still only once the phone has moved and
+//  settled (sooner where the pending glare looks clean), firing once per
+//  still and reporting a lost page, and auto-capture that, after a second
+//  look, waits for the page to leave instead of re-taking it. The fusion
+//  itself is checked by Tools/GlareFusionHarness.
 //
 
 import CoreGraphics
@@ -88,7 +90,7 @@ final class GlareCaptureTests: XCTestCase {
 		var trigger = SecondLookTrigger(coverage: coverage, lastStillQuad: quad(shiftedBy: 0))
 		let moved = quad(shiftedBy: 0.08)
 		let signals = feed(&trigger, Array(repeating: (moved, map(glary: [])), count: 8))
-		// Held for 0.3 s at frame 3 (t = 0.3).
+		// The 0.25 s hold is first met at frame 3 (t = 0.3).
 		XCTAssertEqual(signals.firstIndex(of: .ready), 3)
 		XCTAssertEqual(signals.filter { $0 == .ready }.count, 1, "fires once until restarted")
 	}
@@ -96,7 +98,7 @@ final class GlareCaptureTests: XCTestCase {
 	func testDoesNotFireWhileThePhoneIsStillMoving() {
 		let coverage = GlareCoverage(first: map(glary: [5]))
 		var trigger = SecondLookTrigger(coverage: coverage, lastStillQuad: quad(shiftedBy: 0))
-		let sliding = (0..<10).map { (quad(shiftedBy: 0.05 + CGFloat($0) * 0.02), map(glary: [])) as (PageQuad?, GlareMap?) }
+		let sliding = (0..<10).map { (quad(shiftedBy: 0.05 + CGFloat($0) * 0.03), map(glary: [])) as (PageQuad?, GlareMap?) }
 		XCTAssertFalse(feed(&trigger, sliding).contains(.ready))
 	}
 
@@ -104,15 +106,63 @@ final class GlareCaptureTests: XCTestCase {
 		let coverage = GlareCoverage(first: map(glary: [5, 11, 17]))
 		var trigger = SecondLookTrigger(coverage: coverage, lastStillQuad: quad(shiftedBy: 0))
 		let signals = feed(&trigger, Array(repeating: (quad(shiftedBy: 0.08), map(glary: [17])), count: 14))
-		// Two of three cleared: it waits the 0.9 s partial settle (frame 9) rather than 0.3 s.
-		XCTAssertEqual(signals.firstIndex(of: .ready), 9)
+		// Two of three cleared: it waits the 0.6 s partial settle (frame 6) rather than 0.25 s.
+		XCTAssertEqual(signals.firstIndex(of: .ready), 6)
 	}
 
-	func testNothingClearedNeverFires() {
+	func testAShortSlideWithNothingClearedNeverFires() {
 		let coverage = GlareCoverage(first: map(glary: [5, 11]))
 		var trigger = SecondLookTrigger(coverage: coverage, lastStillQuad: quad(shiftedBy: 0))
 		let signals = feed(&trigger, Array(repeating: (quad(shiftedBy: 0.08), map(glary: [5, 11])), count: 20))
 		XCTAssertFalse(signals.contains(.ready))
+		XCTAssertEqual(trigger.phase, .move)
+	}
+
+	func testALongEnoughSlideFiresEvenWhileThePreviewStillShowsGlare() {
+		let coverage = GlareCoverage(first: map(glary: [5, 11]))
+		var trigger = SecondLookTrigger(coverage: coverage, lastStillQuad: quad(shiftedBy: 0))
+		let signals = feed(&trigger, Array(repeating: (quad(shiftedBy: 0.12), map(glary: [5, 11])), count: 8))
+		// The preview's highlight blooms wider than the still's; 0.4 s held is enough (frame 4).
+		XCTAssertEqual(signals.firstIndex(of: .ready), 4)
+	}
+
+	func testPhaseSaysMoveUntilFarEnoughThenHold() {
+		let coverage = GlareCoverage(first: map(glary: [5]))
+		var trigger = SecondLookTrigger(coverage: coverage, lastStillQuad: quad(shiftedBy: 0))
+		_ = trigger.update(quad: quad(shiftedBy: 0.01), glare: map(glary: []), at: 0)
+		XCTAssertEqual(trigger.phase, .move)
+		_ = trigger.update(quad: quad(shiftedBy: 0.06), glare: map(glary: []), at: 0.1)
+		XCTAssertEqual(trigger.phase, .hold)
+		_ = trigger.update(quad: nil, glare: nil, at: 0.2)
+		XCTAssertEqual(trigger.phase, .move)
+	}
+
+	// MARK: Auto-capture after a second look
+
+	/// Feeds `quad` at 10 fps over `seconds` from `start`; true if auto-capture fired.
+	private func hold(_ tracker: inout QuadStabilityTracker, _ quad: PageQuad?, from start: TimeInterval, for seconds: TimeInterval) -> Bool {
+		var fired = false
+		for step in 0..<Int((seconds * 10).rounded()) {
+			fired = tracker.update(quad: quad, at: start + Double(step) * 0.1, autoCaptureEnabled: true).shouldAutoCapture || fired
+		}
+		return fired
+	}
+
+	func testMovingThePageReArmsAutoCaptureAfterAnOrdinaryShot() {
+		var tracker = QuadStabilityTracker()
+		XCTAssertTrue(hold(&tracker, quad(shiftedBy: 0), from: 0, for: 1))
+		XCTAssertTrue(hold(&tracker, quad(shiftedBy: 0.2), from: 1, for: 3), "moved past the re-arm distance")
+	}
+
+	func testAfterASecondLookAutoCaptureWaitsForThePageToLeave() {
+		var tracker = QuadStabilityTracker()
+		XCTAssertTrue(hold(&tracker, quad(shiftedBy: 0), from: 0, for: 1))
+		// The second look slid the phone about; it ends here, over the same page.
+		tracker.noteCapture(at: 1, untilPageLeaves: true)
+		XCTAssertFalse(hold(&tracker, quad(shiftedBy: 0.2), from: 1, for: 3), "sliding back doesn't take the page again")
+		XCTAssertFalse(tracker.isArmed)
+		XCTAssertFalse(hold(&tracker, nil, from: 4, for: 0.5))
+		XCTAssertTrue(hold(&tracker, quad(shiftedBy: 0), from: 4.5, for: 1.5), "the next page, after this one left the frame")
 	}
 
 	func testRestartArmsTheTriggerForTheNextStill() {

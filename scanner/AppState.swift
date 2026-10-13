@@ -8,10 +8,6 @@
 import Foundation
 import AppIntents
 import CoreData
-import CoreLocation
-#if canImport(CoreLocationUI)
-import CoreLocationUI
-#endif
 import SwiftUI
 
 enum ViewState: String {
@@ -31,7 +27,6 @@ extension ViewState: AppEnum {
 class AppState: ObservableObject {
 	
 	public static let shared = AppState()
-	var locationManager = LocationManager()
 	
 	@Published var viewState = ViewState.Home
 	
@@ -49,31 +44,5 @@ class AppState: ObservableObject {
 		}
 		
 		return 0
-	}
-}
-
-
-class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
-	let manager = CLLocationManager()
-
-	@Published var location: CLLocationCoordinate2D?
-	private var locations: [CLLocation] = [CLLocation]()
-
-	override init() {
-		super.init()
-		manager.delegate = self
-	}
-
-	func requestLocation() {
-		manager.requestWhenInUseAuthorization()
-		locationManager(manager, didUpdateLocations: locations)
-	}
-	
-	func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-		location = locations.first?.coordinate
-	}
-	
-	var myLocation: CLLocation? {
-		return manager.location
 	}
 }

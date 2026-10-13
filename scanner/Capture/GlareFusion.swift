@@ -70,9 +70,41 @@ enum GlareFusion {
 		var keepsUnrefinedFrames = true
 		/// Long side of the page images registration runs on.
 		var registrationSize: CGFloat = 1024
+		/// After registration, correct what a homography can't: a page that isn't flat (a laminated
+		/// sheet bowed by its binder) is off by a few pixels here and there. Each frame's shift is
+		/// measured tile by tile, smoothed into a displacement field and the frame resampled along
+		/// it. Needs `materializesPages`.
+		var refinesLocally = false
+		/// Largest local shift trusted, as a fraction of the page's long side.
+		var maxLocalShift: CGFloat = 0.012
+		/// Registration passes per frame. A second pass, starting from the first's result, tightens
+		/// the fit when the outlines disagreed by several percent; it is kept only if it improves on
+		/// the first.
+		var refinementPasses = 1
 		/// A refinement that moves a page corner further than this fraction of the page's long side
-		/// is rejected as a mismatch.
+		/// is rejected as a mismatch. Vision's outlines of the same page can disagree by several
+		/// percent between real shots (a laminate's pouch edge in one, the paper's in the next), so
+		/// the camera allows more.
 		var maxRefinementShift: CGFloat = 0.03
+		/// A refinement is also rejected unless its mean difference to the reference is at most this
+		/// share of the difference before it (a real match on the same page roughly halves it).
+		var maxRefinedDifferenceRatio: Float = 1
+		/// Check each frame's outline against the reference's shape and repair one stray corner
+		/// (Vision sometimes runs a corner onto a neighbouring sheet); a frame whose outline can't
+		/// be made consistent is dropped.
+		var repairsOutlines = false
+		/// Other frames fill in only where the reference has glare; elsewhere the page is the
+		/// reference alone. A real page is never quite flat, so blending clean regions as well (for
+		/// a little denoising) doubles the text wherever registration is off.
+		var fillsOnlyGlare = false
+		/// With `fillsOnlyGlare`: the reference's glare score where filling starts, and where the other
+		/// frames take over fully.
+		var fillStart: Float = 0.10
+		var fillFull: Float = 0.12
+		/// With `fillsOnlyGlare`, the glare scale used in place of `glareScale`: small, so where the
+		/// reference needs filling the least glary frame wins outright instead of a soft mix (which
+		/// doubles text wherever registration is off).
+		var fillGlareScale: Float = 0.01
 		/// Long side of the page images the gains, glare scores and weights are computed on.
 		var analysisSize: CGFloat = 384
 		/// Weight of the reference relative to each other frame where they are equally clean.
@@ -89,6 +121,20 @@ enum GlareFusion {
 		var glareThreshold: Float = 0.12
 		/// Linear level at or above which a channel counts as clipped.
 		var clipLevel: Float = 0.92
+
+		/// The settings `CaptureCamera` fuses a second look with, tuned on real stills of laminated
+		/// sheets: outlines that disagree by several percent, pages bowed by their binder.
+		static var camera: Options {
+			var options = Options()
+			options.maxFrames = 3
+			options.keepsUnrefinedFrames = false
+			options.maxRefinementShift = 0.08
+			options.maxRefinedDifferenceRatio = 0.85
+			options.repairsOutlines = true
+			options.refinesLocally = true
+			options.fillsOnlyGlare = true
+			return options
+		}
 	}
 
 	/// How a frame was placed in page space.
@@ -114,6 +160,9 @@ enum GlareFusion {
 		/// Edge steepness at registration size relative to the reference (below 1: blurrier); nil
 		/// when not measured (refinement off or failed to render).
 		var sharpness: Float?
+		/// Mean local correction applied after registration (`refinesLocally`), in page pixels; nil
+		/// when none was applied.
+		var localShift: Float?
 		/// Per-channel gain that matched the frame to the reference's exposure and white balance.
 		var gain = SIMD3<Float>(repeating: 1)
 		/// Share of the page this frame covers.
@@ -189,6 +238,9 @@ enum GlareFusion {
 		var stack = try align(frames, context: context, options: options)
 		if options.materializesPages {
 			try materialize(&stack, context: context)
+			if options.refinesLocally {
+				refineLocally(&stack, context: context, options: options)
+			}
 		}
 		let analysis = try analyse(&stack, context: context, options: options)
 		let size = stack.pageSize
@@ -244,7 +296,17 @@ enum GlareFusion {
 			: nil
 		for (index, frame) in usable.enumerated().dropFirst() {
 			let source = atOrigin(frame.image)
-			guard let initial = quadHomography(frame.quad, imageSize: source.extent.size, pageSize: pageSize) else {
+			var quad = frame.quad
+			if options.repairsOutlines {
+				guard let consistent = consistentOutline(frame.quad, imageSize: source.extent.size,
+														  reference: first.quad, referenceSize: referenceSource.extent.size) else {
+					stack.droppedFrames.append(index)
+					stack.unrefinedFrames.append(FrameReport(index: index, alignment: .quad("Its outline doesn't match the reference page's shape.")))
+					continue
+				}
+				quad = consistent
+			}
+			guard let initial = quadHomography(quad, imageSize: source.extent.size, pageSize: pageSize) else {
 				stack.droppedFrames.append(index)
 				continue
 			}
@@ -253,6 +315,18 @@ enum GlareFusion {
 				// Drain Core Image's and Vision's autoreleased buffers frame by frame.
 				autoreleasepool {
 					registrar.refine(&layer)
+				}
+				for _ in 1..<max(1, options.refinementPasses) {
+					guard case .refined(let firstShift) = layer.report.alignment else { break }
+					var again = layer
+					autoreleasepool {
+						registrar.refine(&again)
+					}
+					guard case .refined(let shift) = again.report.alignment,
+						  let after = again.report.differenceAfter, let previous = layer.report.differenceAfter, after < previous else { break }
+					again.report.alignment = .refined(shift: firstShift + shift)
+					again.report.differenceBefore = layer.report.differenceBefore
+					layer = again
 				}
 			} else if options.refinesAlignment {
 				layer.report.alignment = .quad("The reference could not be prepared for registration.")
@@ -350,6 +424,98 @@ extension GlareFusion {
 		return filter.outputImage?.cropped(to: target)
 	}
 
+	/// `quad` (normalized, in an image of `imageSize`) checked against the reference page's outline
+	/// (in `referenceSize`), for a photo of the same page from a little to one side.
+	///
+	/// - Consistent: after one common scale, every side and diagonal is within `tolerance` of the
+	///   reference's. The quad is returned as it is.
+	/// - One stray corner: three corners fit the reference's by a near-similarity (an affine map
+	///   with nearly equal stretch both ways). The fourth is replaced by where that map puts it.
+	/// - Otherwise nil.
+	static func consistentOutline(_ quad: PageQuad, imageSize: CGSize, reference: PageQuad, referenceSize: CGSize,
+								  tolerance: CGFloat = 0.12) -> PageQuad? {
+		let own = quad.corners.map { CGPoint(x: $0.x * imageSize.width, y: $0.y * imageSize.height) }
+		let ref = reference.corners.map { CGPoint(x: $0.x * referenceSize.width, y: $0.y * referenceSize.height) }
+		if outlinesMatch(own, ref, tolerance: tolerance) {
+			return quad
+		}
+		var best: (corners: [CGPoint], stretch: CGFloat)?
+		for stray in 0..<4 {
+			let kept = (0..<4).filter { $0 != stray }
+			guard let map = affine(from: kept.map { ref[$0] }, to: kept.map { own[$0] }) else { continue }
+			let stretch = map.stretchRatio
+			guard stretch <= 1 + tolerance, (0.7...1.4).contains(map.scale) else { continue }
+			var repaired = own
+			repaired[stray] = map.apply(ref[stray])
+			guard outlinesMatch(repaired, ref, tolerance: tolerance), stretch < (best?.stretch ?? .greatestFiniteMagnitude) else { continue }
+			best = (repaired, stretch)
+		}
+		guard let corners = best?.corners else { return nil }
+		let normalized = corners.map { CGPoint(x: $0.x / imageSize.width, y: $0.y / imageSize.height) }
+		let repaired = PageQuad(topLeft: normalized[0], topRight: normalized[1], bottomRight: normalized[2], bottomLeft: normalized[3])
+		return repaired.isConvex ? repaired : nil
+	}
+
+	/// True when the outlines' sides and diagonals agree within `tolerance` after one common scale,
+	/// and that scale is plausible for the phone moving a little (0.7–1.4).
+	private static func outlinesMatch(_ a: [CGPoint], _ b: [CGPoint], tolerance: CGFloat) -> Bool {
+		let pairs = [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3)]
+		let lengthsA = pairs.map { hypot(a[$0.0].x - a[$0.1].x, a[$0.0].y - a[$0.1].y) }
+		let lengthsB = pairs.map { hypot(b[$0.0].x - b[$0.1].x, b[$0.0].y - b[$0.1].y) }
+		let totalB = lengthsB.reduce(0, +)
+		guard totalB > 0, lengthsB.allSatisfy({ $0 > 0 }) else { return false }
+		let scale = lengthsA.reduce(0, +) / totalB
+		guard (0.7...1.4).contains(scale) else { return false }
+		return zip(lengthsA, lengthsB).allSatisfy { abs($0 / ($1 * scale) - 1) <= tolerance }
+	}
+
+	/// A 2-D affine map: `p′ = linear · p + offset`.
+	private struct Affine {
+		var a: CGFloat, b: CGFloat, c: CGFloat, d: CGFloat
+		var tx: CGFloat, ty: CGFloat
+
+		func apply(_ p: CGPoint) -> CGPoint {
+			CGPoint(x: a * p.x + b * p.y + tx, y: c * p.x + d * p.y + ty)
+		}
+
+		/// The linear part's singular values, largest first.
+		private var singularValues: (CGFloat, CGFloat) {
+			let e = (a + d) / 2, f = (a - d) / 2, g = (c + b) / 2, h = (c - b) / 2
+			let q = hypot(e, h), r = hypot(f, g)
+			return (q + r, abs(q - r))
+		}
+
+		/// Largest over smallest stretch: 1 for a similarity (rotation and uniform scale).
+		var stretchRatio: CGFloat {
+			let (large, small) = singularValues
+			return small > 1e-9 ? large / small : .greatestFiniteMagnitude
+		}
+
+		/// The geometric-mean scale.
+		var scale: CGFloat {
+			let (large, small) = singularValues
+			return (large * small).squareRoot()
+		}
+	}
+
+	/// The affine map taking three points exactly onto three others; nil when they are collinear.
+	private static func affine(from source: [CGPoint], to target: [CGPoint]) -> Affine? {
+		guard source.count == 3, target.count == 3 else { return nil }
+		let (p0, p1, p2) = (source[0], source[1], source[2])
+		let u = CGVector(dx: p1.x - p0.x, dy: p1.y - p0.y)
+		let v = CGVector(dx: p2.x - p0.x, dy: p2.y - p0.y)
+		let det = u.dx * v.dy - u.dy * v.dx
+		guard abs(det) > 1e-9 else { return nil }
+		let su = CGVector(dx: target[1].x - target[0].x, dy: target[1].y - target[0].y)
+		let sv = CGVector(dx: target[2].x - target[0].x, dy: target[2].y - target[0].y)
+		// linear · [u v] = [su sv]  ⇒  linear = [su sv] · [u v]⁻¹
+		let a = (su.dx * v.dy - sv.dx * u.dy) / det
+		let b = (sv.dx * u.dx - su.dx * v.dx) / det
+		let c = (su.dy * v.dy - sv.dy * u.dy) / det
+		let d = (sv.dy * u.dx - su.dy * v.dx) / det
+		return Affine(a: a, b: b, c: c, d: d, tx: target[0].x - (a * p0.x + b * p0.y), ty: target[0].y - (c * p0.x + d * p0.y))
+	}
+
 	static func atOrigin(_ image: CIImage) -> CIImage {
 		let origin = image.extent.origin
 		guard !image.extent.isInfinite, origin != .zero else { return image }
@@ -359,6 +525,239 @@ extension GlareFusion {
 	/// `image` over mid-grey, so pixels the photo does not reach are opaque.
 	static func opaque(_ image: CIImage, in rect: CGRect) -> CIImage {
 		image.composited(over: CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5)).cropped(to: rect))
+	}
+}
+
+// MARK: - Local refinement
+
+extension GlareFusion {
+
+	/// Target tile side, in registration pixels, for measuring local shifts.
+	private static let localTileSide: CGFloat = 110
+
+	/// Resamples every non-reference layer along its measured displacement field (see
+	/// `Options.refinesLocally`). Layers must already be materialized. A layer whose field can't be
+	/// measured, or is negligible, is left as it is.
+	fileprivate static func refineLocally(_ stack: inout AlignedStack, context: CIContext, options: Options) {
+		guard stack.layers.count > 1, let referenceLayer = stack.layers.first else { return }
+		let pageSize = stack.pageSize
+		let scale = min(1, options.registrationSize / max(pageSize.width, pageSize.height))
+		let targetSize = CGSize(width: (pageSize.width * scale).rounded(), height: (pageSize.height * scale).rounded())
+		guard targetSize.width >= 64, targetSize.height >= 64,
+			  let reference = registrationPlane(referenceLayer, pageSize: pageSize, targetSize: targetSize, context: context) else { return }
+		let limit = options.maxLocalShift * max(targetSize.width, targetSize.height)
+		for index in stack.layers.indices.dropFirst() {
+			autoreleasepool {
+				guard let plane = registrationPlane(stack.layers[index], pageSize: pageSize, targetSize: targetSize, context: context),
+					  let field = DisplacementField.measure(reference: reference, frame: plane, limit: limit),
+					  field.meanMagnitude >= 0.3,
+					  let image = stack.layers[index].source.cgImage,
+					  let resampled = field.resample(image, pageScale: pageSize.width / targetSize.width) else { return }
+				stack.layers[index].source = CIImage(cgImage: resampled)
+				stack.layers[index].report.localShift = Float(field.meanMagnitude * pageSize.width / targetSize.width)
+			}
+		}
+	}
+
+	/// Local shifts on a grid of tiles over the page: for each tile centre in the reference, where
+	/// the frame shows the same paper, as an offset in registration pixels (rows top to bottom).
+	struct DisplacementField {
+		let columns: Int
+		let rows: Int
+		/// Tile size in registration pixels.
+		let tileWidth: CGFloat
+		let tileHeight: CGFloat
+		/// Offsets, row-major from the top-left tile.
+		var offsets: [CGVector]
+
+		var meanMagnitude: CGFloat {
+			offsets.reduce(0) { $0 + hypot($1.dx, $1.dy) } / CGFloat(max(1, offsets.count))
+		}
+
+		/// Measures the field with Vision's translational registration tile by tile (tiles with too
+		/// little ink in either image, or a shift beyond `limit`, are filled from their neighbours),
+		/// then replaces outliers by their neighbours' median and smooths it. Nil when no tile could
+		/// be measured.
+		static func measure(reference: Plane, frame: Plane, limit: CGFloat) -> DisplacementField? {
+			guard reference.width == frame.width, reference.height == frame.height else { return nil }
+			let columns = max(3, Int((CGFloat(reference.width) / localTileSide).rounded()))
+			let rows = max(3, Int((CGFloat(reference.height) / localTileSide).rounded()))
+			let tileWidth = CGFloat(reference.width) / CGFloat(columns)
+			let tileHeight = CGFloat(reference.height) / CGFloat(rows)
+			var measured = [CGVector?](repeating: nil, count: columns * rows)
+			for row in 0..<rows {
+				for column in 0..<columns {
+					let margin = tileWidth / 3
+					let x0 = max(0, Int(CGFloat(column) * tileWidth - margin))
+					let y0 = max(0, Int(CGFloat(row) * tileHeight - margin))
+					let x1 = min(reference.width, Int(CGFloat(column + 1) * tileWidth + margin))
+					let y1 = min(reference.height, Int(CGFloat(row + 1) * tileHeight + margin))
+					measured[row * columns + column] = tileShift(reference, frame, x0: x0, y0: y0, x1: x1, y1: y1, limit: limit)
+				}
+			}
+			guard measured.contains(where: { $0 != nil }) else { return nil }
+			var field = DisplacementField(columns: columns, rows: rows, tileWidth: tileWidth, tileHeight: tileHeight,
+										  offsets: fillGaps(measured, columns: columns, rows: rows))
+			field.rejectOutliers()
+			field.smooth()
+			return field
+		}
+
+		/// Where the frame shows the paper of one reference tile, or nil when the tile has too little
+		/// ink to tell. Vision's `alignmentTransform` maps the floating (frame) image onto the
+		/// reference with a bottom-left origin, so the frame shows a reference point at (−tx, +ty)
+		/// from it in rows top to bottom.
+		private static func tileShift(_ reference: Plane, _ frame: Plane, x0: Int, y0: Int, x1: Int, y1: Int, limit: CGFloat) -> CGVector? {
+			let width = x1 - x0
+			let height = y1 - y0
+			guard width >= 16, height >= 16 else { return nil }
+			let referenceTile = crop(reference, x0: x0, y0: y0, width: width, height: height)
+			let frameTile = crop(frame, x0: x0, y0: y0, width: width, height: height)
+			let enough = Float(width * height) / 50
+			guard referenceTile.indicator(atLeast: 0.6).complement().sum > enough,
+				  frameTile.indicator(atLeast: 0.6).complement().sum > enough,
+				  let referenceImage = referenceTile.grayImage(), let frameImage = frameTile.grayImage() else { return nil }
+			let request = VNTranslationalImageRegistrationRequest(targetedCGImage: frameImage, options: [:])
+			guard (try? VNImageRequestHandler(cgImage: referenceImage, options: [:]).perform([request])) != nil,
+				  let transform = (request.results?.first as? VNImageTranslationAlignmentObservation)?.alignmentTransform else { return nil }
+			let offset = CGVector(dx: -transform.tx, dy: transform.ty)
+			return hypot(offset.dx, offset.dy) <= limit ? offset : nil
+		}
+
+		private static func crop(_ plane: Plane, x0: Int, y0: Int, width: Int, height: Int) -> Plane {
+			var tile = Plane(width: width, height: height)
+			for row in 0..<height {
+				let source = (y0 + row) * plane.width + x0
+				tile.values.replaceSubrange(row * width..<(row + 1) * width, with: plane.values[source..<source + width])
+			}
+			return tile
+		}
+
+		/// Unmeasured tiles take the mean of their measured neighbours, ring by ring outward.
+		private static func fillGaps(_ measured: [CGVector?], columns: Int, rows: Int) -> [CGVector] {
+			var values = measured
+			for _ in 0..<(columns + rows) {
+				guard values.contains(where: { $0 == nil }) else { break }
+				let previous = values
+				for index in values.indices where previous[index] == nil {
+					let known = neighbours(of: index, columns: columns, rows: rows).compactMap { previous[$0] }
+					guard !known.isEmpty else { continue }
+					values[index] = CGVector(dx: known.reduce(0) { $0 + $1.dx } / CGFloat(known.count),
+											 dy: known.reduce(0) { $0 + $1.dy } / CGFloat(known.count))
+				}
+			}
+			return values.map { $0 ?? CGVector(dx: 0, dy: 0) }
+		}
+
+		private static func neighbours(of index: Int, columns: Int, rows: Int) -> [Int] {
+			let row = index / columns
+			let column = index % columns
+			var result: [Int] = []
+			for dy in -1...1 {
+				for dx in -1...1 where dx != 0 || dy != 0 {
+					let r = row + dy
+					let c = column + dx
+					if r >= 0, r < rows, c >= 0, c < columns { result.append(r * columns + c) }
+				}
+			}
+			return result
+		}
+
+		/// A tile more than 2 px from its neighbours' median takes that median (a blank tile's
+		/// registration can latch onto anything).
+		private mutating func rejectOutliers() {
+			let previous = offsets
+			for index in offsets.indices {
+				let around = Self.neighbours(of: index, columns: columns, rows: rows).map { previous[$0] }
+				guard around.count >= 3 else { continue }
+				let median = CGVector(dx: around.map(\.dx).sorted()[around.count / 2], dy: around.map(\.dy).sorted()[around.count / 2])
+				if hypot(previous[index].dx - median.dx, previous[index].dy - median.dy) > 2 {
+					offsets[index] = median
+				}
+			}
+		}
+
+		/// One pass of a 3 × 3 mean, so neighbouring tiles' shifts change gradually.
+		private mutating func smooth() {
+			let previous = offsets
+			for index in offsets.indices {
+				let around = Self.neighbours(of: index, columns: columns, rows: rows).map { previous[$0] } + [previous[index], previous[index]]
+				offsets[index] = CGVector(dx: around.reduce(0) { $0 + $1.dx } / CGFloat(around.count),
+										  dy: around.reduce(0) { $0 + $1.dy } / CGFloat(around.count))
+			}
+		}
+
+		/// The offset at a point in registration pixels: bilinear between tile centres, held at the
+		/// border tiles beyond them.
+		func offset(atX x: CGFloat, y: CGFloat) -> CGVector {
+			let fx = min(max(x / tileWidth - 0.5, 0), CGFloat(columns - 1))
+			let fy = min(max(y / tileHeight - 0.5, 0), CGFloat(rows - 1))
+			let c0 = min(Int(fx), columns - 1)
+			let r0 = min(Int(fy), rows - 1)
+			let c1 = min(c0 + 1, columns - 1)
+			let r1 = min(r0 + 1, rows - 1)
+			let tx = fx - CGFloat(c0)
+			let ty = fy - CGFloat(r0)
+			func at(_ r: Int, _ c: Int) -> CGVector { offsets[r * columns + c] }
+			let top = CGVector(dx: at(r0, c0).dx * (1 - tx) + at(r0, c1).dx * tx, dy: at(r0, c0).dy * (1 - tx) + at(r0, c1).dy * tx)
+			let bottom = CGVector(dx: at(r1, c0).dx * (1 - tx) + at(r1, c1).dx * tx, dy: at(r1, c0).dy * (1 - tx) + at(r1, c1).dy * tx)
+			return CGVector(dx: top.dx * (1 - ty) + bottom.dx * ty, dy: top.dy * (1 - ty) + bottom.dy * ty)
+		}
+
+		/// `image` (the frame's page, 8-bit RGBA) resampled so each pixel shows what the frame shows
+		/// at that point plus the field's offset; `pageScale` is page pixels per registration pixel.
+		/// Bilinear, premultiplied; pixels that land outside the frame are transparent.
+		func resample(_ image: CGImage, pageScale: CGFloat) -> CGImage? {
+			let width = image.width
+			let height = image.height
+			let rowBytes = width * 4
+			guard width > 1, height > 1, pageScale > 0, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+			let info = CGImageAlphaInfo.premultipliedLast.rawValue
+			var source = [UInt8](repeating: 0, count: rowBytes * height)
+			let drawn = source.withUnsafeMutableBytes { buffer -> Bool in
+				guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+											  bytesPerRow: rowBytes, space: space, bitmapInfo: info) else { return false }
+				context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+				return true
+			}
+			guard drawn else { return nil }
+			var output = [UInt8](repeating: 0, count: rowBytes * height)
+			// The field changes slowly, so it is evaluated every `step` pixels and held between.
+			let step = 8
+			source.withUnsafeBufferPointer { src in
+				output.withUnsafeMutableBufferPointer { dst in
+					for y in 0..<height {
+						var offset = CGVector(dx: 0, dy: 0)
+						for x in 0..<width {
+							if x % step == 0 {
+								offset = self.offset(atX: CGFloat(x) / pageScale, y: CGFloat(y) / pageScale)
+							}
+							let sx = CGFloat(x) + offset.dx * pageScale
+							let sy = CGFloat(y) + offset.dy * pageScale
+							guard sx >= 0, sy >= 0, sx < CGFloat(width - 1), sy < CGFloat(height - 1) else { continue }
+							let x0 = Int(sx)
+							let y0 = Int(sy)
+							let fx = Float(sx - CGFloat(x0))
+							let fy = Float(sy - CGFloat(y0))
+							let i00 = y0 * rowBytes + x0 * 4
+							let i10 = i00 + 4
+							let i01 = i00 + rowBytes
+							let i11 = i01 + 4
+							let out = y * rowBytes + x * 4
+							for channel in 0..<4 {
+								let top = Float(src[i00 + channel]) * (1 - fx) + Float(src[i10 + channel]) * fx
+								let bottom = Float(src[i01 + channel]) * (1 - fx) + Float(src[i11 + channel]) * fx
+								dst[out + channel] = UInt8(min(255, max(0, (top * (1 - fy) + bottom * fy).rounded())))
+							}
+						}
+					}
+				}
+			}
+			guard let provider = CGDataProvider(data: Data(output) as CFData) else { return nil }
+			return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes, space: space,
+						   bitmapInfo: CGBitmapInfo(rawValue: info), provider: provider, decode: nil, shouldInterpolate: false,
+						   intent: .defaultIntent)
+		}
 	}
 }
 
@@ -380,6 +779,7 @@ extension GlareFusion {
 		let referenceImage: CGImage
 		let referenceSteepness: Float?
 		let maxShift: CGFloat
+		let maxDifferenceRatio: Float
 
 		init?(reference: Layer, pageSize: CGSize, context: CIContext, options: Options) {
 			let scale = min(1, options.registrationSize / max(pageSize.width, pageSize.height))
@@ -394,6 +794,7 @@ extension GlareFusion {
 			referenceImage = image
 			referenceSteepness = plane.edgeSteepness()
 			maxShift = options.maxRefinementShift * max(targetSize.width, targetSize.height)
+			maxDifferenceRatio = options.maxRefinedDifferenceRatio
 		}
 
 		/// Replaces `layer`'s homography with the refined one when registration succeeds and
@@ -432,6 +833,10 @@ extension GlareFusion {
 			layer.report.differenceAfter = after
 			guard let after, let before, after < before else {
 				layer.report.alignment = .quad("Registration did not improve the alignment.")
+				return
+			}
+			guard after <= before * maxDifferenceRatio else {
+				layer.report.alignment = .quad("Registration improved the alignment too little to trust.")
 				return
 			}
 			let toTarget = Homography.scaling(x: targetSize.width / pageSize.width, y: targetSize.height / pageSize.height)
@@ -624,15 +1029,26 @@ extension GlareFusion {
 	/// transitions have no seams, then normalized to sum to 1 at every pixel.
 	private static func blendWeights(_ scores: [Plane], coverage: [Plane], priors: [Float], radius: Int, options: Options) -> [Plane] {
 		guard !scores.isEmpty, priors.count == scores.count, coverage.count == scores.count else { return [] }
-		let scale = max(options.glareScale, 1e-4)
+		let scale = max(options.fillsOnlyGlare ? options.fillGlareScale : options.glareScale, 1e-4)
 		// Log weights, with pixels a frame does not cover pushed far down so they never win.
 		let logWeights = scores.indices.map { frame in
 			scores[frame].scaled(by: -1 / scale, plus: priors[frame])
 				.subtracting(coverage[frame].indicator(atLeast: 1e-3).complement().scaled(by: 1e4))
 		}
 		let best = logWeights.dropFirst().reduce(logWeights[0]) { $0.maximum($1) }
-		let smoothed = logWeights.indices.map { frame in
+		var smoothed = logWeights.indices.map { frame in
 			logWeights[frame].subtracting(best).clipped(to: -60...0).exponential().multiplied(by: coverage[frame]).boxBlurred(radius: radius)
+		}
+		if options.fillsOnlyGlare, smoothed.count > 1 {
+			// Where the reference needs filling: its glare score ramped from fillStart to fillFull,
+			// grown a little past the glare's edge so its washed-out rim is filled too, and feathered.
+			let span = max(options.fillFull - options.fillStart, 1e-4)
+			let need = scores[0].scaled(by: 1 / span, plus: -options.fillStart / span).clipped(to: 0...1)
+				.boxBlurred(radius: radius * 2).scaled(by: 3).clipped(to: 0...1)
+				.boxBlurred(radius: max(1, radius / 2))
+			for frame in smoothed.indices.dropFirst() {
+				smoothed[frame] = smoothed[frame].multiplied(by: need)
+			}
 		}
 		let total = smoothed.dropFirst().reduce(smoothed[0]) { $0.adding($1) }
 		let safeTotal = total.clipped(to: 1e-6...Float.greatestFiniteMagnitude)
@@ -960,11 +1376,14 @@ struct GlareDebouncer {
 
 /// Decides, from the live frames of a second look, when to take the next still of the page.
 ///
-/// - Ready: the page is in view, at least `minimumMove` (normalized corner distance, in the
-///   upright preview frame) from where the last still was taken, and the live map shows the cells
-///   still pending clean. With every pending cell clean it fires once the page has been held for
-///   `steadyDuration`; with only some, after `partialSettleDuration`, since the user may not move
-///   any further.
+/// - Ready, once the page has been held within `steadyTolerance` for long enough after moving
+///   off the spot of the last still (normalized corner distance, in the upright preview frame):
+///   - at least `minimumMove`, with every pending cell clean in the live map: `steadyDuration`;
+///   - at least `minimumMove`, with some of them clean: `partialSettleDuration`;
+///   - at least `sufficientMove`, whatever the live map shows: `sufficientSettleDuration`. A slide
+///     that far carries the reflection off most hotspots, and the preview's highlight blooms wider
+///     than the still's, so waiting for the map alone can wait forever.
+/// - `phase` says what the user should do: keep moving, or hold where they are.
 /// - It fires at most once; `restart` arms it for the next still.
 /// - Page lost: no page for `lostDuration`; reported on every frame until the page returns.
 ///
@@ -972,10 +1391,12 @@ struct GlareDebouncer {
 struct SecondLookTrigger {
 
 	struct Configuration {
-		var steadyDuration: TimeInterval = 0.3
-		var steadyTolerance: CGFloat = 0.015
-		var partialSettleDuration: TimeInterval = 0.9
+		var steadyDuration: TimeInterval = 0.25
+		var steadyTolerance: CGFloat = 0.02
+		var partialSettleDuration: TimeInterval = 0.6
 		var minimumMove: CGFloat = 0.04
+		var sufficientMove: CGFloat = 0.10
+		var sufficientSettleDuration: TimeInterval = 0.4
 		var lostDuration: TimeInterval = 1
 		/// Hard cap on remembered samples.
 		var maxSamples = 32
@@ -987,6 +1408,14 @@ struct SecondLookTrigger {
 		case pageLost
 	}
 
+	/// What the user should do now.
+	enum Phase: Equatable {
+		/// Keep sliding the phone.
+		case move
+		/// Far enough: hold still for the photo.
+		case hold
+	}
+
 	private struct Sample {
 		var time: TimeInterval
 		var quad: PageQuad
@@ -994,6 +1423,7 @@ struct SecondLookTrigger {
 
 	let configuration: Configuration
 	private(set) var coverage: GlareCoverage
+	private(set) var phase: Phase = .move
 	private var lastStillQuad: PageQuad?
 	private var samples: [Sample] = []
 	private var missingSince: TimeInterval?
@@ -1013,6 +1443,7 @@ struct SecondLookTrigger {
 		samples.removeAll(keepingCapacity: true)
 		missingSince = nil
 		hasFired = false
+		phase = .move
 	}
 
 	/// Feeds one analysed frame: the live page outline (nil when none) and its glare map (nil
@@ -1023,6 +1454,7 @@ struct SecondLookTrigger {
 		}
 		guard let quad else {
 			samples.removeAll(keepingCapacity: true)
+			phase = .move
 			let since = missingSince ?? time
 			missingSince = since
 			return time - since >= configuration.lostDuration ? .pageLost : .waiting
@@ -1030,18 +1462,33 @@ struct SecondLookTrigger {
 		missingSince = nil
 		samples.append(Sample(time: time, quad: quad))
 		trimSamples()
-		guard !hasFired, let glare else { return .waiting }
-		if let lastStillQuad, quad.maxCornerDistance(to: lastStillQuad) < configuration.minimumMove {
+		guard !hasFired else { return .waiting }
+		guard let needed = holdNeeded(quad: quad, glare: glare) else {
+			phase = .move
 			return .waiting
 		}
-		let cleared = coverage.clearedCount(in: glare)
-		guard cleared > 0 else { return .waiting }
-		let needed = cleared >= coverage.pendingCount ? configuration.steadyDuration : configuration.partialSettleDuration
+		phase = .hold
 		// A little slack so frame-timing jitter at ~10 fps doesn't add a whole extra frame.
 		let slack = min(0.02, needed * 0.1)
 		guard heldDuration(latest: quad, now: time) >= needed - slack else { return .waiting }
 		hasFired = true
 		return .ready
+	}
+
+	/// How long the page must be held where it is now, or nil when the phone hasn't moved far enough.
+	private func holdNeeded(quad: PageQuad, glare: GlareMap?) -> TimeInterval? {
+		let moved = lastStillQuad.map { quad.maxCornerDistance(to: $0) } ?? .greatestFiniteMagnitude
+		var needed: TimeInterval?
+		if moved >= configuration.minimumMove, let glare {
+			let cleared = coverage.clearedCount(in: glare)
+			if cleared > 0 {
+				needed = cleared >= coverage.pendingCount ? configuration.steadyDuration : configuration.partialSettleDuration
+			}
+		}
+		if moved >= configuration.sufficientMove {
+			needed = min(needed ?? .greatestFiniteMagnitude, configuration.sufficientSettleDuration)
+		}
+		return needed
 	}
 
 	/// How long the page has stayed within `steadyTolerance` of where it is now.
@@ -1057,7 +1504,8 @@ struct SecondLookTrigger {
 	/// Keeps enough history to prove the longest hold, capped at `maxSamples`.
 	private mutating func trimSamples() {
 		guard let now = samples.last?.time else { return }
-		let windowStart = now - max(configuration.steadyDuration, configuration.partialSettleDuration) - 0.2
+		let longest = max(configuration.steadyDuration, configuration.partialSettleDuration, configuration.sufficientSettleDuration)
+		let windowStart = now - longest - 0.2
 		var dropCount = 0
 		while dropCount + 1 < samples.count, samples[dropCount + 1].time <= windowStart {
 			dropCount += 1

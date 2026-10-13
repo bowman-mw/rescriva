@@ -20,10 +20,9 @@ extension Scan {
 		title = "Scan from " + now.formatted()
 		order = Int32(AppState.shared.lastScanIndex)
 		self.isLive = isLive
-		if let location = AppState.shared.locationManager.myLocation {
-			latitude = location.coordinate.latitude
-			longitude = location.coordinate.longitude
-		}
+		// latitude/longitude stay in the model for CloudKit but are no longer written: the app never
+		// asked for location, and reading CLLocationManager.location on the main thread waited on
+		// locationd (Xcode's hang-risk report at AppState.swift).
 		
 	}
 	

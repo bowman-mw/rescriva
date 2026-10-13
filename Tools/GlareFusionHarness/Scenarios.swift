@@ -298,13 +298,9 @@ extension Harness {
 		}
 	}
 
-	/// GlareFusion as `CaptureCamera` runs it: up to three stills, and a follow-up that registration
-	/// cannot match is dropped rather than placed by its quad alone.
+	/// GlareFusion as `CaptureCamera` runs it (`GlareFusion.Options.camera`).
 	static var cameraOptions: GlareFusion.Options {
-		var options = GlareFusion.Options()
-		options.maxFrames = 3
-		options.keepsUnrefinedFrames = false
-		return options
+		GlareFusion.Options.camera
 	}
 
 	/// A follow-up that is not the same page (here the second shot mirrored, as if the user had

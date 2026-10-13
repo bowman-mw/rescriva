@@ -80,18 +80,34 @@ final class CaptureCamera {
 	}
 
 	/// A second look under way: after a still that shows glare, the camera waits for the phone to
-	/// slide somewhere that sees the glary part clean, takes another still there, and fuses them.
+	/// slide a little, takes another still there, and fuses the two.
 	struct SecondLook: Equatable {
+		enum Phase: Equatable {
+			/// Slide the phone `direction`.
+			case move
+			/// Far enough: hold still.
+			case hold
+			/// The second photo is being taken.
+			case taking
+		}
+
 		/// Which way to slide the phone, as seen on screen.
 		var direction: PageDirection
-		/// Stills of this page taken so far.
-		var shots: Int
+		var phase: Phase = .move
+	}
+
+	/// What a second look did for the last page `capturePage()` returned.
+	enum GlareOutcome: Equatable {
+		/// The photos were fused: the glare is gone (or as small as the photos allow).
+		case fused
+		/// A second photo was taken but couldn't be lined up with the first, which was kept alone.
+		case notAligned
 	}
 
 	/// Where the camera is in its lifecycle.
 	private(set) var status: Status = .idle
-	/// True when the last page `capturePage()` returned was fused from a second look's stills.
-	private(set) var lastPageWasFused = false
+	/// Set when the last page `capturePage()` returned had a second photo; nil otherwise.
+	private(set) var lastGlareOutcome: GlareOutcome?
 	/// The latest detected page in the upright video frame (see `PageQuad`), or nil when none.
 	private(set) var quad: PageQuad?
 	/// True while the page's corners have moved less than ~2% of the frame over the last ~0.6 s.
@@ -103,6 +119,8 @@ final class CaptureCamera {
 	private(set) var showsGlare = false
 	/// Set while `capturePage()` is waiting for the phone to move for another look at the page.
 	private(set) var secondLook: SecondLook?
+	/// True while `capturePage()` fuses a second look's photos.
+	private(set) var isMergingPhotos = false
 
 	/// Selects the cleanup recipe and the focus range (near for documents, unrestricted for boards).
 	var mode: Mode = .document {
@@ -143,10 +161,11 @@ final class CaptureCamera {
 	/// The capture session, for `CameraPreviewView`. Configure it only through this class.
 	let session: AVCaptureSession
 
-	/// Extra stills a second look takes at most (so at most three stills per page).
-	nonisolated static let maxExtraStills = 2
-	/// How long a second look waits for the phone to move before keeping what it has.
-	static let secondLookTimeout: Duration = .seconds(6)
+	/// Extra stills a second look takes. One from a little to the side is usually enough, and every
+	/// extra request is another thing to follow.
+	nonisolated static let maxExtraStills = 1
+	/// How long a second look waits for the phone to move before keeping the first photo alone.
+	static let secondLookTimeout: Duration = .seconds(8)
 
 	private let pipeline: CapturePipeline
 	/// Width ÷ height of the upright video frame the published `quad` was measured in.
@@ -163,10 +182,10 @@ final class CaptureCamera {
 
 	/// How waiting for the next look of a page ended.
 	private enum LookOutcome {
-		/// The phone settled where the pending glare looks clean: take the next still.
+		/// The phone moved and settled (or the shutter was tapped): take the next still.
 		case ready
-		/// The shutter was tapped during the hint: keep the page as it is.
-		case done
+		/// Skip was tapped: keep the page as it is.
+		case skipped
 		case timedOut
 		case pageLost
 		/// The camera stopped (the screen closed).
@@ -252,12 +271,13 @@ final class CaptureCamera {
 	///
 	/// With `reducesGlare`, when the live view showed glare as the shutter fired, the call stays
 	/// open for a second look (placed by the still's own glare map, or the live one's when the
-	/// still's shows none): `secondLook` asks the user to slide the phone, one or two more stills
-	/// are taken as the glary part comes clear, and all of them are fused into the page. The first
-	/// still stays the page's original and sets its crop.
+	/// still's shows none): `secondLook` asks the user to slide the phone, a second still is taken
+	/// once it has moved and settled (or the shutter is tapped), and the two are fused into the
+	/// page. The first still stays the page's original and sets its crop. `lastGlareOutcome` says
+	/// how it went.
 	func capturePage() async throws -> CapturedPage {
 		guard status == .running else { throw CaptureError.notRunning }
-		lastPageWasFused = false
+		lastGlareOutcome = nil
 		let request = pageRequest()
 		let glaryAtShutter = reducesGlare && showsGlare
 		let shotQuad = quad
@@ -270,22 +290,32 @@ final class CaptureCamera {
 			stills += await secondLookStills(coverage: GlareCoverage(first: map), shotQuad: shotQuad, request: request)
 		}
 		guard wantsRunning else { throw CancellationError() }
+		isMergingPhotos = stills.count > 1
+		defer { isMergingPhotos = false }
 		let still = try await pipeline.processPage(stills, request: request)
 		// Nobody is left to save this page, so its original goes now rather than at the next launch.
 		guard wantsRunning else {
 			OriginalStore.shared.discardLater([still.original].compactMap { $0 })
 			throw CancellationError()
 		}
-		lastPageWasFused = still.isFused
+		if stills.count > 1 {
+			lastGlareOutcome = still.isFused ? .fused : .notAligned
+		}
 		let recipe = PageRecipe(quad: still.quad, mode: request.mode, rotation: 0,
 								removeShadows: request.removeShadows, keepMarkerColors: request.keepMarkerColors)
 		return CapturedPage(image: UIImage(cgImage: still.page, scale: 1, orientation: .up), original: still.original, recipe: recipe)
 	}
 
-	/// Ends a second look now and keeps the page with the stills taken so far (the shutter, tapped
-	/// while the hint shows). Does nothing when no second look is waiting.
-	func finishSecondLook() {
-		resumeLook(.done)
+	/// Takes the second look's photo now, wherever the phone is (the shutter, tapped during the
+	/// hint). Does nothing when no second look is waiting.
+	func takeSecondPhoto() {
+		resumeLook(.ready)
+	}
+
+	/// Ends a second look without another photo and keeps the page as it is. Does nothing when no
+	/// second look is waiting.
+	func skipSecondLook() {
+		resumeLook(.skipped)
 	}
 
 	private func pageRequest() -> CapturePipeline.PageRequest {
@@ -299,25 +329,35 @@ final class CaptureCamera {
 		)
 	}
 
-	/// The extra stills of a second look: shows the hint, waits for the pipeline to see the
-	/// pending glare clean from a new spot, takes a still there, and repeats until the glare is
-	/// covered, `maxExtraStills` are taken, or the look ends (timeout, shutter, page lost, stop).
+	/// The extra stills of a second look: shows the hint, waits for the phone to move and settle
+	/// (or the shutter), takes a still there, and repeats until the glare is covered,
+	/// `maxExtraStills` are taken, or the look ends (timeout, Skip, page lost, stop).
 	private func secondLookStills(coverage start: GlareCoverage, shotQuad: PageQuad?, request: CapturePipeline.PageRequest) async -> [CapturePipeline.RawStill] {
 		var coverage = start
 		var stills: [CapturePipeline.RawStill] = []
 		var lastQuad = shotQuad
 		let deadline = ContinuousClock.now + Self.secondLookTimeout
+		var outcome = LookOutcome.ready
 		defer {
 			secondLook = nil
+			// The user slid the phone about, so auto-capture waits for this page to leave the frame.
 			pipeline.endSecondLook()
+			#if DEBUG
+			print("Rescriva: second look ended (\(outcome)) with \(stills.count) more photo(s)")
+			#endif
 		}
 		while stills.count < Self.maxExtraStills, wantsRunning, let move = coverage.suggestedMove {
 			// The direction is fixed for each wait, so the hint never changes mid-move.
 			let onScreen = (quad ?? lastQuad).map { move.onScreen(for: $0) } ?? move
-			secondLook = SecondLook(direction: onScreen, shots: 1 + stills.count)
+			secondLook = SecondLook(direction: onScreen)
+			#if DEBUG
+			print("Rescriva: second look began: \(coverage.pendingCount) glary cells, slide \(onScreen)")
+			#endif
 			lookGeneration += 1
 			pipeline.beginSecondLook(SecondLookTrigger(coverage: coverage, lastStillQuad: lastQuad), generation: lookGeneration)
-			guard await nextLook(until: deadline) == .ready, wantsRunning else { break }
+			outcome = await nextLook(until: deadline)
+			guard outcome == .ready, wantsRunning else { break }
+			secondLook?.phase = .taking
 			lastQuad = quad
 			var followUp = request
 			followUp.fallbackQuad = quad
@@ -366,7 +406,9 @@ final class CaptureCamera {
 			if showsGlare != glary { showsGlare = glary }
 			liveGlare = update.glare
 			previewFrameAspect = update.frameAspect
-			if let signal = update.secondLook, signal.generation == lookGeneration {
+			if let signal = update.secondLook, signal.generation == lookGeneration, secondLook?.phase != .taking {
+				let phase: SecondLook.Phase = signal.phase == .hold ? .hold : .move
+				if secondLook != nil, secondLook?.phase != phase { secondLook?.phase = phase }
 				switch signal.signal {
 				case .ready: resumeLook(.ready)
 				case .pageLost: resumeLook(.pageLost)
@@ -432,6 +474,9 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		/// The page on the upright still (normalized, top-left origin), before the inset: detected,
 		/// else the preview's mapped onto it; nil when neither found one.
 		var quad: PageQuad?
+		/// The preview's outline mapped onto the still, when detection found its own: a second
+		/// opinion for a second look, whose still Vision sometimes outlines across two sheets.
+		var previewQuad: PageQuad?
 		var glare: GlareMap?
 	}
 
@@ -447,10 +492,11 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		var isFused = false
 	}
 
-	/// A second look's trigger signal, tagged with the look it belongs to.
+	/// A second look's trigger state, tagged with the look it belongs to.
 	struct SecondLookSignal: Equatable {
 		var generation: Int
 		var signal: SecondLookTrigger.Signal
+		var phase: SecondLookTrigger.Phase
 	}
 
 	/// One detection result published to the main actor.
@@ -466,7 +512,7 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		var showsGlare = false
 		/// This frame's glare map, when the check is on and found the page.
 		var glare: GlareMap?
-		/// Set during a second look when its trigger fires or the page is lost.
+		/// Set during a second look when its trigger fires, its phase changes, or the page is lost.
 		var secondLook: SecondLookSignal?
 	}
 
@@ -520,6 +566,7 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 	private var glareDebouncer = GlareDebouncer()
 	private var secondLookTrigger: SecondLookTrigger?
 	private var secondLookGeneration = 0
+	private var publishedLookPhase: SecondLookTrigger.Phase = .move
 
 	// processingQueue (CIContext itself is thread-safe; the live glare check shares it)
 	private let stillDetector = PageDetector()
@@ -610,15 +657,17 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		videoQueue.async {
 			self.secondLookTrigger = trigger
 			self.secondLookGeneration = generation
+			self.publishedLookPhase = .move
 		}
 	}
 
-	/// Stops the second look's trigger. The phone moved during it, which would re-arm
-	/// auto-capture over the same page, so this also counts as a capture of the page now in view.
+	/// Stops the second look's trigger. The phone moved about during it, which would re-arm
+	/// auto-capture over the same page, so this also counts as a capture of the page in view, one
+	/// that re-arms only once the page leaves the frame.
 	func endSecondLook() {
 		videoQueue.async {
 			self.secondLookTrigger = nil
-			self.tracker.noteCapture(at: CACurrentMediaTime())
+			self.tracker.noteCapture(at: CACurrentMediaTime(), untilPageLeaves: true)
 		}
 	}
 
@@ -760,8 +809,9 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		if var trigger = secondLookTrigger {
 			let signal = trigger.update(quad: result.quad, glare: glare, at: now)
 			secondLookTrigger = trigger
-			if signal != .waiting {
-				lookSignal = SecondLookSignal(generation: secondLookGeneration, signal: signal)
+			if signal != .waiting || trigger.phase != publishedLookPhase {
+				publishedLookPhase = trigger.phase
+				lookSignal = SecondLookSignal(generation: secondLookGeneration, signal: signal, phase: trigger.phase)
 			}
 		}
 		publishIfNeeded(DetectionUpdate(
@@ -896,16 +946,17 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		let still = decoded.transformed(by: CGAffineTransform(translationX: -decoded.extent.minX, y: -decoded.extent.minY))
 		let stillAspect = still.extent.width / still.extent.height
 
-		var quad = detectPage(inStill: still)
-		if quad == nil, let fallback = request.fallbackQuad {
-			quad = request.fallbackFrameAspect.map {
+		let previewQuad = request.fallbackQuad.map { fallback in
+			request.fallbackFrameAspect.map {
 				fallback.mappedFromCenterCrop(cropAspect: $0, intoFrameAspect: stillAspect)
 			} ?? fallback
 		}
+		let detected = detectPage(inStill: still)
+		let quad = detected ?? previewQuad
 		let glare = measuresGlare
 			? quad.flatMap { GlareMap.estimate(GlareFrame(image: still, quad: $0.inset(by: Self.detectedQuadInset)), context: ciContext) }
 			: nil
-		return RawStill(still: still, quad: quad, glare: glare)
+		return RawStill(still: still, quad: quad, previewQuad: detected == nil ? nil : previewQuad, glare: glare)
 	}
 
 	/// processingQueue: inset → correct (or fuse the stills) → limit width → clean → render, then
@@ -944,11 +995,24 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 	/// or no follow-up still registered against the first (another page, or too far off to match):
 	/// the first still alone is used then, as without a second look.
 	private func fusedPage(_ stills: [RawStill]) -> CIImage? {
-		let frames = stills.map { GlareFrame(image: $0.still, quad: $0.quad?.inset(by: Self.detectedQuadInset) ?? .fullFrame) }
-		var options = GlareFusion.Options()
+		guard let reference = stills.first else { return nil }
+		let referenceQuad = reference.quad?.inset(by: Self.detectedQuadInset) ?? .fullFrame
+		let frames = stills.enumerated().map { index, still -> GlareFrame in
+			let detected = still.quad?.inset(by: Self.detectedQuadInset) ?? .fullFrame
+			guard index > 0, let preview = still.previewQuad?.inset(by: Self.detectedQuadInset) else {
+				return GlareFrame(image: still.still, quad: detected)
+			}
+			// When the still's own outline doesn't fit the reference page's shape but the preview's
+			// does, take the preview's.
+			func fits(_ quad: PageQuad) -> Bool {
+				GlareFusion.consistentOutline(quad, imageSize: still.still.extent.size,
+											  reference: referenceQuad, referenceSize: reference.still.extent.size) != nil
+			}
+			return GlareFrame(image: still.still, quad: !fits(detected) && fits(preview) ? preview : detected)
+		}
+		var options = GlareFusion.Options.camera
 		options.maxWidth = Self.maxOutputWidth
 		options.maxFrames = 1 + CaptureCamera.maxExtraStills
-		options.keepsUnrefinedFrames = false
 		#if DEBUG
 		let started = CACurrentMediaTime()
 		#endif
@@ -960,7 +1024,10 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 			return nil
 		}
 		#if DEBUG
-		let used = result.frames.map { "#\($0.index) \($0.alignment) glare \(Int(($0.glareFraction * 100).rounded()))%" }
+		let used = result.frames.map { frame in
+			let local = frame.localShift.map { String(format: ", local %.1f px", $0) } ?? ""
+			return "#\(frame.index) \(frame.alignment)\(local), glare \(Int((frame.glareFraction * 100).rounded()))%"
+		}
 		let dropped = result.unrefinedFrames.map { "#\($0.index) \($0.alignment)" }
 		print(String(format: "Rescriva: glare fusion %.0f ms; used %@; dropped %@; glare left %.0f%%",
 					 (CACurrentMediaTime() - started) * 1000, used.joined(separator: ", "),
@@ -1088,7 +1155,9 @@ extension PageQuad {
 ///   corner has been further than `steadyTolerance` (normalized) from where it is now.
 /// - Auto-capture: fires when enabled and steady, at most once per steady period. It re-arms only
 ///   after the page moves more than `rearmDistance` from where it was captured, or disappears, and
-///   never fires within `captureCooldown` of the previous capture (automatic or manual).
+///   never fires within `captureCooldown` of the previous capture (automatic or manual). After a
+///   capture noted `untilPageLeaves` (a second look, which has the user slide the phone about) it
+///   re-arms only when the page disappears.
 /// - Flicker: a page missing for less than `dropoutGrace` is held (same quad, same steadiness), so
 ///   a single missed Vision frame neither blinks the overlay nor re-arms auto-capture.
 ///
@@ -1127,6 +1196,8 @@ struct QuadStabilityTracker {
 	private(set) var isSteady = false
 	/// False from a capture until the page moves more than `rearmDistance` or disappears.
 	private(set) var isArmed = true
+	/// False after a capture noted `untilPageLeaves`: moving the page doesn't re-arm.
+	private var rearmsOnMove = true
 	private var capturedQuad: PageQuad?
 	private var lastCaptureTime: TimeInterval?
 
@@ -1148,7 +1219,7 @@ struct QuadStabilityTracker {
 			return handleMissing(at: time)
 		}
 		missingSince = nil
-		if !isArmed, let captured = capturedQuad, quad.maxCornerDistance(to: captured) > configuration.rearmDistance {
+		if !isArmed, rearmsOnMove, let captured = capturedQuad, quad.maxCornerDistance(to: captured) > configuration.rearmDistance {
 			isArmed = true
 			capturedQuad = nil
 		}
@@ -1165,13 +1236,14 @@ struct QuadStabilityTracker {
 	}
 
 	/// Records a capture (automatic or manual) at `time`: starts the cooldown and disarms
-	/// auto-capture until the current page moves away or disappears. With no page present it
-	/// only starts the cooldown.
-	mutating func noteCapture(at time: TimeInterval) {
+	/// auto-capture until the current page moves away or disappears (with `untilPageLeaves`, only
+	/// until it disappears). With no page present it only starts the cooldown.
+	mutating func noteCapture(at time: TimeInterval, untilPageLeaves: Bool = false) {
 		lastCaptureTime = time
 		guard let current = presentQuad else { return }
 		isArmed = false
 		capturedQuad = current
+		rearmsOnMove = !untilPageLeaves
 	}
 
 	/// Forgets everything, as when the camera stops.
@@ -1184,6 +1256,7 @@ struct QuadStabilityTracker {
 		missingSince = nil
 		isSteady = false
 		isArmed = true
+		rearmsOnMove = true
 		capturedQuad = nil
 		if !keepingCaptureHistory {
 			lastCaptureTime = nil
