@@ -3,8 +3,8 @@
 //  Rescriva (fork of Open Scanner)
 //
 //  The small rules a Share Nearby session applies to what pages send: wrong-PIN counting and its
-//  cooldown (ShareSite/PROTOCOL.md §1.3), and checks on the text that arrives. Pure Foundation,
-//  so tests can drive them with any clock.
+//  cooldown (ShareSite/PROTOCOL.md §1.3), checks on the text that arrives, and the label each
+//  page goes by. Pure Foundation, so tests can drive them with any clock.
 //
 
 import Foundation
@@ -99,6 +99,16 @@ enum NearbyShareInput {
 		let words = String(scalars).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
 		let trimmed = words.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
 		return clipped(trimmed.isEmpty ? fallback : trimmed)
+	}
+
+	/// What to call a page named `name` that just connected, when `taken` are the labels of the
+	/// devices connected already: its name, or its name with the lowest number no other device
+	/// has ("Chrome on Mac 2"), so pages that go by the same name can be told apart.
+	static func deviceLabel(_ name: String, taken: Set<String>) -> String {
+		guard taken.contains(name) else { return name }
+		var number = 2
+		while taken.contains("\(name) \(number)") { number += 1 }
+		return "\(name) \(number)"
 	}
 
 	/// The name without its extension, for a PDF's title.

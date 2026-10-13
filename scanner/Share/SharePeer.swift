@@ -515,8 +515,18 @@ private enum ShareWebRTC {
 		if !RTCInitializeSSL() {
 			print("Rescriva: WebRTC couldn't set up SSL")
 		}
+		keepAwayFromAudio()
 		return RTCPeerConnectionFactory()
 	}()
+
+	/// Share Nearby only sends data, so WebRTC never needs the microphone or speaker. With manual
+	/// audio on and audio off before the factory exists, WebRTC never starts its voice audio unit
+	/// or sets up AVAudioSession, and music playing on the device carries on through a share.
+	@MainActor private static func keepAwayFromAudio() {
+		let audio = RTCAudioSession.sharedInstance()
+		audio.useManualAudio = true
+		audio.isAudioEnabled = false
+	}
 
 	static func setRemote(_ description: RTCSessionDescription, on connection: RTCPeerConnection,
 						  _ continuation: CheckedContinuation<String?, Never>) {

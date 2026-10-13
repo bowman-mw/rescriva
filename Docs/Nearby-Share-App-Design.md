@@ -34,6 +34,8 @@ enum NearbyShareConfig {
 	static let maxIncomingBytes: Int64 = 1 << 30
 	/// How long no-relay pairing tries before showing the connection code.
 	static let codeDelay: Duration = .seconds(4)
+	/// How long a connection code stays up without connecting.
+	static let codeLifetime: Duration = .seconds(180)
 }
 ```
 
@@ -195,6 +197,9 @@ final class SharePeer {
 - Configuration: unified plan, no ICE servers, `candidateNetworkPolicy = .lowCost`, one
   negotiated data channel (`isNegotiated = true`, `channelId = 0`, label `rescriva`), created
   right after the peer connection.
+- Before the one factory is made, `RTCAudioSession.sharedInstance()` gets `useManualAudio = true`
+  and `isAudioEnabled = false`, so a data-only share never touches `AVAudioSession` (music keeps
+  playing).
 - Delegate callbacks arrive on WebRTC's own thread. Forward them through
   `DispatchQueue.main.async`, never unstructured `Task`s, so frames keep their order.
 - Fingerprints: the offer is always the page's (the remote description); the answer is always
@@ -297,9 +302,15 @@ Behaviour:
 - **No-relay pairing.** Start the direct peer. If it isn't open after `codeDelay`, set
   `.showCode(grouped code)` from `ShareNetwork.codeCandidate`; with no candidate,
   `.failed("…")`. When a pairing peer opens and proves itself, set `.connected(name)` and close the
-  other path.
-- **Files.** Prepared in `tmp/NearbyShare/<session>/` and deleted by `stop()`. A scan goes through
-  `ExportService.makeFile(for:format: .pdf, includeNotes: true)`. A PDF item: wait for
+  other path. A code that has shown for `codeLifetime` without connecting expires to
+  `.failed("… Scan the computer's code again.")`: after a failed code the page starts over with
+  a fresh QR code, so the old one can't connect.
+- **Names.** A page is called by its `hello` name, numbered when a connected device already has
+  that label ("Chrome on Mac", "Chrome on Mac 2"); the label is used in Connected, the
+  Accept/Decline cards and Activity alike.
+- **Files.** Prepared in `tmp/NearbyShare/<session>/` and deleted by `stop()`. The first session
+  to start in a process deletes every other folder there, left by a run killed mid-share. A scan
+  goes through `ExportService.makeFile(for:format: .pdf, includeNotes: true)`. A PDF item: wait for
   `library.waitForSave(of:)`, then copy `currentURL(for:)` to "<title>.pdf". Document ids are
   random base64url strings, new every session.
 

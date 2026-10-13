@@ -142,6 +142,8 @@ final class NearbyShareSession {
 	@ObservationIgnored private var paired: UUID?
 	/// A pairing asked for before start().
 	@ObservationIgnored private var pendingOffer: SharePairingOffer?
+	/// Ends a connection code that's been showing for `NearbyShareConfig.codeLifetime`.
+	@ObservationIgnored private var codeExpiry: Task<Void, Never>?
 
 	init(items: [NearbyShareItem], library: PDFLibrary, context: NSManagedObjectContext) {
 		self.library = library
@@ -165,7 +167,7 @@ final class NearbyShareSession {
 		sessionID = ShareCodes.newSessionID()
 		let key = ShareCodes.newSecret()
 		openLink = Self.openLink(for: key)
-		folder = NearbyShareFiles.sessionFolder(sessionID)
+		folder = NearbyShareFiles.startingSessionFolder(sessionID)
 		usedPINs = []
 		transfers = []
 		for item in sources { addDocument(for: item) }
@@ -185,6 +187,7 @@ final class NearbyShareSession {
 		for room in relays.values { room.relay.stop() }
 		relays = [:]
 		attempt = nil
+		cancelCodeExpiry()
 		paired = nil
 		pendingOffer = nil
 		NearbyShareFiles.remove(folder)
@@ -564,7 +567,8 @@ final class NearbyShareSession {
 		link.ready = true
 		link.trusted = link.peer.secret != nil
 		let clipped = String(name.prefix(64))
-		link.name = clipped.isEmpty ? String(localized: "Web browser") : clipped
+		let named = clipped.isEmpty ? String(localized: "Web browser") : clipped
+		link.name = NearbyShareInput.deviceLabel(named, taken: Set(devices.map(\.name)))
 		link.kind = Self.deviceKinds.contains(device) ? device : "computer"
 		devices.append(Device(id: link.id, name: link.name, kind: link.kind, trusted: link.trusted))
 		sendDocs(to: link)
@@ -873,6 +877,7 @@ final class NearbyShareSession {
 			pendingOffer = offer
 			return
 		}
+		cancelCodeExpiry()
 		endPairingAttempt()
 		if let link = links.values.first(where: { $0.ready && $0.peer.secret == offer.secret }) {
 			paired = link.id // Already paired with this code.
@@ -919,11 +924,30 @@ final class NearbyShareSession {
 			  let link = links[id], !link.peer.isOpen else { return }
 		if let code = Self.connectionCode(for: link.peer) {
 			pairing = .showCode(code)
+			expire(code, of: attempt.id)
 		} else if triesLeft > 0 {
 			scheduleCode(for: secret, triesLeft: triesLeft - 1, after: Self.codeRetry)
 		} else {
 			pairing = .failed(String(localized: "This device has no Wi-Fi or hotspot address the computer can reach. Join the same network and try again."))
 		}
+	}
+
+	/// Gives up on `code` once it's been showing for `codeLifetime` without connecting: the page
+	/// has made a fresh QR code by then, so the user scans that.
+	private func expire(_ code: String, of attemptID: UUID) {
+		cancelCodeExpiry()
+		codeExpiry = Task { [weak self] in
+			try? await Task.sleep(for: NearbyShareConfig.codeLifetime)
+			guard !Task.isCancelled, let self, let attempt = self.attempt, attempt.id == attemptID,
+				  self.pairing == .showCode(code) else { return }
+			print("Rescriva: Share Nearby's connection code expired before the computer connected")
+			self.pairingFailed(String(localized: "The computer didn't connect in time, so that code has expired. Scan the computer's code again."))
+		}
+	}
+
+	private func cancelCodeExpiry() {
+		codeExpiry?.cancel()
+		codeExpiry = nil
 	}
 
 	/// "80JB-N1HG" for the best local IPv4 candidate the connection gathered, or nil for none.
@@ -943,6 +967,7 @@ final class NearbyShareSession {
 	private func pairingConnected(_ winner: NearbyShareLink) {
 		guard let attempt else { return }
 		self.attempt = nil
+		cancelCodeExpiry()
 		paired = winner.id
 		pairing = .connected(winner.name)
 		closePaths(of: attempt, except: winner)
@@ -1003,12 +1028,13 @@ final class NearbyShareSession {
 		pairingFailed()
 	}
 
-	/// Gives up on the pairing under way: its paths close, its room is left, and the screen says so.
-	private func pairingFailed() {
+	/// Gives up on the pairing under way: its paths close, its room is left, and the screen says
+	/// `reason`, or by default that the computer couldn't be reached.
+	private func pairingFailed(_ reason: String? = nil) {
 		guard let attempt else { return }
 		self.attempt = nil
 		closePaths(of: attempt, except: nil)
-		pairing = .failed(String(localized: "Couldn't reach the computer. Make a new code on it and scan that."))
+		pairing = .failed(reason ?? String(localized: "Couldn't reach the computer. Make a new code on it and scan that."))
 	}
 
 	// MARK: Helpers

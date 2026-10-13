@@ -6,7 +6,8 @@
 //  credentials, hello proofs, connection codes), the page's pairing payload byte for byte as
 //  ShareSite/tests/index.html builds it, what a bad payload looks like, the SDP the app rebuilds
 //  and edits, which local address goes in a connection code, the data channel's messages both
-//  ways, relay signals, PINs and the built-in certificate.
+//  ways, relay signals, PINs, the built-in certificate, which leftover folders get swept, and
+//  the numbers that tell pages with the same name apart.
 //
 
 import CryptoKit
@@ -643,6 +644,46 @@ final class NearbyShareTests: XCTestCase {
 		XCTAssertNil(NearbyShareFiles.exportFolder(of: web, temporaryDirectory: temporary))
 	}
 
+	func testLeftoverSweepTakesEveryOtherSessionFolderAndNoFiles() throws {
+		let base = FileManager.default.temporaryDirectory.appendingPathComponent("NearbyShareTests-\(UUID().uuidString)", isDirectory: true)
+		defer { try? FileManager.default.removeItem(at: base) }
+		let root = base.appendingPathComponent("NearbyShare", isDirectory: true)
+		for folder in ["old-run/doc1", "older-run", "current/doc2"] {
+			try FileManager.default.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true)
+		}
+		try Data("%PDF".utf8).write(to: root.appendingPathComponent("old-run/doc1/Lab notes.pdf"))
+		try Data("stray".utf8).write(to: root.appendingPathComponent("stray.txt"))
+		let chosen = NearbyShareFiles.leftoverFolders(in: root, keeping: ["current"])
+		XCTAssertEqual(Set(chosen.map(\.lastPathComponent)), ["old-run", "older-run"], "this process's folder and plain files stay")
+		XCTAssertEqual(Set(NearbyShareFiles.leftoverFolders(in: root, keeping: []).map(\.lastPathComponent)),
+					   ["old-run", "older-run", "current"])
+		XCTAssertEqual(NearbyShareFiles.leftoverFolders(in: base.appendingPathComponent("missing"), keeping: []), [])
+		XCTAssertEqual(NearbyShareFiles.sessionsFolder.lastPathComponent, "NearbyShare")
+	}
+
+	// MARK: Names
+
+	func testPagesWithTheSameNameAreNumberedInTheOrderTheyConnect() {
+		var taken: Set<String> = []
+		var labels: [String] = []
+		for name in ["Chrome on Mac", "Chrome on Mac", "Safari on iPhone", "Chrome on Mac"] {
+			let label = NearbyShareInput.deviceLabel(name, taken: taken)
+			taken.insert(label)
+			labels.append(label)
+		}
+		XCTAssertEqual(labels, ["Chrome on Mac", "Chrome on Mac 2", "Safari on iPhone", "Chrome on Mac 3"])
+	}
+
+	func testDeviceLabelsFillTheLowestFreeNumberAndNeverRepeat() {
+		XCTAssertEqual(NearbyShareInput.deviceLabel("Chrome on Mac", taken: []), "Chrome on Mac")
+		XCTAssertEqual(NearbyShareInput.deviceLabel("Chrome on Mac", taken: ["Chrome on Mac 2"]), "Chrome on Mac",
+					   "the first one left, so its plain name is free again")
+		XCTAssertEqual(NearbyShareInput.deviceLabel("Chrome on Mac", taken: ["Chrome on Mac", "Chrome on Mac 3"]), "Chrome on Mac 2")
+		XCTAssertEqual(NearbyShareInput.deviceLabel("Chrome on Mac 2", taken: ["Chrome on Mac", "Chrome on Mac 2"]), "Chrome on Mac 2 2",
+					   "a page whose own name ends in a number still gets a label nobody has")
+		XCTAssertEqual(NearbyShareInput.deviceLabel("chrome on mac", taken: ["Chrome on Mac"]), "chrome on mac")
+	}
+
 	func testReceivedPicturesAreScaledDownAndUpright() throws {
 		let folder = FileManager.default.temporaryDirectory.appendingPathComponent("NearbyShareTests-\(UUID().uuidString)", isDirectory: true)
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -699,6 +740,7 @@ final class NearbyShareTests: XCTestCase {
 		XCTAssertEqual(NearbyShareConfig.chunkSize, 65_536)
 		XCTAssertEqual(NearbyShareConfig.highWater, 1_048_576)
 		XCTAssertEqual(NearbyShareConfig.codeDelay, .seconds(4))
+		XCTAssertEqual(NearbyShareConfig.codeLifetime, .seconds(180))
 	}
 
 	// MARK: Helpers

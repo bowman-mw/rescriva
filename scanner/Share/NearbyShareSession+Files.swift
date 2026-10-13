@@ -9,7 +9,8 @@
 //      tmp/NearbyShareReceived/<uuid>/<name>             one upload, deleted once it's imported
 //
 //  Received files live outside the session's folder, so an import that finishes after the
-//  session stops (the app went to the background) still has its file.
+//  session stops (the app went to the background) still has its file. A session folder left
+//  behind when the app was killed mid-share goes when the next run's first session starts.
 //
 
 import CoreData
@@ -41,10 +42,53 @@ enum NearbyShareFileError: LocalizedError {
 
 @MainActor
 enum NearbyShareFiles {
+	/// Whether this process has cleared out what earlier runs left in tmp/NearbyShare/.
+	private static var sweptLeftovers = false
+
+	/// tmp/NearbyShare/, which holds a folder for each session.
+	nonisolated static var sessionsFolder: URL {
+		FileManager.default.temporaryDirectory.appendingPathComponent("NearbyShare", isDirectory: true)
+	}
+
 	static func sessionFolder(_ session: String) -> URL {
-		FileManager.default.temporaryDirectory
-			.appendingPathComponent("NearbyShare", isDirectory: true)
-			.appendingPathComponent(session, isDirectory: true)
+		sessionsFolder.appendingPathComponent(session, isDirectory: true)
+	}
+
+	/// The folder for a session that's starting. The first session in this process also deletes
+	/// every other folder in tmp/NearbyShare/: none of them are this process's, so they're what
+	/// earlier runs left when the app was killed mid-share.
+	static func startingSessionFolder(_ session: String) -> URL {
+		if !sweptLeftovers {
+			sweptLeftovers = true
+			removeInBackground(leftoverFolders(in: sessionsFolder, keeping: [session]))
+		}
+		return sessionFolder(session)
+	}
+
+	/// The folders in `root` that aren't named in `keeping`. Files are left alone; a missing
+	/// `root` has none.
+	nonisolated static func leftoverFolders(in root: URL, keeping: Set<String>) -> [URL] {
+		guard let contents = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else {
+			return []
+		}
+		return contents.filter { url in
+			let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+			return isFolder && !keeping.contains(url.lastPathComponent)
+		}
+	}
+
+	/// Deletes `folders` off the main thread.
+	private static func removeInBackground(_ folders: [URL]) {
+		guard !folders.isEmpty else { return }
+		Task.detached(priority: .utility) {
+			for folder in folders {
+				do {
+					try FileManager.default.removeItem(at: folder)
+				} catch {
+					print("Rescriva: Share Nearby couldn't delete a leftover folder: \(error)")
+				}
+			}
+		}
 	}
 
 	/// A fresh folder for one upload.

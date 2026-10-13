@@ -49,6 +49,9 @@ enum NearbyShareConfig {
 	static let maxIncomingImageBytes: Int64 = 128 << 20
 	/// How long no-relay pairing tries before showing the connection code.
 	static let codeDelay: Duration = .seconds(4)
+	/// How long a connection code stays up without connecting. After a code fails, the page throws
+	/// its attempt away and shows a fresh QR code, so by then this code can't connect.
+	static let codeLifetime: Duration = .seconds(180)
 
 	/// `text` as a URL, when it has one of `schemes` and a host.
 	private static func checkedURL(_ text: String, schemes: Set<String>) -> URL? {
