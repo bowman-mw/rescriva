@@ -101,6 +101,9 @@ struct HomeView: View {
 		HStack {
 			RescrivaWordmark(size: 34)
 			Spacer()
+			CircleIconButton(systemName: "dot.radiowaves.left.and.right", label: "Share Nearby") {
+				router.push(.shareNearby([]))
+			}
 			CircleIconButton(systemName: "slider.vertical.3", label: "Settings") {
 				router.push(.settings)
 			}

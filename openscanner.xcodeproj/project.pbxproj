@@ -186,6 +186,27 @@
 		8376E0652B215BC879B46EF1 /* InkIconPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD04A36BC2801AF8D40A2936 /* InkIconPaths.swift */; };
 		FE474B8A0B42E91B4BABF3DD /* FigureCropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CF9168986A92DA79423CDD /* FigureCropTests.swift */; };
 		FE4CB1BF1DDEE5ABFD4639E3 /* RescrivaRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 382ADDA4F310E16AEE5E0340 /* RescrivaRouter.swift */; };
+		5E4AD1E1428AD2F5345C4DA1 /* NearbyShareConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4ADE3440BCCEDCB22E23AD /* NearbyShareConfig.swift */; };
+		5E4A3638E6AE361551D82E0A /* NearbySharePending.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4AD358C86F2F85BCE2487F /* NearbySharePending.swift */; };
+		5E4A78A57C40E032FF0D8837 /* NearbyShareSession+Files.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4ACB145F5549A2248ED5A0 /* NearbyShareSession+Files.swift */; };
+		5E4AC243529150EFEB456DED /* NearbyShareSession+Link.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4AB42B34A0C616A5B710BF /* NearbyShareSession+Link.swift */; };
+		5E4A7A69C945268354A6ACE8 /* NearbyShareSession+Rules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4A72C7EA6D3F3776026943 /* NearbyShareSession+Rules.swift */; };
+		5E4A8E78D09D10C85C304B67 /* NearbyShareSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4ADC8D07557B413F1FD8AD /* NearbyShareSession.swift */; };
+		5E4A91EF41029E00C6985C1D /* NearbyShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4AC383DD9DB53EB94A315F /* NearbyShareView.swift */; };
+		5E4A4BA8E37359007D862BF6 /* ShareCertificate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4A60E17B7C1CF921551057 /* ShareCertificate.swift */; };
+		5E4AB8AC0480C80A7E375D99 /* ShareCodeScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4ACFA217F5309EA967495E /* ShareCodeScanner.swift */; };
+		5E4A887D27E1B13C5E1FE2D2 /* ShareCodes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4AB1D0AC5C1565AF6FE6BE /* ShareCodes.swift */; };
+		5E4A6567C2F751D2380B31F2 /* ShareDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4AC9EBF0AC3BCEFD8DBADB /* ShareDevice.swift */; };
+		5E4A4CB6B425F5DD2CDA1017 /* ShareDocumentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4AEFD1DB8EA21F9A61913A /* ShareDocumentPicker.swift */; };
+		5E4AE1590EBF3DEA32CB41E0 /* ShareMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4A903148FE50AA5C2E1320 /* ShareMessages.swift */; };
+		5E4AD760B57B36E920948694 /* ShareNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4A19E2AF4F09839D0AC6FE /* ShareNetwork.swift */; };
+		5E4A2B0C0C55A8B8AD0C801A /* SharePairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4AA9AE6AF556B61B8F5577 /* SharePairing.swift */; };
+		5E4AFCE056AB61940F12A802 /* SharePeer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4A17A95003ABB86F7CF346 /* SharePeer.swift */; };
+		5E4A3B7B190E0BD8763645EC /* ShareQRCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4A0E713DB708F60930173D /* ShareQRCode.swift */; };
+		5E4A4D545CD92C78A9B6A3BD /* ShareRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4A3BA2EB53AA40EDB938B6 /* ShareRelay.swift */; };
+		5E4AA6507B06EA29CB04F2F2 /* ShareSDP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4A554C5D40442615FE83CF /* ShareSDP.swift */; };
+		5E4A3047AE87B1C222F12573 /* NearbyShareTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4A0BCEDD688276B1FA5DE1 /* NearbyShareTests.swift */; };
+		5E4A9609A42A36451B7B799C /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 5E4A7D185A071583CC4E90AA /* WebRTC */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -416,6 +437,26 @@
 		FB5FEA34020CEDE80917EB16 /* SampleLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleLibrary.swift; sourceTree = "<group>"; };
 		FBF3561635B59E92ABE80B40 /* PageEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageEditorView.swift; sourceTree = "<group>"; };
 		FE609E3998093E9687464540 /* scanner 2.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "scanner 2.xcdatamodel"; sourceTree = "<group>"; };
+		5E4ADE3440BCCEDCB22E23AD /* NearbyShareConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyShareConfig.swift; sourceTree = "<group>"; };
+		5E4AD358C86F2F85BCE2487F /* NearbySharePending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbySharePending.swift; sourceTree = "<group>"; };
+		5E4ACB145F5549A2248ED5A0 /* NearbyShareSession+Files.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NearbyShareSession+Files.swift"; sourceTree = "<group>"; };
+		5E4AB42B34A0C616A5B710BF /* NearbyShareSession+Link.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NearbyShareSession+Link.swift"; sourceTree = "<group>"; };
+		5E4A72C7EA6D3F3776026943 /* NearbyShareSession+Rules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NearbyShareSession+Rules.swift"; sourceTree = "<group>"; };
+		5E4ADC8D07557B413F1FD8AD /* NearbyShareSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyShareSession.swift; sourceTree = "<group>"; };
+		5E4AC383DD9DB53EB94A315F /* NearbyShareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyShareView.swift; sourceTree = "<group>"; };
+		5E4A60E17B7C1CF921551057 /* ShareCertificate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCertificate.swift; sourceTree = "<group>"; };
+		5E4ACFA217F5309EA967495E /* ShareCodeScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCodeScanner.swift; sourceTree = "<group>"; };
+		5E4AB1D0AC5C1565AF6FE6BE /* ShareCodes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCodes.swift; sourceTree = "<group>"; };
+		5E4AC9EBF0AC3BCEFD8DBADB /* ShareDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareDevice.swift; sourceTree = "<group>"; };
+		5E4AEFD1DB8EA21F9A61913A /* ShareDocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareDocumentPicker.swift; sourceTree = "<group>"; };
+		5E4A903148FE50AA5C2E1320 /* ShareMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareMessages.swift; sourceTree = "<group>"; };
+		5E4A19E2AF4F09839D0AC6FE /* ShareNetwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareNetwork.swift; sourceTree = "<group>"; };
+		5E4AA9AE6AF556B61B8F5577 /* SharePairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharePairing.swift; sourceTree = "<group>"; };
+		5E4A17A95003ABB86F7CF346 /* SharePeer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharePeer.swift; sourceTree = "<group>"; };
+		5E4A0E713DB708F60930173D /* ShareQRCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareQRCode.swift; sourceTree = "<group>"; };
+		5E4A3BA2EB53AA40EDB938B6 /* ShareRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareRelay.swift; sourceTree = "<group>"; };
+		5E4A554C5D40442615FE83CF /* ShareSDP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSDP.swift; sourceTree = "<group>"; };
+		5E4A0BCEDD688276B1FA5DE1 /* NearbyShareTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyShareTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -430,6 +471,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E4A9609A42A36451B7B799C /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -574,6 +616,32 @@
 			path = Inbox;
 			sourceTree = "<group>";
 		};
+		5E4A887248089E926F215A3F /* Share */ = {
+			isa = PBXGroup;
+			children = (
+				5E4ADE3440BCCEDCB22E23AD /* NearbyShareConfig.swift */,
+				5E4AD358C86F2F85BCE2487F /* NearbySharePending.swift */,
+				5E4ACB145F5549A2248ED5A0 /* NearbyShareSession+Files.swift */,
+				5E4AB42B34A0C616A5B710BF /* NearbyShareSession+Link.swift */,
+				5E4A72C7EA6D3F3776026943 /* NearbyShareSession+Rules.swift */,
+				5E4ADC8D07557B413F1FD8AD /* NearbyShareSession.swift */,
+				5E4AC383DD9DB53EB94A315F /* NearbyShareView.swift */,
+				5E4A60E17B7C1CF921551057 /* ShareCertificate.swift */,
+				5E4ACFA217F5309EA967495E /* ShareCodeScanner.swift */,
+				5E4AB1D0AC5C1565AF6FE6BE /* ShareCodes.swift */,
+				5E4AC9EBF0AC3BCEFD8DBADB /* ShareDevice.swift */,
+				5E4AEFD1DB8EA21F9A61913A /* ShareDocumentPicker.swift */,
+				5E4A903148FE50AA5C2E1320 /* ShareMessages.swift */,
+				5E4A19E2AF4F09839D0AC6FE /* ShareNetwork.swift */,
+				5E4AA9AE6AF556B61B8F5577 /* SharePairing.swift */,
+				5E4A17A95003ABB86F7CF346 /* SharePeer.swift */,
+				5E4A0E713DB708F60930173D /* ShareQRCode.swift */,
+				5E4A3BA2EB53AA40EDB938B6 /* ShareRelay.swift */,
+				5E4A554C5D40442615FE83CF /* ShareSDP.swift */,
+			);
+			path = Share;
+			sourceTree = "<group>";
+		};
 		5AFE7E000000000000000202 /* SafariExtension */ = {
 			isa = PBXGroup;
 			children = (
@@ -665,6 +733,7 @@
 				0CD4C5277071B3B52A0FD13D /* Library */,
 				B6D76A24E2350B257FD31125 /* Documents */,
 				5AFE7E000000000000000201 /* Inbox */,
+				5E4A887248089E926F215A3F /* Share */,
 			);
 			path = scanner;
 			sourceTree = "<group>";
@@ -706,6 +775,7 @@
 				3BFE412B661D4597AC799A25 /* RebuildProgressTests.swift */,
 				5AFE7F000000000000000004 /* PDFMarkupEditingTests.swift */,
 				5C0FA11E0000000000000A06 /* PDFCompareTests.swift */,
+				5E4A0BCEDD688276B1FA5DE1 /* NearbyShareTests.swift */,
 			);
 			path = scannerTests;
 			sourceTree = "<group>";
@@ -872,6 +942,7 @@
 			);
 			name = scanner;
 			packageProductDependencies = (
+				5E4A7D185A071583CC4E90AA /* WebRTC */,
 			);
 			productName = scanner;
 			productReference = A30E5C8A288A2FF40099985F /* scanner.app */;
@@ -969,6 +1040,7 @@
 			);
 			mainGroup = A30E5C81288A2FF40099985F;
 			packageReferences = (
+				5E4A5D62893846D54AC3CDF3 /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			productRefGroup = A30E5C8B288A2FF40099985F /* Products */;
 			projectDirPath = "";
@@ -1171,6 +1243,25 @@
 				5AFE7E000000000000000104 /* InboxStore.swift in Sources */,
 				5AFE7E000000000000000105 /* Inbox.swift in Sources */,
 				5AFE7E000000000000000106 /* WebPagePDF.swift in Sources */,
+				5E4AD1E1428AD2F5345C4DA1 /* NearbyShareConfig.swift in Sources */,
+				5E4A3638E6AE361551D82E0A /* NearbySharePending.swift in Sources */,
+				5E4A78A57C40E032FF0D8837 /* NearbyShareSession+Files.swift in Sources */,
+				5E4AC243529150EFEB456DED /* NearbyShareSession+Link.swift in Sources */,
+				5E4A7A69C945268354A6ACE8 /* NearbyShareSession+Rules.swift in Sources */,
+				5E4A8E78D09D10C85C304B67 /* NearbyShareSession.swift in Sources */,
+				5E4A91EF41029E00C6985C1D /* NearbyShareView.swift in Sources */,
+				5E4A4BA8E37359007D862BF6 /* ShareCertificate.swift in Sources */,
+				5E4AB8AC0480C80A7E375D99 /* ShareCodeScanner.swift in Sources */,
+				5E4A887D27E1B13C5E1FE2D2 /* ShareCodes.swift in Sources */,
+				5E4A6567C2F751D2380B31F2 /* ShareDevice.swift in Sources */,
+				5E4A4CB6B425F5DD2CDA1017 /* ShareDocumentPicker.swift in Sources */,
+				5E4AE1590EBF3DEA32CB41E0 /* ShareMessages.swift in Sources */,
+				5E4AD760B57B36E920948694 /* ShareNetwork.swift in Sources */,
+				5E4A2B0C0C55A8B8AD0C801A /* SharePairing.swift in Sources */,
+				5E4AFCE056AB61940F12A802 /* SharePeer.swift in Sources */,
+				5E4A3B7B190E0BD8763645EC /* ShareQRCode.swift in Sources */,
+				5E4A4D545CD92C78A9B6A3BD /* ShareRelay.swift in Sources */,
+				5E4AA6507B06EA29CB04F2F2 /* ShareSDP.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1204,6 +1295,7 @@
 				2C0920D1776EDA95D9C865EA /* StyleDetectorTests.swift in Sources */,
 				D6E3214E256CFADB43216A45 /* TextLayerReconcilerTests.swift in Sources */,
 				5AFE7E000000000000000107 /* InboxTests.swift in Sources */,
+				5E4A3047AE87B1C222F12573 /* NearbyShareTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1472,6 +1564,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Rescriva;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Rescriva uses the camera to scan pages and whiteboards. Everything stays on this iPhone.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Rescriva connects directly to computers and phones on your network when you use Share Nearby.";
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=macosx*]" = YES;
@@ -1515,6 +1608,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Rescriva;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Rescriva uses the camera to scan pages and whiteboards. Everything stays on this iPhone.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Rescriva connects directly to computers and phones on your network when you use Share Nearby.";
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=macosx*]" = YES;
@@ -1744,6 +1838,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		5E4A5D62893846D54AC3CDF3 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC";
+			requirement = {
+				kind = exactVersion;
+				version = 153.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5E4A7D185A071583CC4E90AA /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E4A5D62893846D54AC3CDF3 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCVersionGroup section */
 		A30E5C91288A2FF40099985F /* scanner.xcdatamodeld */ = {

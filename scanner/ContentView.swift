@@ -68,6 +68,11 @@ struct ContentView: View {
 			if UserDefaults.standard.bool(forKey: RescrivaPreference.seedSampleLibrary) {
 				SampleLibrary.seedIfEmpty(in: viewContext)
 			}
+			#if DEBUG
+			if UserDefaults.standard.bool(forKey: "shareNearbyDemo") {
+				router.push(.shareNearby(NearbySharePending.demoItems(in: viewContext)))
+			}
+			#endif
 			await OriginalStore.pruneOrphans(in: viewContext)
 			await FigureAssets.pruneOrphans(in: viewContext)
 		}
@@ -75,10 +80,15 @@ struct ContentView: View {
 
 	/// A file handed to Rescriva (Open With on a Mac, "Open in Rescriva" from Files) opens inside the
 	/// app: a PDF as a PDF, an image as a new scan. An openscanner://scan link starts a scan;
-	/// openscanner://inbox brings in what Rescriva's Safari extension sent (Inbox).
+	/// openscanner://inbox brings in what Rescriva's Safari extension sent (Inbox);
+	/// openscanner://share pairs Share Nearby with the web page that showed it.
 	private func open(_ url: URL) {
 		guard url.isFileURL else {
 			if Inbox.handle(url) { return }
+			if NearbySharePending.shared.receive(url) {
+				showShareNearby()
+				return
+			}
 			if url.host() == "scan" { appState.viewState = .Page }
 			return
 		}
@@ -92,6 +102,21 @@ struct ContentView: View {
 				router.showToast(String(localized: "That file couldn't be opened."))
 			}
 		}
+	}
+
+	/// Brings Share Nearby to the front for a pairing link: the one already on the stack (closing
+	/// the screens above it), or a new one. Never a second one, which would share alongside the
+	/// first while that one, hidden, took the link.
+	private func showShareNearby() {
+		let index = router.stack.lastIndex { entry in
+			if case .shareNearby = entry.route { return true }
+			return false
+		}
+		guard let index else {
+			router.push(.shareNearby([]))
+			return
+		}
+		for _ in (index + 1)..<router.stack.count { router.pop() }
 	}
 
 	/// The Library with the route stack floating above it, and the toast on top.
@@ -196,6 +221,8 @@ struct ContentView: View {
 			SettingsView()
 		case .collection(let scope):
 			ScanCollectionView(scope: scope)
+		case .shareNearby(let items):
+			NearbyShareView(items: items)
 		}
 	}
 

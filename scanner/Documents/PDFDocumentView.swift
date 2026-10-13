@@ -293,6 +293,7 @@ struct PDFDocumentView: View {
 	private func moreMenu(_ session: PDFEditSession) -> some View {
 		Menu {
 			Button { share(original: false) } label: { Label("Share PDF", systemImage: "square.and.arrow.up") }
+			Button { shareNearby() } label: { Label("Share Nearby", systemImage: "dot.radiowaves.left.and.right") }
 			if item?.isEdited == true {
 				Button { share(original: true) } label: { Label("Share the original", systemImage: "doc") }
 			}
@@ -617,6 +618,14 @@ struct PDFDocumentView: View {
 		Task {
 			if let session { await saved(session) }
 			shareFile(original: original)
+		}
+	}
+
+	/// Saves any changes, then opens Share Nearby with this PDF's current version.
+	private func shareNearby() {
+		Task {
+			if let session { await saved(session) }
+			router.push(.shareNearby([.pdf(itemID)]))
 		}
 	}
 

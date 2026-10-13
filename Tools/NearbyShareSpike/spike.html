@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>spike</title>
+<pre id="out"></pre>
+<script>
+const FP = "C8:7F:82:09:B8:EF:F6:FB:92:37:13:91:BD:28:85:F1:50:E7:03:8D:3E:BB:DA:99:2A:78:3C:9F:DB:E1:95:CB";
+const U = "rsU1abcd", P = "rescrivaPasswordDerived00";
+window.S = { log: [] };
+const log = m => { S.log.push(m); document.getElementById('out').textContent = S.log.join('\n'); };
+async function start(mode) {
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  S.pc = pc;
+  const dc = pc.createDataChannel("rescriva", { negotiated: true, id: 0 });
+  S.dc = dc;
+  dc.binaryType = 'arraybuffer';
+  dc.onopen = () => { log("dc open"); dc.send("hello from browser"); };
+  dc.onmessage = e => log("msg: " + e.data);
+  pc.oniceconnectionstatechange = () => log("ice: " + pc.iceConnectionState);
+  pc.onconnectionstatechange = () => log("pc: " + pc.connectionState);
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise(r => {
+    if (pc.iceGatheringState === 'complete') return r();
+    pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r();
+    setTimeout(r, 3000);
+  });
+  const sdp = pc.localDescription.sdp;
+  const get = k => ((sdp.match(new RegExp('a=' + k + ':(.*)')) || [])[1] || '').trim();
+  const offer = { ufrag: get('ice-ufrag'), pwd: get('ice-pwd'), fp: get('fingerprint').split(' ')[1], mid: get('mid'),
+    cands: [...sdp.matchAll(/a=candidate:(.*)/g)].map(m => m[1].trim()) };
+  const answer = [
+    'v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', 't=0 0', `a=group:BUNDLE ${offer.mid}`, 'a=msid-semantic: WMS',
+    'm=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0',
+    `a=ice-ufrag:${U}`, `a=ice-pwd:${P}`, 'a=ice-options:trickle', `a=fingerprint:sha-256 ${FP}`,
+    'a=setup:active', `a=mid:${offer.mid}`, 'a=sctp-port:5000', 'a=max-message-size:262144', ''].join('\r\n');
+  await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+  log("remote answer set; ice=" + pc.iceConnectionState);
+  S.offer = offer;
+  return JSON.stringify(offer);
+}
+async function addPhone(ip, port) {
+  await S.pc.addIceCandidate({ candidate: `candidate:9 1 udp 2122260223 ${ip} ${port} typ host`, sdpMid: S.offer.mid });
+  log("added phone candidate " + ip + ":" + port);
+}
+</script>
