@@ -3,9 +3,9 @@
 //  Rescriva (fork of Open Scanner)
 //
 //  Export: pick a format (Word, PowerPoint, searchable PDF, plain text),
-//  decide about notes, and share — which includes Save to Files. A PDF also
-//  gets its paper, image quality (both remembered) and an optional password
-//  (never stored).
+//  decide about notes, and share — which includes Save to Files — or hand the
+//  file to Share Nearby. A PDF also gets its paper, image quality (both
+//  remembered) and an optional password (never stored).
 //
 
 import SwiftUI
@@ -17,6 +17,8 @@ struct ExportSheet: View {
 	var onFinished: ((String) -> Void)?
 
 	@Environment(\.dismiss) private var dismiss
+	/// For Share Nearby, which opens as a screen once the sheet is down.
+	@Environment(RescrivaRouter.self) private var router: RescrivaRouter?
 	@State private var format: ExportFormat = .pdf
 	@State private var includeNotes = true
 	@State private var isWorking = false
@@ -41,6 +43,9 @@ struct ExportSheet: View {
 			.scrollBounceBehavior(.basedOnSize)
 
 			PrimaryButton(title: "Share", systemImage: "square.and.arrow.up", isBusy: isWorking, action: share)
+			if router != nil {
+				shareNearbyButton
+			}
 		}
 		.padding(.horizontal, 20)
 		.padding(.top, 8)
@@ -48,7 +53,7 @@ struct ExportSheet: View {
 		.onAppear {
 			format = initialFormat.needsRebuild && !tier.canRebuild ? .pdf : initialFormat
 		}
-		.presentationDetents([.height(format == .pdf ? 668 : 514)])
+		.presentationDetents([.height((format == .pdf ? 668 : 514) + (router != nil ? 56 : 0))])
 		.presentationDragIndicator(.visible)
 		.presentationCornerRadius(RescrivaRadius.large)
 		.presentationBackground(Color.vellum)
@@ -183,6 +188,24 @@ struct ExportSheet: View {
 		.accessibilityHint(locked ? Text("Needs a newer iPhone") : Text(""))
 	}
 
+	/// "Share Nearby": the same file, handed to the Share Nearby screen.
+	private var shareNearbyButton: some View {
+		Button(action: shareNearby) {
+			HStack(spacing: 8) {
+				Glyph("dot.radiowaves.left.and.right", size: 15)
+				Text("Share Nearby")
+					.font(RescrivaFont.ui(15, weight: .medium))
+			}
+			.foregroundStyle(.ink)
+			.frame(maxWidth: .infinity)
+			.frame(minHeight: 42)
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(PressScaleStyle(scale: 0.96))
+		.disabled(isWorking)
+		.accessibilityHint("Shares the file with a computer or phone nearby")
+	}
+
 	private func share() {
 		isWorking = true
 		failure = nil
@@ -198,6 +221,25 @@ struct ExportSheet: View {
 					onFinished?(savedToFiles ? String(localized: "Saved “\(name)” to Files") : String(localized: "Shared “\(name)”"))
 					dismiss()
 				}
+			} catch {
+				isWorking = false
+				failure = String(localized: "That didn't work — the file couldn't be written. Try again, or pick another format.")
+			}
+		}
+	}
+
+	/// Makes the file in the chosen format, closes the sheet and opens Share Nearby with it.
+	private func shareNearby() {
+		guard let router else { return }
+		isWorking = true
+		failure = nil
+		Task {
+			do {
+				let options = PDFExportOptions(paperSize: paperSize, quality: imageQuality, password: password)
+				let url = try await ExportService.makeFile(for: scan, format: format, includeNotes: includeNotes, pdfOptions: options)
+				isWorking = false
+				dismiss()
+				router.push(.shareNearby([.file(url, name: url.lastPathComponent)]))
 			} catch {
 				isWorking = false
 				failure = String(localized: "That didn't work — the file couldn't be written. Try again, or pick another format.")

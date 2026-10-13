@@ -159,6 +159,7 @@ struct WorkspaceView: View {
 				}
 				RescrivaWordmark(size: 28)
 					.frame(maxWidth: .infinity, alignment: .leading)
+				CircleIconButton(systemName: "dot.radiowaves.left.and.right", label: "Share Nearby") { router.push(.shareNearby([])) }
 				CircleIconButton(systemName: "slider.vertical.3", label: "Settings") { router.push(.settings) }
 				WorkspaceScanMenu(height: 40, onStart: start)
 			}
@@ -412,6 +413,8 @@ struct WorkspaceSidebar: View {
 			} else {
 				scanList
 			}
+			shareNearbyButton
+				.padding(.bottom, ProcessInfo.processInfo.isMacCatalystApp ? 0 : 8)
 			if ProcessInfo.processInfo.isMacCatalystApp {
 				Text("Drop PDFs or images anywhere to import")
 					.font(RescrivaFont.ui(12))
@@ -424,6 +427,23 @@ struct WorkspaceSidebar: View {
 		.background(Color.vellum.ignoresSafeArea())
 		.overlay(alignment: .trailing) { Rectangle().fill(Color.carbon.opacity(0.08)).frame(width: 1).ignoresSafeArea() }
 		.libraryPresentations(controller)
+	}
+
+	/// Share Nearby, under the list: the header has no room for another button beside Scan.
+	private var shareNearbyButton: some View {
+		Button { router.push(.shareNearby([])) } label: {
+			HStack(spacing: 10) {
+				Glyph("dot.radiowaves.left.and.right", size: 15)
+				Text("Share Nearby")
+					.font(RescrivaFont.ui(14, weight: .medium))
+				Spacer(minLength: 0)
+			}
+			.foregroundStyle(.ink)
+			.padding(.horizontal, 6)
+			.frame(minHeight: 40)
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
 	}
 
 	private var searchField: some View {

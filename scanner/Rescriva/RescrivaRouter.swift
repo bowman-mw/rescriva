@@ -35,6 +35,8 @@ enum RescrivaRoute: Hashable {
 	case settings
 	/// A folder, tag, smart folder, Pinned, All Scans, Favorites or Recently Deleted.
 	case collection(LibraryScope)
+	/// Share Nearby, sharing these documents to start with (`NearbyShareView`).
+	case shareNearby([NearbyShareItem])
 }
 
 /// What the camera is pointed at. Stored token.
@@ -131,7 +133,7 @@ final class RescrivaRouter {
 			case .preview(let s), .scan(let s), .processing(let s), .review(let s), .page(let s, _): return s == scan
 			case .camera(_, let s): return s == scan
 			case .pdfCompare(let left, let right): return [left, right].contains(.scan(scan))
-			case .settings, .collection, .pdf, .pdfFiles: return false
+			case .settings, .collection, .pdf, .pdfFiles, .shareNearby: return false
 			}
 		}
 	}
