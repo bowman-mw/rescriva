@@ -2,7 +2,7 @@
 //  ShareMessages.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  The JSON that crosses Share Nearby's data channel (ShareSite/PROTOCOL.md §4) and the relay's
+//  The JSON that crosses Share Nearby's data channel (Docs/Rescriva-Share-Protocol.md §4) and the relay's
 //  `signal` payloads (§2). Everything inbound comes from a web page, so it's read field by field:
 //  unknown or malformed messages are dropped, ids must be short base64url-ish tokens, and names
 //  lose control characters and are clipped.
@@ -206,7 +206,7 @@ enum ShareJSON {
 	static let maxProof = 128
 	static let maxPIN = 16
 	static let maxToken = 64
-	/// What a page's hello may call its device (ShareSite/assets/main.js `describeBrowser`).
+	/// What a page's hello may call its device (rescriva-share's assets/main.js `describeBrowser`).
 	static let pageDevices: Set<String> = ["phone", "tablet", "computer"]
 
 	/// An id or transfer id: 1…64 of [A-Za-z0-9_-].

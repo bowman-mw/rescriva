@@ -10,7 +10,7 @@
 //      pairing    this device scanned a page's code: a direct connection with the built-in
 //                 certificate, and roomId(secret) on the relay too; the first to open wins
 //
-//  The wire protocol is ShareSite/PROTOCOL.md, and ShareSite/assets/peer.js is the page's side of
+//  The wire protocol is Docs/Rescriva-Share-Protocol.md, and rescriva-share's assets/peer.js is the page's side of
 //  every exchange. Docs/Nearby-Share-App-Design.md has the rules this follows.
 //
 

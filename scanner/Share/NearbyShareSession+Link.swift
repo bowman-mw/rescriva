@@ -4,7 +4,7 @@
 //
 //  One connection a Share Nearby session holds with a web page: its SharePeer, where it came
 //  from (a relay room, or a scanned pairing code), what the page has proved or unlocked, and its
-//  one download and one upload at a time (ShareSite/PROTOCOL.md §4).
+//  one download and one upload at a time (Docs/Rescriva-Share-Protocol.md §4).
 //
 
 import Foundation

@@ -3,7 +3,7 @@
 //  Rescriva (fork of Open Scanner)
 //
 //  The small rules a Share Nearby session applies to what pages send: wrong-PIN counting and its
-//  cooldown (ShareSite/PROTOCOL.md §1.3), checks on the text that arrives, and the label each
+//  cooldown (Docs/Rescriva-Share-Protocol.md §1.3), checks on the text that arrives, and the label each
 //  page goes by. Pure Foundation, so tests can drive them with any clock.
 //
 

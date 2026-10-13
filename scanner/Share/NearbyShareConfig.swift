@@ -3,7 +3,7 @@
 //  Rescriva (fork of Open Scanner)
 //
 //  Where Share Nearby's relay and web page live, and the sizes its transfers use
-//  (ShareSite/PROTOCOL.md). The addresses can be pointed at a local relay and site for testing
+//  (Docs/Rescriva-Share-Protocol.md). The addresses can be pointed at a local relay and site for testing
 //  with launch arguments, which land in UserDefaults:
 //
 //      -shareRelayURL ws://127.0.0.1:8787/ws   (or "off" for no relay)

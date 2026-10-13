@@ -2,7 +2,7 @@
 //  SharePairing.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  The page's no-relay pairing code (ShareSite/PROTOCOL.md §3): what the app reads from the QR code
+//  The page's no-relay pairing code (Docs/Rescriva-Share-Protocol.md §3): what the app reads from the QR code
 //  a computer's Share page shows, or from that link pasted in. Every field is checked here, because
 //  ShareSDP writes them into SDP text.
 //

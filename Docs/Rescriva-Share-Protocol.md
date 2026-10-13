@@ -1,3 +1,5 @@
+> The canonical copy is `PROTOCOL.md` in [bowman-mw/rescriva-share](https://github.com/bowman-mw/rescriva-share/blob/main/PROTOCOL.md), the website and relay. Change both together.
+
 # Rescriva Share protocol (v1)
 
 Rescriva Share moves files between the Rescriva app (iPhone, iPad, Mac) and a web page

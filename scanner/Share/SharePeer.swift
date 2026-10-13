@@ -2,7 +2,7 @@
 //  SharePeer.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  One WebRTC connection to a Share Nearby web page (ShareSite/PROTOCOL.md §2–§4): a peer
+//  One WebRTC connection to a Share Nearby web page (Docs/Rescriva-Share-Protocol.md §2–§4): a peer
 //  connection with no ICE servers and one negotiated data channel. Through the relay, the page's
 //  offer arrives and the app answers. With no relay, the offer is rebuilt from the page's QR code,
 //  the app's answer uses the certificate built into the app, and the answer's ICE credentials are

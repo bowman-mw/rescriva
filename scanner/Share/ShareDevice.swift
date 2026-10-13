@@ -2,7 +2,7 @@
 //  ShareDevice.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  How this device introduces itself to the relay and to pages (ShareSite/PROTOCOL.md §2 and §4).
+//  How this device introduces itself to the relay and to pages (Docs/Rescriva-Share-Protocol.md §2 and §4).
 //  Since iOS 16, UIDevice's name is the model ("iPhone") unless the app has Apple's
 //  user-assigned-device-name entitlement, which Rescriva doesn't; the page then shows "iPhone".
 //  On a Mac it's the computer's name.

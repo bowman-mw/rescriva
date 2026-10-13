@@ -2,7 +2,7 @@
 //  ShareRelay.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  The app's side of the Share Nearby relay (ShareSite/PROTOCOL.md §2): one WebSocket in one room,
+//  The app's side of the Share Nearby relay (Docs/Rescriva-Share-Protocol.md §2): one WebSocket in one room,
 //  who else is in it, and the connection set-up messages passed through it. It pings every 25 s so
 //  the relay doesn't drop it as stale, and when the socket goes it reconnects with backoff
 //  (1, 2, 4 … 30 s). Two misses in a row show as `unavailable`, but it keeps trying.

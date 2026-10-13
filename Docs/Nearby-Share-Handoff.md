@@ -1,9 +1,13 @@
 # Share Nearby (Rescriva Share): handoff
 
+> **Status, 2026-10-13:** the app side is built, tested end to end in the simulator, and merged into
+> `main`. share.rescriva.com and relay.rescriva.com are live. It still needs a real-device test,
+> including Personal Hotspot (§9). Sections 3–8 describe the state at the time of the handoff.
+
 Written 2026-10-12 when the work was paused for a cloud session. Branch `nearby-share` in
 **`bowman-mw/rescriva`** (the app's new home; the old fork `bowman-mw/OpenScanner` is frozen, so
 don't push there). It's cut from `main` at e9234ee. Read this file first, then
-`ShareSite/PROTOCOL.md`.
+`Docs/Rescriva-Share-Protocol.md`.
 
 **Repo rules** (from the session that moved the repo):
 - Push to this branch, not `main`. Merges into `main` happen when the user says so.
@@ -23,9 +27,8 @@ don't push there). It's cut from `main` at e9234ee. Read this file first, then
 
 **Where the website lives:** the public repo **`bowman-mw/rescriva-share`** (created
 2026-10-12 with the user's OK). GitHub Pages is on (from `main`, root) with the custom domain
-`share.rescriva.com`. `ShareSite/` on this branch is a **snapshot** of that repo for reference, taken
-when this was handed off. Make website and relay changes in `rescriva-share`, not here, and delete
-`ShareSite/` from this branch before it's merged.
+`share.rescriva.com`. Website and relay changes go there. The protocol spec is copied into this repo as
+`Docs/Rescriva-Share-Protocol.md`; change both together.
 
 **There's a second workstream in this handoff:** the Open Scanner code review, in
 `Docs/OpenScanner-Code-Review.md`. See §10.
@@ -90,9 +93,9 @@ when this was handed off. Make website and relay changes in `rescriva-share`, no
      no candidate pair. The likely cause is the macOS application firewall (it's on) blocking the
      unsigned spike binary; later runs worked. iPhones have no inbound firewall.
    - The Mac running the spike was on the user's iPhone hotspot (172.20.10.3) at the time.
-2. **`ShareSite/PROTOCOL.md`**: the full spec, with shared test vectors (secret→room id,
+2. **The protocol spec** (`PROTOCOL.md` in rescriva-share, copied to `Docs/Rescriva-Share-Protocol.md`): the full spec, with shared test vectors (secret→room id,
    ICE credentials, proofs, connection codes, payload layout).
-3. **The website is written** (`ShareSite/`): `index.html`, `assets/*.js`, `style.css`, a
+3. **The website is written** (bowman-mw/rescriva-share): `index.html`, `assets/*.js`, `style.css`, a
    service worker for offline loads, the vendored QR library (qrcode-generator 1.4.4, MIT),
    `CNAME`, `.nojekyll`, and `tests/index.html`. **The tests page passes 23/23** in Chromium. The
    page renders with no console errors with `?relay=off`. **It has never talked to the app yet.**
@@ -195,12 +198,12 @@ Sources entry):
 protocol needs all of the spike's methods.
 
 **Tests** (`scannerTests/NearbyShareTests.swift`): PROTOCOL.md's vectors (room id, ICE, both
-proofs, the four connection codes, decoding the payload from `ShareSite/tests/index.html`'s hex),
+proofs, the four connection codes, decoding the payload from the hex in rescriva-share's `tests/index.html`),
 offer building and the ufrag/pwd swap, PIN uniqueness, lockout and cooldown, and the order the
 app picks candidates for the connection code (prefer 172.20.10.1, then en0's private IPv4,
 skip `pdp_ip*`/`utun*`; map IP→interface with `getifaddrs`).
 
-## 5. Website (repo `bowman-mw/rescriva-share`; snapshot in `ShareSite/`)
+## 5. Website (repo `bowman-mw/rescriva-share`)
 
 | File | Role |
 |---|---|
@@ -232,8 +235,8 @@ To do: check it at phone width (the iPhone opening the Mac's QR link).
 
 ## 7. Testing plan
 
-- **Locally on the Mac:** serve `ShareSite` (`python3 -m http.server 8770 --bind 127.0.0.1`),
-  run `python3 ShareSite/relay/dev_relay.py`, open
+- **Locally on the Mac:** serve a rescriva-share checkout (`python3 -m http.server 8770 --bind 127.0.0.1`),
+  run `python3 relay/dev_relay.py` in it, open
   `http://127.0.0.1:8770/?relay=ws://127.0.0.1:8787/ws`, and run the app in the simulator with
   the launch arguments in §4. The simulator shares the Mac's network.
   - Relay path: the device appears and its documents are listed. PIN unlock → download. Wrong
@@ -285,7 +288,6 @@ README with the deploy steps.
 - **Downloads after an async unlock** can be blocked as not user-initiated. The row keeps a
   "Save again" link.
 - **Export compliance** (§4) needs the user's decision.
-- `ShareSite/` is only a snapshot of `bowman-mw/rescriva-share`. Remove it from this branch before merging.
 
 ## 10. Second workstream: the Open Scanner code review
 

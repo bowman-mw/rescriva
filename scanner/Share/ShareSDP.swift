@@ -2,7 +2,7 @@
 //  ShareSDP.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  The few pieces of SDP text Share Nearby reads and writes (ShareSite/PROTOCOL.md §3): the page's
+//  The few pieces of SDP text Share Nearby reads and writes (Docs/Rescriva-Share-Protocol.md §3): the page's
 //  offer rebuilt from its pairing code, the app's answer with the ICE credentials both ends derive
 //  from the secret, the DTLS fingerprint the hello proofs cover, and host candidates for the
 //  connection code. The lines match Tools/NearbyShareSpike/spike.swift, which connected to Chrome.

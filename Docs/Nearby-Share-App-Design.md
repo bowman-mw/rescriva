@@ -1,6 +1,6 @@
 # Share Nearby: app design
 
-The Swift side of Share Nearby. The wire format is `ShareSite/PROTOCOL.md`; the background and
+The Swift side of Share Nearby. The wire format is `Docs/Rescriva-Share-Protocol.md`; the background and
 decisions are in `Docs/Nearby-Share-Handoff.md`. Everything new lives in `scanner/Share/`. Tests
 go in `scannerTests/NearbyShareTests.swift`.
 

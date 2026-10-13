@@ -2,9 +2,9 @@
 //  ShareCodes.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  Share Nearby's small encodings and derivations (ShareSite/PROTOCOL.md §1 and §3.1): the two
+//  Share Nearby's small encodings and derivations (Docs/Rescriva-Share-Protocol.md §1 and §3.1): the two
 //  unpadded base64 flavours, secrets and session ids, the relay room id, ICE credentials and hello
-//  proofs derived from a secret, the connection code, and document PINs. ShareSite/assets/codes.js
+//  proofs derived from a secret, the connection code, and document PINs. rescriva-share's assets/codes.js
 //  and crypto.js are the page's side of the same thing, and the test vectors are shared.
 //
 

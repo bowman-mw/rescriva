@@ -2,10 +2,10 @@
 //  ShareCertificate.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  The DTLS certificate built into the app for no-relay pairing (ShareSite/PROTOCOL.md §3). The
+//  The DTLS certificate built into the app for no-relay pairing (Docs/Rescriva-Share-Protocol.md §3). The
 //  page's made-up answer names its fingerprint before the app has said anything, so every copy of
 //  the app uses this one. It's public on purpose: it doesn't prove the app is genuine, the hello
-//  proof does. The website's APP_FINGERPRINT (ShareSite/assets/config.js) and PROTOCOL.md use the
+//  proof does. The website's APP_FINGERPRINT (rescriva-share's assets/config.js) and PROTOCOL.md use the
 //  same fingerprint; replace all three together. Made by Tools/NearbyShareSpike (P-256, PKCS#8).
 //
 

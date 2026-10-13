@@ -2,9 +2,9 @@
 //  NearbyShareTests.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  Share Nearby's pure core against ShareSite/PROTOCOL.md: the shared test vectors (room id, ICE
+//  Share Nearby's pure core against Docs/Rescriva-Share-Protocol.md: the shared test vectors (room id, ICE
 //  credentials, hello proofs, connection codes), the page's pairing payload byte for byte as
-//  ShareSite/tests/index.html builds it, what a bad payload looks like, the SDP the app rebuilds
+//  rescriva-share's tests/index.html builds it, what a bad payload looks like, the SDP the app rebuilds
 //  and edits, which local address goes in a connection code, the data channel's messages both
 //  ways, relay signals, PINs, the built-in certificate, which leftover folders get swept, and
 //  the numbers that tell pages with the same name apart.
@@ -20,7 +20,7 @@ final class NearbyShareTests: XCTestCase {
 	private let secret = Data(1...16)
 	private let fingerprintAA = Array(repeating: "AA", count: 32).joined(separator: ":")
 	private let fingerprintBB = Array(repeating: "BB", count: 32).joined(separator: ":")
-	/// The page's fingerprint in ShareSite/tests/index.html, as the page's SDP wrote it.
+	/// The page's fingerprint in rescriva-share's tests/index.html, as the page's SDP wrote it.
 	private let pageFingerprint = "3a:51:72:C4:3C:B4:7E:C5:B5:FE:F5:74:0D:3E:98:E5:4C:C9:8E:4B:FA:66:C9:1A:A9:EC:8E:6C:E8:B9:F1:D9"
 
 	// MARK: Base64 and secrets
@@ -147,7 +147,7 @@ final class NearbyShareTests: XCTestCase {
 
 	// MARK: Pairing payload (PROTOCOL.md §3)
 
-	/// ShareSite/tests/index.html's "payload hex": one mDNS, one IPv4 and one IPv6 candidate.
+	/// rescriva-share's tests/index.html's "payload hex": one mDNS, one IPv4 and one IPv6 candidate.
 	private var webTestsPayload: Data {
 		let text = "01" + "0102030405060708090a0b0c0d0e0f10" + "04" + asciiHex("pEeG") + "18" + asciiHex("UVxTphq7VLoWl7IGtQnsIRyq")
 			+ "3a5172c43cb47ec5b5fef5740d3e98e54cc98e4bfa66c91aa9ec8e6ce8b9f1d9" + "01" + asciiHex("0") + "03"

@@ -2,7 +2,7 @@
 //  ShareNetwork.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  Which of the app's own addresses goes in a connection code (ShareSite/PROTOCOL.md §3.1). The
+//  Which of the app's own addresses goes in a connection code (Docs/Rescriva-Share-Protocol.md §3.1). The
 //  code holds one private IPv4 address the computer can reach: the Personal Hotspot address when
 //  this iPhone is the hotspot, else Wi-Fi, else another local network. Cellular, VPN, AirDrop and
 //  loopback interfaces never qualify. Also the IPv4 address behind a page's mDNS candidate name.
