@@ -297,6 +297,8 @@ The user wants a cloud session to make these changes. That session's notes:
 
 - **Base:** `bowman-mw/rescriva` `main` at e9234ee. Work on its own feature branch, separate from
   `nearby-share`. Merge to `main` only when the user says so.
+- **Already done:** review bugs 5 (the action bar on a deleted line), 6 (the page viewer's back
+  pill) and 8 (Speak) are fixed on branch `speech-reader`. Skip them.
 - **Order:**
   - **PR 1:** review sections 1 (delete dead code) and 2 (bug fixes), plus the `capturesArray`
     and library-search fixes from section 3. Behaviour stays the same apart from the fixes.
@@ -337,9 +339,10 @@ hold, with two exceptions:
   - the gallery text still says "Document Scanner" / "Open Scanner widget" (`ScannerWidget.swift`
     `configurationDisplayName`/`description`).
 
+Bugs 5, 6 and 8 are already done on branch `speech-reader`, so skip them. That's why
+`LiveCaptureSummary.swift` is no longer in the list below.
+
 Where the code moved, on 1d2cded:
-- `LiveCaptureSummary.swift`: `.ignoresSafeArea()` on `QuickLookView` is at about 72–73, the page
-  image's `showingImage = true` at about 124–126, and Speak at about 189–190.
 - `ScanGallery.swift`: `capturesArray.first?.thumbnail` is still at about 144. **A new instance of the
   same problem:** `scan.capturesArray.count` (about 200) faults in every page just to count them. Use
   `captures?.count`.

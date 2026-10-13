@@ -24,6 +24,8 @@
 		350B9E70CF5988AAC7AAB4CF /* PDFEditSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA84430A0F2C03170F4475D /* PDFEditSession.swift */; };
 		36339325AA3E1C12E3953E71 /* StylePlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372FBC8094725A64F201B022 /* StylePlacement.swift */; };
 		3DE8136EA1B06B8FF4B1429F /* PageEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBF3561635B59E92ABE80B40 /* PageEditorView.swift */; };
+		DA0E275350BC85B4C7FFBB26 /* SpeechReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 349FC4F41A1480F32C909943 /* SpeechReader.swift */; };
+		C7634A7FA920CB88AF791B36 /* SpeechReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B8A86F746B6DC2C2DCAD946 /* SpeechReaderTests.swift */; };
 		3EECDC90C782604DE8720998 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8879FF7F9780A3311E144CF4 /* CaptureView.swift */; };
 		416D608BB913FD3F8C1ECB8A /* PDFOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0117D890798A58AC060DCCF /* PDFOptions.swift */; };
 		450951B73FBA3E5C9C20473E /* LibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEEB46A3BD2FD81A501FE45 /* LibraryTests.swift */; };
@@ -438,6 +440,8 @@
 		F5CF9168986A92DA79423CDD /* FigureCropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FigureCropTests.swift; sourceTree = "<group>"; };
 		FB5FEA34020CEDE80917EB16 /* SampleLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleLibrary.swift; sourceTree = "<group>"; };
 		FBF3561635B59E92ABE80B40 /* PageEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageEditorView.swift; sourceTree = "<group>"; };
+		349FC4F41A1480F32C909943 /* SpeechReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechReader.swift; sourceTree = "<group>"; };
+		5B8A86F746B6DC2C2DCAD946 /* SpeechReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechReaderTests.swift; sourceTree = "<group>"; };
 		FE609E3998093E9687464540 /* scanner 2.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "scanner 2.xcdatamodel"; sourceTree = "<group>"; };
 		5E4ADE3440BCCEDCB22E23AD /* NearbyShareConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyShareConfig.swift; sourceTree = "<group>"; };
 		5E4AD358C86F2F85BCE2487F /* NearbySharePending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbySharePending.swift; sourceTree = "<group>"; };
@@ -779,6 +783,7 @@
 				5AFE7F000000000000000004 /* PDFMarkupEditingTests.swift */,
 				5C0FA11E0000000000000A06 /* PDFCompareTests.swift */,
 				5E4A0BCEDD688276B1FA5DE1 /* NearbyShareTests.swift */,
+				5B8A86F746B6DC2C2DCAD946 /* SpeechReaderTests.swift */,
 			);
 			path = scannerTests;
 			sourceTree = "<group>";
@@ -849,6 +854,7 @@
 				6CABEBC420799FADFA152CB3 /* ReviewCompareView.swift */,
 				79A7F4CA6E0D7BBD8910243F /* LookPreview.swift */,
 				FBF3561635B59E92ABE80B40 /* PageEditorView.swift */,
+				349FC4F41A1480F32C909943 /* SpeechReader.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1265,6 +1271,7 @@
 				5E4A3B7B190E0BD8763645EC /* ShareQRCode.swift in Sources */,
 				5E4A4D545CD92C78A9B6A3BD /* ShareRelay.swift in Sources */,
 				5E4AA6507B06EA29CB04F2F2 /* ShareSDP.swift in Sources */,
+				DA0E275350BC85B4C7FFBB26 /* SpeechReader.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1300,6 +1307,7 @@
 				D6E3214E256CFADB43216A45 /* TextLayerReconcilerTests.swift in Sources */,
 				5AFE7E000000000000000107 /* InboxTests.swift in Sources */,
 				5E4A3047AE87B1C222F12573 /* NearbyShareTests.swift in Sources */,
+				C7634A7FA920CB88AF791B36 /* SpeechReaderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1729,6 +1737,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_STYLE = Automatic;
@@ -1758,6 +1767,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = NO;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_STYLE = Automatic;

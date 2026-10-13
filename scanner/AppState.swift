@@ -8,7 +8,6 @@
 import Foundation
 import AppIntents
 import CoreData
-import AVFoundation
 import CoreLocation
 #if canImport(CoreLocationUI)
 import CoreLocationUI
@@ -34,16 +33,10 @@ class AppState: ObservableObject {
 	public static let shared = AppState()
 	var locationManager = LocationManager()
 	
-	@Published var viewState = ViewState.Home {
-		didSet {
-			stopSpeaking()
-		}
-	}
+	@Published var viewState = ViewState.Home
 	
 	@Published var openScan: Scan?
 	@Published var openRecognizedItem: ScanRecognizedItem?
-	
-	private let speechSynthesizer = AVSpeechSynthesizer()
 	
 	var lastScanIndex: Int {
 		
@@ -56,28 +49,6 @@ class AppState: ObservableObject {
 		}
 		
 		return 0
-	}
-	
-	func speak(text: String?) {
-		guard let text = text else { return }
-		
-		if speechSynthesizer.isSpeaking {
-			speechSynthesizer.stopSpeaking(at: .immediate)
-		}
-		let utterance = AVSpeechUtterance(string: text)
-		utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-
-		speechSynthesizer.speak(utterance)
-	}
-	
-	var isSpeaking: Bool {
-		return speechSynthesizer.isSpeaking
-	}
-	
-	func stopSpeaking() {
-		if speechSynthesizer.isSpeaking {
-			speechSynthesizer.stopSpeaking(at: .word)
-		}
 	}
 }
 
