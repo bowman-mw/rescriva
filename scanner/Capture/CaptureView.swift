@@ -71,6 +71,7 @@ struct CaptureView: View {
 			camera.autoCapture = isOn
 			if isOn { scheduleDemoAutoCapture() }
 		}
+		.onChange(of: camera.secondLook) { old, new in secondLookChanged(from: old, to: new) }
 	}
 
 	// MARK: Pieces
@@ -185,7 +186,7 @@ struct CaptureView: View {
 			capturedStack
 				.frame(width: 64, height: 64)
 			Spacer()
-			Button(action: { Task { await capture() } }) {
+			Button(action: shutterTapped) {
 				ZStack {
 					Circle().strokeBorder(Color.chalk, lineWidth: 4)
 					Circle().fill(Color.chalk).padding(8)
@@ -193,8 +194,9 @@ struct CaptureView: View {
 				.frame(width: 78, height: 78)
 			}
 			.buttonStyle(PressScaleStyle())
-			.disabled(isCapturing || !canCapture)
-			.accessibilityLabel("Take picture")
+			// During a second look the shutter stays live: it keeps the page as it is.
+			.disabled((isCapturing && camera.secondLook == nil) || !canCapture)
+			.accessibilityLabel(camera.secondLook == nil ? "Take picture" : "Keep the page as it is")
 			Spacer()
 			Button(action: save) {
 				Text("Save")
@@ -243,13 +245,33 @@ struct CaptureView: View {
 	}
 
 	private var hint: String {
+		if let look = camera.secondLook {
+			return Self.secondLookHint(look.direction)
+		}
+		// Only while the page in view is still to be taken: not over the page just captured.
+		if !isDemo, camera.status == .running, camera.quad != nil, camera.showsGlare, !isCapturing, !auto || camera.awaitsCapture {
+			return String(localized: "Some shine on the page — I’ll take a second look")
+		}
 		if captured.isEmpty {
 			if !isDemo, camera.status == .running, camera.quad == nil {
 				return String(localized: "Looking for the page…")
 			}
 			return auto ? String(localized: "Hold still — I’ll take it when it’s steady") : String(localized: "Tap the shutter when ready")
 		}
+		if camera.lastPageWasFused {
+			return String(localized: "That’s it — shine’s gone. Got page \(captured.count).")
+		}
 		return String(localized: "Got page \(captured.count). Next one whenever you are.")
+	}
+
+	/// Asks for a slide, not a tilt: only moving the phone moves the lamp's reflection on the page.
+	private static func secondLookHint(_ direction: PageDirection) -> String {
+		switch direction {
+		case .left: return String(localized: "A little shine on the page — ease the phone left")
+		case .right: return String(localized: "A little shine on the page — ease the phone right")
+		case .up: return String(localized: "A little shine on the page — ease the phone away from you")
+		case .down: return String(localized: "A little shine on the page — ease the phone toward you")
+		}
 	}
 
 	private var canCapture: Bool {
@@ -264,6 +286,7 @@ struct CaptureView: View {
 		camera.removeShadows = UserDefaults.standard.bool(forKey: RescrivaPreference.removeShadows)
 		camera.keepMarkerColors = UserDefaults.standard.bool(forKey: RescrivaPreference.keepMarkerColors)
 		camera.keepsOriginal = UserDefaults.standard.bool(forKey: RescrivaPreference.keepOriginals)
+		camera.reducesGlare = UserDefaults.standard.bool(forKey: RescrivaPreference.multiFrameGlare)
 		camera.onAutoCapture = {
 			Task { await capture() }
 		}
@@ -287,6 +310,28 @@ struct CaptureView: View {
 				await capture()
 			}
 		}
+	}
+
+	private func shutterTapped() {
+		if camera.secondLook != nil {
+			camera.finishSecondLook()
+		} else {
+			Task { await capture() }
+		}
+	}
+
+	/// A second look began (one soft tap, and the hint read out once) or took another photo (the
+	/// viewfinder flashes as for any shot).
+	private func secondLookChanged(from old: CaptureCamera.SecondLook?, to new: CaptureCamera.SecondLook?) {
+		guard let new else { return }
+		if let old {
+			guard new.shots > old.shots else { return }
+			shots += 1
+			UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+			return
+		}
+		UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+		AccessibilityNotification.Announcement(Self.secondLookHint(new.direction)).post()
 	}
 
 	private func capture() async {

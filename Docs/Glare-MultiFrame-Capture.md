@@ -1,6 +1,6 @@
 # Glare: a second look (multi-frame capture)
 
-Design note, 2026-10-10. Status: fusion core prototyped and tested on synthetic photos; capture flow and UI not built yet. Nothing here has run on an iPhone.
+Design note, 2026-10-10. Status (2026-10-12): fusion core tested on synthetic photos; live check, capture sequence, processing, hint and setting wired into the camera (steps 3–6 below), not yet tried end to end on an iPhone. The live check does flag the lamp hotspot on three real stills of a laminated sheet (`Par Count`, 10–15% of cells, slide suggested toward the nearer edge).
 
 **Recommendation.** Keep today's one-photo capture as the fast path. When the live preview shows glare on the page, take the normal still, then ask the user to slide the phone a few centimetres. Take one or two more full-resolution stills once the live view shows the glary part clean, and fuse them with `GlareFusion` (`scanner/Capture/GlareFusion.swift`). Don't use Live Photo, exposure brackets or video frames as the source.
 
@@ -161,14 +161,15 @@ Measured on this Mac (Apple M5, `-O`), from HEIC stills through decode, fuse, re
 
 1. **Done:** `GlareFusion.swift` (fusion core, `GlareMap`, `GlareCoverage`, `PageDirection`, `Homography`) and the macOS harness `Tools/GlareFusionHarness/run.sh`. It has 45 checks and writes the PNGs behind this note.
 2. **Device baseline, Debug only:** log the preview-buffer size, `isZeroShutterLagSupported` and `isResponsiveCaptureSupported`, and still processing times. Collect a fixture set in the app container (never the photo library): glossy magazine, laminated card, receipt, whiteboard by a window, book spread. Time `fuse` and record peak memory on an A15 and an A18.
-3. **Live check** in `CapturePipeline.captureOutput`: after detection, run `GlareMap.estimate` on `CIImage(cvPixelBuffer:)` and publish it in `DetectionUpdate` (debounced).
-4. **Capture sequence** in `CaptureCamera`:
-   - Add `capturePage()` → `.secondLook(GlareCoverage)` state.
-   - Add a short-window stability tracker for the follow-up shots, plus the stop conditions above.
-   - Enable `isResponsiveCaptureEnabled` where supported, set before `startRunning`.
-5. **Processing:** decode each still and detect its quad (falling back to the mapped preview quad), as `processStill` does. Then call `GlareFusion.fuse`, render once and run `PageCleanup.clean`; on `FusionError`, use the single-photo path.
-6. **UI** in `CaptureView`: hint copy, the fading veil, VoiceOver and the haptic, and the shutter-as-done tap. Add the `multiFrameGlare` setting.
-7. **Tests:** port the harness scenarios to `scannerTests` at reduced size, plus the real-photo fixtures from step 2.
+3. **Done: live check** in `CapturePipeline.captureOutput`: after detection, the frame is reduced once to 480 px and `GlareMap.estimate` runs on it; `GlareDebouncer` (3 of the last 5 analysed frames) sets `DetectionUpdate.showsGlare`, published as `CaptureCamera.showsGlare`.
+4. **Done: capture sequence** in `CaptureCamera.capturePage()`:
+   - If the live view was glary at the shutter, coverage starts from the still's own map (or the live map when Smart HDR toned the still's highlight below the check). `secondLook` holds the on-screen direction while the call waits.
+   - `SecondLookTrigger` runs on the video queue: it fires once the page has moved at least 4% from the last still and settled 0.3 s where every pending cell is clean (0.9 s if only some are), and reports a page lost for 1 s.
+   - Stops after 2 extra stills, full coverage, a shutter tap (`finishSecondLook()`), a lost page, or **6 s** (2.5 s left no time to read the hint and move). Ending a look re-disarms auto-capture on the page in view, so the slide doesn't trigger a duplicate shot.
+   - Not done: `isResponsiveCaptureEnabled`.
+5. **Done: processing:** `captureStill` decodes, detects (or maps the preview quad) and measures glare; `processPage` fuses (render once, then `PageCleanup.clean`) or takes the single-photo path on a `FusionError`. The camera sets `keepsUnrefinedFrames = false`, so a follow-up that registration can't match (another page, a bad shot) is dropped rather than placed by its quad alone, which ghosts. The first still stays the original and sets the crop, so re-making the page later (new crop or mode) starts from it alone and the glare comes back; rotating keeps the fused page.
+6. **Done, without the veil: UI** in `CaptureView`: "Some shine on the page — I'll take a second look" before the shot, then "A little shine on the page — ease the phone left / right / away from you / toward you" ("up" read as lifting the phone), one soft haptic and a VoiceOver announcement, a flash per extra still, the shutter as "keep it as is", and "That's it — shine's gone." Settings › Reduce glare (`multiFrameGlare`, default on). The fading veil over the glary cells is still to do.
+7. **Tests:** `GlareCaptureTests` covers the debouncer and the trigger; the harness checks the camera's options keep every registered shot and drop a mismatched page. Still to do: the real-photo fixtures from step 2.
 8. **Tune on device** against the fixtures:
    - `clipLevel` and `sheenRatio`: Smart HDR may tone-map glare below the clip level.
    - `glareScale`, the slide distance and the timeout.

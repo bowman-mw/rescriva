@@ -104,6 +104,7 @@ do {
 	try harness.runSelfChecks()
 	try harness.runGlossy(name: "glossy-3", shots: [Poses.reference, Poses.left, Poses.upRight], compareStacks: true)
 	try harness.runGlossy(name: "glossy-2", shots: [Poses.reference, Poses.left], compareStacks: false)
+	try harness.runOtherPage()
 	var shadowed = Poses.left
 	shadowed.shadow = (center: CGPoint(x: 1300, y: 1150), depth: 0.45)
 	try harness.runGlossy(name: "phone-shadow", shots: [Poses.reference, shadowed, Poses.upRight], compareStacks: true)

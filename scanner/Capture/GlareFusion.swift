@@ -63,6 +63,11 @@ enum GlareFusion {
 		var maxFrames = 4
 		/// Refine each frame's quad alignment with Vision's homographic registration.
 		var refinesAlignment = true
+		/// Keep a frame whose refinement failed or was rejected, placed by its quad alone. Quads
+		/// alone are several pixels off and ghost the text, so the camera turns this off: such a
+		/// frame (another page, or a shot registration could not match) is dropped instead. Only
+		/// applies when `refinesAlignment` is on.
+		var keepsUnrefinedFrames = true
 		/// Long side of the page images registration runs on.
 		var registrationSize: CGFloat = 1024
 		/// A refinement that moves a page corner further than this fraction of the page's long side
@@ -125,8 +130,11 @@ enum GlareFusion {
 		var reference: CIImage
 		/// One report per frame that was used, reference first.
 		var frames: [FrameReport]
-		/// Input indices dropped for unusable geometry.
+		/// Input indices dropped for unusable geometry, or for failed refinement when
+		/// `keepsUnrefinedFrames` is off.
 		var droppedFrames: [Int]
+		/// Reports of the frames dropped for failed refinement (their alignment says why).
+		var unrefinedFrames: [FrameReport]
 		/// Share of the page that shows glare in every frame (what fusion could not recover).
 		var residualGlareFraction: Float
 		/// Where that residual glare is.
@@ -151,8 +159,11 @@ enum GlareFusion {
 		var pageSize: CGSize
 		/// The usable frames, reference first.
 		var layers: [Layer]
-		/// Input indices dropped for unusable geometry.
+		/// Input indices dropped for unusable geometry, or for failed refinement when
+		/// `keepsUnrefinedFrames` is off.
 		var droppedFrames: [Int]
+		/// Reports of the frames dropped for failed refinement.
+		var unrefinedFrames: [FrameReport] = []
 	}
 
 	/// One frame placed in page space.
@@ -193,6 +204,7 @@ enum GlareFusion {
 			reference: opaque(reference, in: CGRect(origin: .zero, size: size)),
 			frames: stack.layers.map(\.report),
 			droppedFrames: stack.droppedFrames,
+			unrefinedFrames: stack.unrefinedFrames,
 			residualGlareFraction: analysis.residual.indicator(atLeast: options.glareThreshold).mean,
 			residualMap: residualMap,
 			weights: analysis.weights.map { $0.ciImage() }
@@ -244,6 +256,11 @@ enum GlareFusion {
 				}
 			} else if options.refinesAlignment {
 				layer.report.alignment = .quad("The reference could not be prepared for registration.")
+			}
+			if options.refinesAlignment, !options.keepsUnrefinedFrames, case .quad = layer.report.alignment {
+				stack.droppedFrames.append(index)
+				stack.unrefinedFrames.append(layer.report)
+				continue
 			}
 			stack.layers.append(layer)
 		}
@@ -784,6 +801,11 @@ struct GlareMap: Equatable {
 		Float(cells.filter { $0 >= Self.cellThreshold }.count) / Float(max(1, cells.count))
 	}
 
+	/// Which cells are glary, row-major from the top-left.
+	var glaryCells: [Bool] {
+		cells.map { $0 >= Self.cellThreshold }
+	}
+
 	/// A quick single-photo glare estimate for the live check (one video frame or still).
 	///
 	/// The page is warped to `sampleSize` on its long side; a pixel is glare when any channel is
@@ -896,6 +918,154 @@ struct GlareCoverage: Equatable {
 			return offsetX <= 0 ? .left : .right
 		}
 		return offsetY < 0 ? .up : .down
+	}
+
+	/// How many pending cells `map` sees without glare; 0 for a map of another grid.
+	func clearedCount(in map: GlareMap) -> Int {
+		guard map.columns == columns, map.rows == rows else { return 0 }
+		return pending.indices.filter { pending[$0] && map.cells[$0] < GlareMap.cellThreshold }.count
+	}
+}
+
+// MARK: - Second look
+
+/// Debounces the live glare check: the page counts as glary once `required` of the last `window`
+/// analysed frames show glare, so one bright frame (a reflection passing over, exposure settling)
+/// does not start a second look.
+struct GlareDebouncer {
+	var window = 5
+	var required = 3
+	private var recent: [Bool] = []
+
+	/// True when enough recent frames showed glare.
+	var isGlary: Bool {
+		recent.filter { $0 }.count >= required
+	}
+
+	/// Feeds one analysed frame's map and returns `isGlary`.
+	mutating func update(_ map: GlareMap) -> Bool {
+		recent.append(!map.isClear)
+		let limit = max(1, window)
+		if recent.count > limit {
+			recent.removeFirst(recent.count - limit)
+		}
+		return isGlary
+	}
+
+	/// Forgets the history, as when the page leaves the frame.
+	mutating func reset() {
+		recent.removeAll(keepingCapacity: true)
+	}
+}
+
+/// Decides, from the live frames of a second look, when to take the next still of the page.
+///
+/// - Ready: the page is in view, at least `minimumMove` (normalized corner distance, in the
+///   upright preview frame) from where the last still was taken, and the live map shows the cells
+///   still pending clean. With every pending cell clean it fires once the page has been held for
+///   `steadyDuration`; with only some, after `partialSettleDuration`, since the user may not move
+///   any further.
+/// - It fires at most once; `restart` arms it for the next still.
+/// - Page lost: no page for `lostDuration`; reported on every frame until the page returns.
+///
+/// Times are seconds on any monotonic clock.
+struct SecondLookTrigger {
+
+	struct Configuration {
+		var steadyDuration: TimeInterval = 0.3
+		var steadyTolerance: CGFloat = 0.015
+		var partialSettleDuration: TimeInterval = 0.9
+		var minimumMove: CGFloat = 0.04
+		var lostDuration: TimeInterval = 1
+		/// Hard cap on remembered samples.
+		var maxSamples = 32
+	}
+
+	enum Signal: Equatable {
+		case waiting
+		case ready
+		case pageLost
+	}
+
+	private struct Sample {
+		var time: TimeInterval
+		var quad: PageQuad
+	}
+
+	let configuration: Configuration
+	private(set) var coverage: GlareCoverage
+	private var lastStillQuad: PageQuad?
+	private var samples: [Sample] = []
+	private var missingSince: TimeInterval?
+	private var hasFired = false
+
+	/// `lastStillQuad` is the live page outline when the last still was taken (nil: no move needed).
+	init(coverage: GlareCoverage, lastStillQuad: PageQuad?, configuration: Configuration = Configuration()) {
+		self.configuration = configuration
+		self.coverage = coverage
+		self.lastStillQuad = lastStillQuad
+	}
+
+	/// Arms the trigger again after a still, with what is pending now.
+	mutating func restart(coverage: GlareCoverage, lastStillQuad: PageQuad?) {
+		self.coverage = coverage
+		self.lastStillQuad = lastStillQuad
+		samples.removeAll(keepingCapacity: true)
+		missingSince = nil
+		hasFired = false
+	}
+
+	/// Feeds one analysed frame: the live page outline (nil when none) and its glare map (nil
+	/// when it could not be measured).
+	mutating func update(quad: PageQuad?, glare: GlareMap?, at time: TimeInterval) -> Signal {
+		if let last = samples.last, time < last.time {
+			samples.removeAll(keepingCapacity: true)
+		}
+		guard let quad else {
+			samples.removeAll(keepingCapacity: true)
+			let since = missingSince ?? time
+			missingSince = since
+			return time - since >= configuration.lostDuration ? .pageLost : .waiting
+		}
+		missingSince = nil
+		samples.append(Sample(time: time, quad: quad))
+		trimSamples()
+		guard !hasFired, let glare else { return .waiting }
+		if let lastStillQuad, quad.maxCornerDistance(to: lastStillQuad) < configuration.minimumMove {
+			return .waiting
+		}
+		let cleared = coverage.clearedCount(in: glare)
+		guard cleared > 0 else { return .waiting }
+		let needed = cleared >= coverage.pendingCount ? configuration.steadyDuration : configuration.partialSettleDuration
+		// A little slack so frame-timing jitter at ~10 fps doesn't add a whole extra frame.
+		let slack = min(0.02, needed * 0.1)
+		guard heldDuration(latest: quad, now: time) >= needed - slack else { return .waiting }
+		hasFired = true
+		return .ready
+	}
+
+	/// How long the page has stayed within `steadyTolerance` of where it is now.
+	private func heldDuration(latest: PageQuad, now: TimeInterval) -> TimeInterval {
+		var start = now
+		for sample in samples.reversed() {
+			guard sample.quad.maxCornerDistance(to: latest) < configuration.steadyTolerance else { break }
+			start = sample.time
+		}
+		return now - start
+	}
+
+	/// Keeps enough history to prove the longest hold, capped at `maxSamples`.
+	private mutating func trimSamples() {
+		guard let now = samples.last?.time else { return }
+		let windowStart = now - max(configuration.steadyDuration, configuration.partialSettleDuration) - 0.2
+		var dropCount = 0
+		while dropCount + 1 < samples.count, samples[dropCount + 1].time <= windowStart {
+			dropCount += 1
+		}
+		dropCount += max(0, samples.count - dropCount - max(1, configuration.maxSamples))
+		if dropCount > 0 {
+			samples.removeFirst(dropCount)
+		}
 	}
 }
 

@@ -200,8 +200,10 @@ extension Harness {
 			try lab.write(shot.image, to: folder.appendingPathComponent("shot-\(index).png"), maxSide: 1344)
 		}
 		try checkLiveCoverage(frames, shots: shots)
-		let fusion = try fused(frames)
+		let fusion = try fused(frames, options: Self.cameraOptions)
 		logFusion(fusion.result, seconds: fusion.seconds)
+		check(fusion.result.frames.count == frames.count,
+			  "with the camera's options every shot registers and is kept (\(fusion.result.unrefinedFrames.count) dropped)")
 		let stack = try GlareFusion.align(frames, context: context, options: GlareFusion.Options())
 		for error in RegistrationError.measure(stack, shots: shots) {
 			log(String(format: "  shot %d registration error: mean %.2f px, max %.2f px", error.index, error.mean, error.max))
@@ -294,6 +296,33 @@ extension Harness {
 		for (index, weight) in fusion.weights.enumerated() {
 			try lab.write(weight, to: folder.appendingPathComponent("weight-\(index).png"), maxSide: 400)
 		}
+	}
+
+	/// GlareFusion as `CaptureCamera` runs it: up to three stills, and a follow-up that registration
+	/// cannot match is dropped rather than placed by its quad alone.
+	static var cameraOptions: GlareFusion.Options {
+		var options = GlareFusion.Options()
+		options.maxFrames = 3
+		options.keepsUnrefinedFrames = false
+		return options
+	}
+
+	/// A follow-up that is not the same page (here the second shot mirrored, as if the user had
+	/// turned to another page during the second look) is dropped, so the page is the reference's.
+	func runOtherPage() throws {
+		log("\n== other page in the second look")
+		let shots = try [Poses.reference, Poses.left].map { try studio.shoot($0) }
+		let frames = try shots.map { try frame(for: $0).frame }
+		let mirrored = frames[1].image.transformed(by: CGAffineTransform(scaleX: -1, y: 1))
+		guard let quad = PageQuad(unordered: frames[1].quad.corners.map { CGPoint(x: 1 - $0.x, y: $0.y) }) else {
+			throw HarnessError("The mirrored quad is degenerate.")
+		}
+		let other = GlareFrame(image: GlareFusion.atOrigin(mirrored), quad: quad)
+		let result = try GlareFusion.fuse([frames[0], other], context: context, options: Self.cameraOptions)
+		for report in result.unrefinedFrames {
+			log("  dropped frame \(report.index): \(report.alignment)")
+		}
+		check(result.frames.count == 1 && result.droppedFrames == [1], "a mirrored follow-up is dropped instead of ghosting the page")
 	}
 
 	/// A matte page: no glare is found, so the app keeps the one-photo path; fusing anyway changes little.

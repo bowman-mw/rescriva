@@ -18,6 +18,7 @@ struct SettingsView: View {
 	@AppStorage(RescrivaPreference.keepMarkerColors) private var keepMarkerColors = true
 	@AppStorage(RescrivaPreference.companionTips) private var companionTips = true
 	@AppStorage(RescrivaPreference.keepOriginals) private var keepOriginals = true
+	@AppStorage(RescrivaPreference.multiFrameGlare) private var multiFrameGlare = true
 	@State private var sheet: InfoSheet?
 	@State private var originalsUsage: OriginalStore.Usage?
 	/// Imported PDFs kept for "View original" (`PDFImport`), counted and removed with the page originals.
@@ -137,6 +138,8 @@ struct SettingsView: View {
 			settingRow("Auto-capture", detail: "Takes the shot once the page is steady", isOn: $autoCapture)
 			Divider().overlay(Color.carbon.opacity(0.06))
 			settingRow("Remove shadows", detail: "Evens out lighting on paper", isOn: $removeShadows)
+			Divider().overlay(Color.carbon.opacity(0.06))
+			settingRow("Reduce glare", detail: "Takes a second look at shiny pages and merges the photos", isOn: $multiFrameGlare)
 			Divider().overlay(Color.carbon.opacity(0.06))
 			settingRow("Keep marker colors", detail: "Whiteboard diagrams keep their ink", isOn: $keepMarkerColors)
 			Divider().overlay(Color.carbon.opacity(0.06))
@@ -304,6 +307,8 @@ private struct InfoSheetView: View {
 		case .help:
 			return String(localized: """
 				Scan: tap Scan, hold the page in the frame, and Rescriva takes the shot once it's steady (or tap the shutter). Keep adding pages, then tap Save.
+
+				Shiny or laminated pages: when the lamp shows on the page, Rescriva asks you to ease the phone a little to one side and takes a second look, then merges the photos so the words under the shine come back.
 
 				Whiteboards: choose Whiteboard so glare is flattened and marker colors are kept.
 

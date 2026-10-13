@@ -231,6 +231,8 @@ enum RescrivaPreference {
 	static let seedSampleLibrary = "seedSampleLibrary"
 	/// Keep each page's original photo on this iPhone, so its crop can be fixed later.
 	static let keepOriginals = "keepOriginals"
+	/// When the page shows glare, take a second look from a little to one side and fuse the photos.
+	static let multiFrameGlare = "multiFrameGlare"
 	/// The searchable PDF's paper and image quality, as last chosen in Export (`PDFPaperSize`,
 	/// `PDFImageQuality`). A PDF's password is never stored.
 	static let pdfPaperSize = "pdfPaperSize"
@@ -243,6 +245,7 @@ enum RescrivaPreference {
 			keepMarkerColors: true,
 			companionTips: true,
 			keepOriginals: true,
+			multiFrameGlare: true,
 		])
 	}
 }

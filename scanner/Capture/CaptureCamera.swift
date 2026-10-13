@@ -79,12 +79,30 @@ final class CaptureCamera {
 		}
 	}
 
+	/// A second look under way: after a still that shows glare, the camera waits for the phone to
+	/// slide somewhere that sees the glary part clean, takes another still there, and fuses them.
+	struct SecondLook: Equatable {
+		/// Which way to slide the phone, as seen on screen.
+		var direction: PageDirection
+		/// Stills of this page taken so far.
+		var shots: Int
+	}
+
 	/// Where the camera is in its lifecycle.
 	private(set) var status: Status = .idle
+	/// True when the last page `capturePage()` returned was fused from a second look's stills.
+	private(set) var lastPageWasFused = false
 	/// The latest detected page in the upright video frame (see `PageQuad`), or nil when none.
 	private(set) var quad: PageQuad?
 	/// True while the page's corners have moved less than ~2% of the frame over the last ~0.6 s.
 	private(set) var isSteady = false
+	/// True while auto-capture would take the page in view once it is steady: false from a capture
+	/// until the page moves away or leaves the frame.
+	private(set) var awaitsCapture = true
+	/// True while the live view shows glare on the page (debounced; only when `reducesGlare`).
+	private(set) var showsGlare = false
+	/// Set while `capturePage()` is waiting for the phone to move for another look at the page.
+	private(set) var secondLook: SecondLook?
 
 	/// Selects the cleanup recipe and the focus range (near for documents, unrestricted for boards).
 	var mode: Mode = .document {
@@ -108,6 +126,15 @@ final class CaptureCamera {
 	var keepMarkerColors = true
 	/// Keep each page's original photo (Settings › Keep originals) so its crop can be fixed later.
 	var keepsOriginal = true
+	/// Settings › Reduce glare: watch the live view for glare and, when a still shows it, take a
+	/// second look (see `SecondLook`) and fuse the stills with `GlareFusion`.
+	var reducesGlare = true {
+		didSet {
+			guard reducesGlare != oldValue else { return }
+			pipeline.setGlareCheck(reducesGlare)
+			if !reducesGlare { showsGlare = false }
+		}
+	}
 
 	/// Called on the main actor when auto-capture decides to take the page. The handler is
 	/// expected to call `capturePage()`.
@@ -116,11 +143,35 @@ final class CaptureCamera {
 	/// The capture session, for `CameraPreviewView`. Configure it only through this class.
 	let session: AVCaptureSession
 
+	/// Extra stills a second look takes at most (so at most three stills per page).
+	nonisolated static let maxExtraStills = 2
+	/// How long a second look waits for the phone to move before keeping what it has.
+	static let secondLookTimeout: Duration = .seconds(6)
+
 	private let pipeline: CapturePipeline
 	/// Width ÷ height of the upright video frame the published `quad` was measured in.
 	@ObservationIgnored private var previewFrameAspect: CGFloat?
 	@ObservationIgnored private var isStarting = false
 	@ObservationIgnored private var wantsRunning = false
+	/// The latest live glare map published (for a still whose own map shows nothing).
+	@ObservationIgnored private var liveGlare: GlareMap?
+	/// Counts second looks, so a signal from an earlier one is ignored.
+	@ObservationIgnored private var lookGeneration = 0
+	/// The suspended second look, resumed exactly once by `resumeLook(_:)`.
+	@ObservationIgnored private var lookWaiter: CheckedContinuation<LookOutcome, Never>?
+	@ObservationIgnored private var lookTimeout: Task<Void, Never>?
+
+	/// How waiting for the next look of a page ended.
+	private enum LookOutcome {
+		/// The phone settled where the pending glare looks clean: take the next still.
+		case ready
+		/// The shutter was tapped during the hint: keep the page as it is.
+		case done
+		case timedOut
+		case pageLost
+		/// The camera stopped (the screen closed).
+		case stopped
+	}
 
 	/// False when the device has no back wide-angle camera (e.g. the iOS Simulator).
 	nonisolated static var isSupported: Bool {
@@ -157,7 +208,7 @@ final class CaptureCamera {
 			return
 		}
 		do {
-			try await pipeline.start(mode: mode, autoCapture: autoCapture)
+			try await pipeline.start(mode: mode, autoCapture: autoCapture, checksGlare: reducesGlare)
 		} catch CaptureError.unavailable {
 			status = .unavailable
 			return
@@ -176,12 +227,15 @@ final class CaptureCamera {
 	/// Stops the session (asynchronously, off the main actor) and clears the detection state.
 	func stop() {
 		wantsRunning = false
+		resumeLook(.stopped)
 		pipeline.stop()
 		if status == .running {
 			status = .idle
 		}
 		quad = nil
 		isSteady = false
+		showsGlare = false
+		liveGlare = nil
 	}
 
 	/// Takes a full-resolution still and returns the cleaned page.
@@ -195,9 +249,47 @@ final class CaptureCamera {
 	/// immediately followed by an automatic one. Throws `CancellationError` when the camera was
 	/// stopped while the still was processed (the screen closed): that page is dropped, with its
 	/// staged original.
+	///
+	/// With `reducesGlare`, when the live view showed glare as the shutter fired, the call stays
+	/// open for a second look (placed by the still's own glare map, or the live one's when the
+	/// still's shows none): `secondLook` asks the user to slide the phone, one or two more stills
+	/// are taken as the glary part comes clear, and all of them are fused into the page. The first
+	/// still stays the page's original and sets its crop.
 	func capturePage() async throws -> CapturedPage {
 		guard status == .running else { throw CaptureError.notRunning }
-		let request = CapturePipeline.PageRequest(
+		lastPageWasFused = false
+		let request = pageRequest()
+		let glaryAtShutter = reducesGlare && showsGlare
+		let shotQuad = quad
+		let first = try await pipeline.captureStill(request, measuresGlare: reducesGlare)
+		guard wantsRunning else { throw CancellationError() }
+		var stills = [first]
+		// The still's own map places the glare best; Smart HDR can tone a highlight down below the
+		// check, though, and then the live view's map stands in.
+		if glaryAtShutter, let map = [first.glare, liveGlare].compactMap({ $0 }).first(where: { !$0.isClear }) {
+			stills += await secondLookStills(coverage: GlareCoverage(first: map), shotQuad: shotQuad, request: request)
+		}
+		guard wantsRunning else { throw CancellationError() }
+		let still = try await pipeline.processPage(stills, request: request)
+		// Nobody is left to save this page, so its original goes now rather than at the next launch.
+		guard wantsRunning else {
+			OriginalStore.shared.discardLater([still.original].compactMap { $0 })
+			throw CancellationError()
+		}
+		lastPageWasFused = still.isFused
+		let recipe = PageRecipe(quad: still.quad, mode: request.mode, rotation: 0,
+								removeShadows: request.removeShadows, keepMarkerColors: request.keepMarkerColors)
+		return CapturedPage(image: UIImage(cgImage: still.page, scale: 1, orientation: .up), original: still.original, recipe: recipe)
+	}
+
+	/// Ends a second look now and keeps the page with the stills taken so far (the shutter, tapped
+	/// while the hint shows). Does nothing when no second look is waiting.
+	func finishSecondLook() {
+		resumeLook(.done)
+	}
+
+	private func pageRequest() -> CapturePipeline.PageRequest {
+		CapturePipeline.PageRequest(
 			mode: mode,
 			removeShadows: removeShadows,
 			keepMarkerColors: keepMarkerColors,
@@ -205,15 +297,60 @@ final class CaptureCamera {
 			fallbackQuad: quad,
 			fallbackFrameAspect: previewFrameAspect
 		)
-		let still = try await pipeline.capturePage(request)
-		// Nobody is left to save this page, so its original goes now rather than at the next launch.
-		guard wantsRunning else {
-			OriginalStore.shared.discardLater([still.original].compactMap { $0 })
-			throw CancellationError()
+	}
+
+	/// The extra stills of a second look: shows the hint, waits for the pipeline to see the
+	/// pending glare clean from a new spot, takes a still there, and repeats until the glare is
+	/// covered, `maxExtraStills` are taken, or the look ends (timeout, shutter, page lost, stop).
+	private func secondLookStills(coverage start: GlareCoverage, shotQuad: PageQuad?, request: CapturePipeline.PageRequest) async -> [CapturePipeline.RawStill] {
+		var coverage = start
+		var stills: [CapturePipeline.RawStill] = []
+		var lastQuad = shotQuad
+		let deadline = ContinuousClock.now + Self.secondLookTimeout
+		defer {
+			secondLook = nil
+			pipeline.endSecondLook()
 		}
-		let recipe = PageRecipe(quad: still.quad, mode: request.mode, rotation: 0,
-								removeShadows: request.removeShadows, keepMarkerColors: request.keepMarkerColors)
-		return CapturedPage(image: UIImage(cgImage: still.page, scale: 1, orientation: .up), original: still.original, recipe: recipe)
+		while stills.count < Self.maxExtraStills, wantsRunning, let move = coverage.suggestedMove {
+			// The direction is fixed for each wait, so the hint never changes mid-move.
+			let onScreen = (quad ?? lastQuad).map { move.onScreen(for: $0) } ?? move
+			secondLook = SecondLook(direction: onScreen, shots: 1 + stills.count)
+			lookGeneration += 1
+			pipeline.beginSecondLook(SecondLookTrigger(coverage: coverage, lastStillQuad: lastQuad), generation: lookGeneration)
+			guard await nextLook(until: deadline) == .ready, wantsRunning else { break }
+			lastQuad = quad
+			var followUp = request
+			followUp.fallbackQuad = quad
+			followUp.fallbackFrameAspect = previewFrameAspect
+			guard let still = try? await pipeline.captureStill(followUp, measuresGlare: true) else { break }
+			stills.append(still)
+			if let map = still.glare {
+				coverage.add(map)
+			}
+		}
+		return stills
+	}
+
+	/// Suspends until the pipeline signals the next look, the shutter ends it, the page is lost,
+	/// the camera stops, or `deadline` passes.
+	private func nextLook(until deadline: ContinuousClock.Instant) async -> LookOutcome {
+		await withCheckedContinuation { continuation in
+			resumeLook(.stopped)  // Never strand an earlier waiter.
+			lookWaiter = continuation
+			lookTimeout = Task { [weak self] in
+				try? await Task.sleep(until: deadline, clock: .continuous)
+				guard !Task.isCancelled else { return }
+				self?.resumeLook(.timedOut)
+			}
+		}
+	}
+
+	private func resumeLook(_ outcome: LookOutcome) {
+		guard let waiter = lookWaiter else { return }
+		lookWaiter = nil
+		lookTimeout?.cancel()
+		lookTimeout = nil
+		waiter.resume(returning: outcome)
 	}
 
 	private func handle(_ event: CapturePipeline.Event) {
@@ -224,15 +361,28 @@ final class CaptureCamera {
 			guard wantsRunning else { return }
 			if quad != update.quad { quad = update.quad }
 			if isSteady != update.isSteady { isSteady = update.isSteady }
+			if awaitsCapture != update.isArmed { awaitsCapture = update.isArmed }
+			let glary = reducesGlare && update.showsGlare
+			if showsGlare != glary { showsGlare = glary }
+			liveGlare = update.glare
 			previewFrameAspect = update.frameAspect
+			if let signal = update.secondLook, signal.generation == lookGeneration {
+				switch signal.signal {
+				case .ready: resumeLook(.ready)
+				case .pageLost: resumeLook(.pageLost)
+				case .waiting: break
+				}
+			}
 			if update.autoCaptureFired, autoCapture {
 				onAutoCapture?()
 			}
 		case .runtimeError(let message):
 			guard wantsRunning else { return }
 			status = .failed(message)
+			resumeLook(.stopped)
 			quad = nil
 			isSteady = false
+			showsGlare = false
 		}
 	}
 
@@ -275,6 +425,16 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		var fallbackFrameAspect: CGFloat?
 	}
 
+	/// One still as taken, before it is made into a page: the upright photo (a lazy image over the
+	/// encoded data), the page found in it and, when asked for, where it shows glare.
+	struct RawStill {
+		var still: CIImage
+		/// The page on the upright still (normalized, top-left origin), before the inset: detected,
+		/// else the preview's mapped onto it; nil when neither found one.
+		var quad: PageQuad?
+		var glare: GlareMap?
+	}
+
 	/// One processed still: the cleaned page, the crop it was made with and, when asked for, the
 	/// original, already written to the staging folder.
 	struct ProcessedStill {
@@ -283,6 +443,14 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		/// `.fullFrame` when no page was found and the whole frame was kept.
 		var quad: PageQuad
 		var original: OriginalStore.Staged?
+		/// True when the page was fused from several stills.
+		var isFused = false
+	}
+
+	/// A second look's trigger signal, tagged with the look it belongs to.
+	struct SecondLookSignal: Equatable {
+		var generation: Int
+		var signal: SecondLookTrigger.Signal
 	}
 
 	/// One detection result published to the main actor.
@@ -292,6 +460,14 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		var autoCaptureFired: Bool
 		/// Width ÷ height of the upright video frame `quad` was measured in.
 		var frameAspect: CGFloat
+		/// Auto-capture is armed for the page in view (see `QuadStabilityTracker.isArmed`).
+		var isArmed = true
+		/// The live glare check, debounced (false while it is off).
+		var showsGlare = false
+		/// This frame's glare map, when the check is on and found the page.
+		var glare: GlareMap?
+		/// Set during a second look when its trigger fires or the page is lost.
+		var secondLook: SecondLookSignal?
 	}
 
 	/// Messages to `CaptureCamera`, delivered on the main queue.
@@ -314,6 +490,8 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 	/// Detected outlines are pulled this fraction toward their centre before correction, which
 	/// trims the sliver of table Vision's edge often includes.
 	static let detectedQuadInset: CGFloat = 0.01
+	/// Long side a live frame is reduced to (in one render) before the glare check samples it.
+	static let glareCheckSize: CGFloat = 480
 
 	let session: AVCaptureSession
 	/// Receives detection updates and runtime errors on the main queue. Set once, before start.
@@ -338,8 +516,12 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 	private var lastAnalysisTime: CFTimeInterval = 0
 	private var autoCaptureEnabled = true
 	private var lastPublished: DetectionUpdate?
+	private var glareCheckEnabled = false
+	private var glareDebouncer = GlareDebouncer()
+	private var secondLookTrigger: SecondLookTrigger?
+	private var secondLookGeneration = 0
 
-	// processingQueue (CIContext itself is thread-safe)
+	// processingQueue (CIContext itself is thread-safe; the live glare check shares it)
 	private let stillDetector = PageDetector()
 	private let ciContext = CIContext(options: [.cacheIntermediates: false])
 	private let outputColorSpace = CGColorSpace(name: CGColorSpace.sRGB)
@@ -363,8 +545,9 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 	// MARK: Control
 
 	/// Configures the session on first use, applies the focus range for `mode`, and starts it.
-	func start(mode: CaptureMode, autoCapture: Bool) async throws {
+	func start(mode: CaptureMode, autoCapture: Bool, checksGlare: Bool) async throws {
 		setAutoCapture(autoCapture)
+		setGlareCheck(checksGlare)
 		try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
 			sessionQueue.async {
 				do {
@@ -397,6 +580,8 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 			self.tracker.reset()
 			self.lastPublished = nil
 			self.lastAnalysisTime = 0
+			self.glareDebouncer.reset()
+			self.secondLookTrigger = nil
 		}
 	}
 
@@ -409,6 +594,31 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 	func setAutoCapture(_ enabled: Bool) {
 		videoQueue.async {
 			self.autoCaptureEnabled = enabled
+		}
+	}
+
+	/// Turns the live glare check (a 96 px map of each analysed frame's page) on or off.
+	func setGlareCheck(_ enabled: Bool) {
+		videoQueue.async {
+			self.glareCheckEnabled = enabled
+			self.glareDebouncer.reset()
+		}
+	}
+
+	/// Starts feeding live frames to `trigger`; its signals come back tagged with `generation`.
+	func beginSecondLook(_ trigger: SecondLookTrigger, generation: Int) {
+		videoQueue.async {
+			self.secondLookTrigger = trigger
+			self.secondLookGeneration = generation
+		}
+	}
+
+	/// Stops the second look's trigger. The phone moved during it, which would re-arm
+	/// auto-capture over the same page, so this also counts as a capture of the page now in view.
+	func endSecondLook() {
+		videoQueue.async {
+			self.secondLookTrigger = nil
+			self.tracker.noteCapture(at: CACurrentMediaTime())
 		}
 	}
 
@@ -537,16 +747,53 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 
 		let detected = frameDetector.detect(pixelBuffer: pixelBuffer, orientation: isUpright ? .up : .right)
 		let result = tracker.update(quad: detected, at: now, autoCaptureEnabled: autoCaptureEnabled)
+		var glare: GlareMap?
+		if glareCheckEnabled, let quad = result.quad {
+			glare = liveGlareMap(pixelBuffer, isUpright: isUpright, quad: quad)
+		}
+		if result.quad == nil {
+			glareDebouncer.reset()
+		} else if let glare {
+			_ = glareDebouncer.update(glare)
+		}
+		var lookSignal: SecondLookSignal?
+		if var trigger = secondLookTrigger {
+			let signal = trigger.update(quad: result.quad, glare: glare, at: now)
+			secondLookTrigger = trigger
+			if signal != .waiting {
+				lookSignal = SecondLookSignal(generation: secondLookGeneration, signal: signal)
+			}
+		}
 		publishIfNeeded(DetectionUpdate(
 			quad: result.quad,
 			isSteady: result.isSteady,
 			autoCaptureFired: result.shouldAutoCapture,
-			frameAspect: frameAspect
+			frameAspect: frameAspect,
+			isArmed: tracker.isArmed,
+			showsGlare: glareCheckEnabled && glareDebouncer.isGlary,
+			glare: glare,
+			secondLook: lookSignal
 		))
 	}
 
+	/// The glare map of the page in one live frame: the frame is reduced once to
+	/// `glareCheckSize`, so the map's per-channel reads don't each resample the whole buffer.
+	private func liveGlareMap(_ pixelBuffer: CVPixelBuffer, isUpright: Bool, quad: PageQuad) -> GlareMap? {
+		var frame = CIImage(cvPixelBuffer: pixelBuffer)
+		if !isUpright {
+			frame = frame.oriented(.right)
+		}
+		let small = PageCleanup.limitLongSide(GlareFusion.atOrigin(frame), to: Self.glareCheckSize)
+		guard let colorSpace = outputColorSpace,
+			  let image = ciContext.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: colorSpace) else {
+			return nil
+		}
+		return GlareMap.estimate(GlareFrame(image: CIImage(cgImage: image), quad: quad), context: ciContext)
+	}
+
 	private func publishIfNeeded(_ update: DetectionUpdate) {
-		if !update.autoCaptureFired, let last = lastPublished, last.isSteady == update.isSteady {
+		if !update.autoCaptureFired, update.secondLook == nil, let last = lastPublished, last.isSteady == update.isSteady,
+		   last.isArmed == update.isArmed, last.showsGlare == update.showsGlare, last.glare?.glaryCells == update.glare?.glaryCells {
 			switch (last.quad, update.quad) {
 			case (nil, nil):
 				return
@@ -571,16 +818,31 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 
 	// MARK: Stills
 
-	/// Takes a still and processes it into a cleaned, upright page.
-	func capturePage(_ request: PageRequest) async throws -> ProcessedStill {
+	/// Takes a still, decodes it upright and finds the page in it (and, with `measuresGlare`, the
+	/// page's glare map).
+	func captureStill(_ request: PageRequest, measuresGlare: Bool) async throws -> RawStill {
 		videoQueue.async {
 			self.tracker.noteCapture(at: CACurrentMediaTime())
 		}
 		let data = try await capturePhotoData()
-		return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ProcessedStill, Error>) in
+		return try await onProcessingQueue {
+			try self.prepareStill(data, request: request, measuresGlare: measuresGlare)
+		}
+	}
+
+	/// Makes the cleaned, upright page from one still, or from several of the same page (a second
+	/// look), fused with `GlareFusion`. The first still sets the crop and is the original.
+	func processPage(_ stills: [RawStill], request: PageRequest) async throws -> ProcessedStill {
+		try await onProcessingQueue {
+			try self.makePage(stills, request: request)
+		}
+	}
+
+	private func onProcessingQueue<T>(_ work: @escaping () throws -> T) async throws -> T {
+		try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
 			processingQueue.async {
 				do {
-					continuation.resume(returning: try self.processStill(data, request: request))
+					continuation.resume(returning: try work())
 				} catch {
 					continuation.resume(throwing: error)
 				}
@@ -625,10 +887,8 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		return settings
 	}
 
-	/// processingQueue: decode upright → detect (or fall back) → inset → correct → limit width →
-	/// clean → render, then encode the upright still as the original when asked, straight to a
-	/// staging file so its bytes don't wait in memory for Save.
-	private func processStill(_ data: Data, request: PageRequest) throws -> ProcessedStill {
+	/// processingQueue: decode upright → detect (or fall back on the preview's quad) → glare map.
+	private func prepareStill(_ data: Data, request: PageRequest, measuresGlare: Bool) throws -> RawStill {
 		guard let decoded = CIImage(data: data, options: [.applyOrientationProperty: true]),
 			  !decoded.extent.isInfinite, decoded.extent.width >= 1, decoded.extent.height >= 1 else {
 			throw CaptureCamera.CaptureError.processingFailed
@@ -642,9 +902,28 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 				fallback.mappedFromCenterCrop(cropAspect: $0, intoFrameAspect: stillAspect)
 			} ?? fallback
 		}
-		let crop = quad?.inset(by: Self.detectedQuadInset)
-		var page = crop.map { PageCleanup.correctPerspective(still, quad: $0) } ?? still
-		page = PageCleanup.limitWidth(page, to: Self.maxOutputWidth)
+		let glare = measuresGlare
+			? quad.flatMap { GlareMap.estimate(GlareFrame(image: still, quad: $0.inset(by: Self.detectedQuadInset)), context: ciContext) }
+			: nil
+		return RawStill(still: still, quad: quad, glare: glare)
+	}
+
+	/// processingQueue: inset → correct (or fuse the stills) → limit width → clean → render, then
+	/// encode the first still as the original when asked, straight to a staging file so its bytes
+	/// don't wait in memory for Save.
+	private func makePage(_ stills: [RawStill], request: PageRequest) throws -> ProcessedStill {
+		guard let reference = stills.first else { throw CaptureCamera.CaptureError.processingFailed }
+		let still = reference.still
+		let crop = reference.quad?.inset(by: Self.detectedQuadInset)
+		var page: CIImage
+		var isFused = false
+		if stills.count > 1, let fused = fusedPage(stills) {
+			page = fused
+			isFused = true
+		} else {
+			page = crop.map { PageCleanup.correctPerspective(still, quad: $0) } ?? still
+			page = PageCleanup.limitWidth(page, to: Self.maxOutputWidth)
+		}
 		page = PageCleanup.clean(
 			page,
 			mode: request.mode,
@@ -657,7 +936,43 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 			throw CaptureCamera.CaptureError.processingFailed
 		}
 		let original = request.keepsOriginal ? OriginalStore.shared.stage(still, context: ciContext) : nil
-		return ProcessedStill(page: rendered, quad: crop ?? .fullFrame, original: original)
+		return ProcessedStill(page: rendered, quad: crop ?? .fullFrame, original: original, isFused: isFused)
+	}
+
+	/// processingQueue: the stills of one page fused in the first one's page geometry, rendered
+	/// once so cleanup reads one page instead of the blend over every still. Nil when fusion fails
+	/// or no follow-up still registered against the first (another page, or too far off to match):
+	/// the first still alone is used then, as without a second look.
+	private func fusedPage(_ stills: [RawStill]) -> CIImage? {
+		let frames = stills.map { GlareFrame(image: $0.still, quad: $0.quad?.inset(by: Self.detectedQuadInset) ?? .fullFrame) }
+		var options = GlareFusion.Options()
+		options.maxWidth = Self.maxOutputWidth
+		options.maxFrames = 1 + CaptureCamera.maxExtraStills
+		options.keepsUnrefinedFrames = false
+		#if DEBUG
+		let started = CACurrentMediaTime()
+		#endif
+		let result: GlareFusion.Result
+		do {
+			result = try GlareFusion.fuse(frames, context: ciContext, options: options)
+		} catch {
+			print("Rescriva: glare fusion failed, keeping the first photo: \(error)")
+			return nil
+		}
+		#if DEBUG
+		let used = result.frames.map { "#\($0.index) \($0.alignment) glare \(Int(($0.glareFraction * 100).rounded()))%" }
+		let dropped = result.unrefinedFrames.map { "#\($0.index) \($0.alignment)" }
+		print(String(format: "Rescriva: glare fusion %.0f ms; used %@; dropped %@; glare left %.0f%%",
+					 (CACurrentMediaTime() - started) * 1000, used.joined(separator: ", "),
+					 dropped.isEmpty ? "none" : dropped.joined(separator: ", "), result.residualGlareFraction * 100))
+		#endif
+		guard result.frames.count > 1 else { return nil }
+		let bounds = result.page.extent.integral
+		guard !bounds.isInfinite, let colorSpace = outputColorSpace,
+			  let rendered = ciContext.createCGImage(result.page, from: bounds, format: .RGBA8, colorSpace: colorSpace) else {
+			return nil
+		}
+		return CIImage(cgImage: rendered)
 	}
 
 	private func detectPage(inStill still: CIImage) -> PageQuad? {
@@ -810,7 +1125,8 @@ struct QuadStabilityTracker {
 	private var samples: [Sample] = []
 	private var missingSince: TimeInterval?
 	private(set) var isSteady = false
-	private var isArmed = true
+	/// False from a capture until the page moves more than `rearmDistance` or disappears.
+	private(set) var isArmed = true
 	private var capturedQuad: PageQuad?
 	private var lastCaptureTime: TimeInterval?
 
