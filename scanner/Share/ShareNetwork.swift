@@ -5,7 +5,7 @@
 //  Which of the app's own addresses goes in a connection code (ShareSite/PROTOCOL.md §3.1). The
 //  code holds one private IPv4 address the computer can reach: the Personal Hotspot address when
 //  this iPhone is the hotspot, else Wi-Fi, else another local network. Cellular, VPN, AirDrop and
-//  loopback interfaces never qualify.
+//  loopback interfaces never qualify. Also the IPv4 address behind a page's mDNS candidate name.
 //
 
 import Foundation
@@ -45,6 +45,56 @@ enum ShareNetwork {
 		return best
 	}
 
+	// MARK: The page's mDNS names
+
+	/// How long `ipv4(forMDNSName:)` waits. An answer that's coming takes about 1.5 s.
+	static let mdnsTimeout: TimeInterval = 3
+
+	/// True for a browser's mDNS candidate name: a UUID (8-4-4-4-12 hex digits), then ".local".
+	static func isMDNSName(_ host: String) -> Bool {
+		let bytes = Array(host.utf8)
+		guard bytes.count == 42, host.hasSuffix(".local") else { return false }
+		for (index, byte) in bytes.prefix(36).enumerated() {
+			let isDash = [8, 13, 18, 23].contains(index)
+			guard isDash ? byte == UInt8(ascii: "-") : isHexDigit(byte) else { return false }
+		}
+		return true
+	}
+
+	/// The IPv4 address a page's mDNS candidate name stands for, asking for A records only; nil when
+	/// there's no answer within `timeout`. Asked for A and AAAA at once, which is what WebRTC's own
+	/// lookup does, Apple's resolver often hears nothing back from the browser once the name has
+	/// left its cache (two minutes after the page made it) and gives up after 5 s; asked for A
+	/// alone, it has the answer in about 1.5 s. Without this, this side never checks such a page,
+	/// so no-relay pairing falls back to the connection code.
+	static func ipv4(forMDNSName name: String, timeout: TimeInterval = mdnsTimeout) async -> String? {
+		guard isMDNSName(name) else { return nil }
+		return await withCheckedContinuation { continuation in
+			let answer = ShareLookupAnswer(continuation)
+			DispatchQueue.global(qos: .userInitiated).async { answer.finish(lookUpIPv4(name)) }
+			DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) { answer.finish(nil) }
+		}
+	}
+
+	/// A blocking A-record lookup of `name`, as dotted text.
+	private static func lookUpIPv4(_ name: String) -> String? {
+		var hints = addrinfo()
+		hints.ai_family = AF_INET
+		hints.ai_socktype = SOCK_DGRAM
+		var result: UnsafeMutablePointer<addrinfo>?
+		let status = getaddrinfo(name, nil, &hints, &result)
+		guard status == 0, let first = result else {
+			print("Rescriva: Share Nearby couldn't find a page's mDNS name (\(status))")
+			return nil
+		}
+		defer { freeaddrinfo(first) }
+		return ipv4Text(first.pointee.ai_addr)
+	}
+
+	private static func isHexDigit(_ byte: UInt8) -> Bool {
+		(48...57).contains(byte) || (65...70).contains(byte) || (97...102).contains(byte)
+	}
+
 	// MARK: Private
 
 	private static let maxInterfaces = 1024
@@ -78,5 +128,23 @@ enum ShareNetwork {
 		var text = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
 		guard inet_ntop(AF_INET, &storage, &text, socklen_t(text.count)) != nil else { return nil }
 		return String(cString: text)
+	}
+}
+
+/// Hands a lookup's answer, or the timeout's nil, to its one waiter: whichever comes first.
+private final class ShareLookupAnswer: @unchecked Sendable {
+	private let lock = NSLock()
+	private var continuation: CheckedContinuation<String?, Never>?
+
+	init(_ continuation: CheckedContinuation<String?, Never>) {
+		self.continuation = continuation
+	}
+
+	func finish(_ value: String?) {
+		lock.lock()
+		let waiting = continuation
+		continuation = nil
+		lock.unlock()
+		waiting?.resume(returning: value)
 	}
 }

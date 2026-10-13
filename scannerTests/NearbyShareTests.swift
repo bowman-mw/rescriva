@@ -245,6 +245,19 @@ final class NearbyShareTests: XCTestCase {
 		XCTAssertLessThan(mLine, firstCandidate, "candidates belong to the media section")
 	}
 
+	func testOfferUsesLookedUpAddressesForMDNSCandidates() throws {
+		let pairing = try XCTUnwrap(SharePairingOffer(payload: webTestsPayload))
+		let name = "40dae371-93f3-4445-88ec-b805a2838109.local"
+		func hosts(_ addresses: [String: String]) -> [String] {
+			ShareSDP.offer(for: pairing, addresses: addresses).components(separatedBy: "\r\n")
+				.filter { $0.hasPrefix("a=candidate:") }.compactMap { ShareSDP.hostCandidate($0)?.address }
+		}
+		XCTAssertEqual(hosts([name: "192.168.1.9"]), ["192.168.1.9", "192.168.1.5", "fe80::1"])
+		XCTAssertEqual(hosts([name: "192.168.1.9 typ host\r\na=x"]), [name, "192.168.1.5", "fe80::1"], "only dotted IPv4 goes in")
+		XCTAssertEqual(hosts([name: "fe80::2"]), [name, "192.168.1.5", "fe80::1"])
+		XCTAssertEqual(hosts([:]), [name, "192.168.1.5", "fe80::1"])
+	}
+
 	func testICECredentialsAreReplacedInTheAnswer() {
 		let answer = sampleAnswer
 		let credentials = ShareCodes.iceCredentials(secret: secret)
@@ -369,6 +382,42 @@ final class NearbyShareTests: XCTestCase {
 
 	func testInterfaceNamesIncludeLoopback() {
 		XCTAssertEqual(ShareNetwork.interfaceNames()["127.0.0.1"], "lo0")
+	}
+
+	// MARK: The page's mDNS candidates
+
+	func testMDNSNamesAreBrowserUUIDsDotLocal() {
+		XCTAssertTrue(ShareNetwork.isMDNSName("40dae371-93f3-4445-88ec-b805a2838109.local"))
+		XCTAssertTrue(ShareNetwork.isMDNSName("40DAE371-93F3-4445-88EC-B805A2838109.local"))
+		XCTAssertFalse(ShareNetwork.isMDNSName("192.168.1.5"))
+		XCTAssertFalse(ShareNetwork.isMDNSName("fe80::1"))
+		XCTAssertFalse(ShareNetwork.isMDNSName("40dae371-93f3-4445-88ec-b805a2838109.locals"))
+		XCTAssertFalse(ShareNetwork.isMDNSName("40dae371-93f3-4445-88ec-b805a283810.local"), "one digit short")
+		XCTAssertFalse(ShareNetwork.isMDNSName("40dae371x93f3-4445-88ec-b805a2838109.local"))
+		XCTAssertFalse(ShareNetwork.isMDNSName("40dae371-93f3-4445-88ec-b805a283810g.local"))
+		XCTAssertFalse(ShareNetwork.isMDNSName("printer.local"))
+		XCTAssertFalse(ShareNetwork.isMDNSName(""))
+	}
+
+	func testLookedUpCandidateLinesAreIPv4HostCandidates() throws {
+		let line = try XCTUnwrap(ShareSDP.ipv4HostCandidate(foundation: 101, address: "192.168.1.5", port: 53909))
+		XCTAssertTrue(line.hasPrefix("candidate:101 1 udp "))
+		XCTAssertTrue(line.hasSuffix(" 192.168.1.5 53909 typ host"))
+		let read = try XCTUnwrap(ShareSDP.hostCandidate(line))
+		XCTAssertEqual(read.address, "192.168.1.5")
+		XCTAssertEqual(read.port, 53909)
+		XCTAssertNil(ShareSDP.ipv4HostCandidate(foundation: 101, address: "fe80::1", port: 53909))
+		XCTAssertNil(ShareSDP.ipv4HostCandidate(foundation: 101, address: "40dae371-93f3-4445-88ec-b805a2838109.local", port: 53909))
+		XCTAssertNil(ShareSDP.ipv4HostCandidate(foundation: 101, address: "192.168.1.5 typ host\r\na=x", port: 53909))
+		XCTAssertNil(ShareSDP.ipv4HostCandidate(foundation: 101, address: "192.168.1.5", port: 0))
+		XCTAssertNil(ShareSDP.ipv4HostCandidate(foundation: 0, address: "192.168.1.5", port: 53909))
+	}
+
+	func testOnlyMDNSNamesAreLookedUp() async {
+		let started = Date.now
+		let none = await ShareNetwork.ipv4(forMDNSName: "localhost")
+		XCTAssertNil(none, "not a browser's mDNS name, so no lookup")
+		XCTAssertLessThan(Date.now.timeIntervalSince(started), 0.5)
 	}
 
 	// MARK: Messages from the page (PROTOCOL.md §4)

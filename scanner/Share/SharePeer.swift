@@ -84,6 +84,10 @@ final class SharePeer {
 	private static let roomChecks = 600
 	/// How long `close()` gives a final `bye` to leave before the transport is torn down.
 	private static let closeGrace: TimeInterval = 0.5
+	/// The page's mDNS candidates this side looks up itself (see `ShareNetwork.ipv4(forMDNSName:)`),
+	/// at most; the candidates made from them are numbered from `resolvedFoundation` up.
+	private static let maxLookups = 8
+	private static let resolvedFoundation = 100
 
 	private let onEvent: (SharePeer, Event) -> Void
 	private let usesBuiltInCertificate: Bool
@@ -95,6 +99,7 @@ final class SharePeer {
 	private var hasStarted = false
 	private var hasRemoteDescription = false
 	private var pendingCandidates: [RTCIceCandidate] = []
+	private var lookups = 0
 	private var roomWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
 	/// `builtInCertificate` is for no-relay pairing. Events arrive on the main queue, in order.
@@ -138,7 +143,9 @@ final class SharePeer {
 		if secret != pairing.secret {
 			print("Rescriva: Share Nearby is pairing with a secret that isn't this peer's")
 		}
-		let offer = ShareSDP.offer(for: pairing)
+		let addresses = await Self.ipv4Addresses(of: pairing.candidates.prefix(Self.maxLookups).map(\.host))
+		guard !isClosed else { throw SharePeerError.closed }
+		let offer = ShareSDP.offer(for: pairing, addresses: addresses)
 		try await apply(offer, type: .offer, remote: true, on: connection)
 		offerFingerprint = ShareSDP.fingerprint(in: offer) ?? pairing.fingerprint
 		await addPendingCandidates()
@@ -156,19 +163,18 @@ final class SharePeer {
 	}
 
 	/// A candidate from the page, through the relay. Malformed ones are ignored; ones that come
-	/// before the offer wait for it.
+	/// before the offer wait for it. One at an mDNS name goes to WebRTC at the name's IPv4 address
+	/// when this side can find it (`resolved(_:)`).
 	func addRemoteCandidate(_ line: String, sdpMid: String?, sdpMLineIndex: Int32) async {
 		guard !isClosed else { return }
 		guard let candidate = Self.remoteCandidate(line, sdpMid: sdpMid, sdpMLineIndex: sdpMLineIndex) else { return }
-		guard hasRemoteDescription else {
-			guard pendingCandidates.count < Self.maxPendingCandidates else {
-				print("Rescriva: Share Nearby dropped a candidate; too many arrived before the offer")
-				return
-			}
-			pendingCandidates.append(candidate)
+		let resolved = await resolved(line)
+		guard !isClosed else { return }
+		if let resolved, let replacement = Self.remoteCandidate(resolved, sdpMid: sdpMid, sdpMLineIndex: sdpMLineIndex) {
+			await take(replacement)
 			return
 		}
-		await add(candidate)
+		await take(candidate)
 	}
 
 	// MARK: Sending
@@ -340,6 +346,48 @@ final class SharePeer {
 		case .failure(let error):
 			print("Rescriva: WebRTC couldn't make an answer: \(error.localizedDescription)")
 			throw error
+		}
+	}
+
+	/// A remote candidate goes to WebRTC once the page's offer is applied; until then it waits.
+	private func take(_ candidate: RTCIceCandidate) async {
+		guard hasRemoteDescription else {
+			guard pendingCandidates.count < Self.maxPendingCandidates else {
+				print("Rescriva: Share Nearby dropped a candidate; too many arrived before the offer")
+				return
+			}
+			pendingCandidates.append(candidate)
+			return
+		}
+		await add(candidate)
+	}
+
+	/// A page candidate at an mDNS name, rewritten to the name's IPv4 address, or nil for any other
+	/// candidate or when the name isn't found. This side looks the name up itself, asking for A
+	/// records only, rather than leave it to WebRTC: WebRTC asks for A and AAAA at once, which a
+	/// browser's responder can leave unanswered, and then this side never checks the page.
+	private func resolved(_ line: String) async -> String? {
+		guard let host = ShareSDP.hostCandidate(line), ShareNetwork.isMDNSName(host.address),
+			  lookups < Self.maxLookups else { return nil }
+		lookups += 1
+		let foundation = Self.resolvedFoundation + lookups
+		guard let address = await ShareNetwork.ipv4(forMDNSName: host.address) else { return nil }
+		return ShareSDP.ipv4HostCandidate(foundation: foundation, address: address, port: host.port)
+	}
+
+	/// IPv4 addresses for the mDNS names among `hosts`, looked up together; names not found are left out.
+	private static func ipv4Addresses(of hosts: [String]) async -> [String: String] {
+		let names = Array(Set(hosts.filter(ShareNetwork.isMDNSName)))
+		guard !names.isEmpty else { return [:] }
+		return await withTaskGroup(of: (String, String?).self) { group in
+			for name in names {
+				group.addTask { (name, await ShareNetwork.ipv4(forMDNSName: name)) }
+			}
+			var found: [String: String] = [:]
+			for await (name, address) in group {
+				if let address { found[name] = address }
+			}
+			return found
 		}
 	}
 

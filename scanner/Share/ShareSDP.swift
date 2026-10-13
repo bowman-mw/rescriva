@@ -12,8 +12,9 @@ import Foundation
 
 enum ShareSDP {
 	/// The page's offer, rebuilt from its QR code (the exact lines in Tools/NearbyShareSpike/spike.swift).
-	/// Every value in it was checked when the payload was read.
-	static func offer(for pairing: SharePairingOffer) -> String {
+	/// Every value in it was checked when the payload was read. `addresses` gives an IPv4 address
+	/// to use in place of an mDNS candidate name; anything there that isn't dotted IPv4 is ignored.
+	static func offer(for pairing: SharePairingOffer, addresses: [String: String] = [:]) -> String {
 		var lines = [
 			"v=0",
 			"o=- 4611731400430051336 2 IN IP4 127.0.0.1",
@@ -25,7 +26,8 @@ enum ShareSDP {
 			"c=IN IP4 0.0.0.0",
 		]
 		for (index, candidate) in pairing.candidates.prefix(8).enumerated() {
-			lines.append("a=candidate:\(index + 1) 1 udp \(hostPriority(index)) \(candidate.host) \(candidate.port) typ host")
+			let resolved = addresses[candidate.host].flatMap { ShareCodes.ipv4Octets($0) == nil ? nil : $0 }
+			lines.append("a=candidate:\(index + 1) 1 udp \(hostPriority(index)) \(resolved ?? candidate.host) \(candidate.port) typ host")
 		}
 		lines += [
 			"a=ice-ufrag:\(pairing.ufrag)",
@@ -113,6 +115,14 @@ enum ShareSDP {
 		let address = String(fields[4])
 		guard (1...64).contains(address.utf8.count), address.utf8.allSatisfy(isAddressByte) else { return nil }
 		return (address, port)
+	}
+
+	/// A UDP host candidate line (no "a=") at a dotted IPv4 address, for the page's mDNS candidates
+	/// once their address is known. Nil unless `address` is dotted IPv4, `port` isn't 0 and
+	/// `foundation` is 1…999, so nothing else can get into the text.
+	static func ipv4HostCandidate(foundation: Int, address: String, port: UInt16) -> String? {
+		guard (1...999).contains(foundation), port != 0, ShareCodes.ipv4Octets(address) != nil else { return nil }
+		return "candidate:\(foundation) 1 udp \(hostPriority(min(foundation, 255))) \(address) \(port) typ host"
 	}
 
 	// MARK: Private
