@@ -1079,6 +1079,9 @@ final class NearbyShareTests: XCTestCase {
 		XCTAssertEqual(NearbyShareFiles.numberedName("Notes.zip", 1), "Notes.zip")
 		XCTAssertEqual(NearbyShareFiles.numberedName("Notes.zip", 2), "Notes 2.zip")
 		XCTAssertEqual(NearbyShareFiles.numberedName("README", 3), "README 3")
+		XCTAssertEqual(NearbyShareFiles.nameForFiles("Clip", type: "video/mp4"), "Clip.mp4")
+		XCTAssertEqual(NearbyShareFiles.nameForFiles("Notes.zip", type: "application/zip"), "Notes.zip")
+		XCTAssertEqual(NearbyShareFiles.nameForFiles("Mystery", type: NearbyShareInput.unknownType), "Mystery")
 		let inbox = folder.appendingPathComponent("Received", isDirectory: true)
 		var saved: [URL] = []
 		for content in ["one", "two", "three"] {
@@ -1534,7 +1537,7 @@ final class NearbyShareSessionTests: XCTestCase {
 		XCTAssertEqual(second.destination, .files(photosAccessOff: false))
 		XCTAssertEqual(try Data(contentsOf: inbox.appendingPathComponent("Notes 2.zip")), Data("again".utf8), "the first stays as it was")
 		XCTAssertEqual(try Data(contentsOf: inbox.appendingPathComponent("Notes.zip")), bytes)
-		XCTAssertEqual(savedNames, ["Notes.zip", "Notes.zip"], "the toast names what was sent")
+		XCTAssertEqual(savedNames, ["Notes.zip", "Notes 2.zip"], "the toast names the file as it was saved")
 		XCTAssertEqual(savedPlaces, [.files(photosAccessOff: false), .files(photosAccessOff: false)])
 		XCTAssertTrue(photos.added.isEmpty, "a file isn't a picture")
 		session.stop()
@@ -1561,14 +1564,15 @@ final class NearbyShareSessionTests: XCTestCase {
 		let refused = try await receive("IMG_0042.jpeg", type: "image/jpeg", bytes: Data(repeating: 1, count: 2000), xfer: "u1", over: link, in: session)
 		XCTAssertEqual(refused.destination, .files(photosAccessOff: true))
 		XCTAssertTrue(FileManager.default.fileExists(atPath: inbox.appendingPathComponent("IMG_0042.jpeg").path))
+		XCTAssertTrue(photos.isRefused)
 		photos.result = .failed
-		let odd = try await receive("Clip.mp4", type: "video/mp4", bytes: Data(repeating: 2, count: 3000), xfer: "u2", over: link, in: session)
+		let odd = try await receive("Clip", type: "video/mp4", bytes: Data(repeating: 2, count: 3000), xfer: "u2", over: link, in: session)
 		XCTAssertEqual(odd.destination, .files(photosAccessOff: false))
-		XCTAssertTrue(FileManager.default.fileExists(atPath: inbox.appendingPathComponent("Clip.mp4").path))
+		XCTAssertTrue(FileManager.default.fileExists(atPath: inbox.appendingPathComponent("Clip.mp4").path), "given the extension its type calls for")
 		XCTAssertEqual(messages(link).last, .saved(xfer: "u2", ok: true), "saved, only somewhere else")
 		let svg = try await receive("Logo.svg", type: "image/svg+xml", bytes: Data("<svg/>".utf8), xfer: "u3", over: link, in: session)
 		XCTAssertEqual(svg.destination, .files(photosAccessOff: false))
-		XCTAssertEqual(photos.added, ["IMG_0042.jpeg", "Clip.mp4 (video)"], "Photos isn't offered an SVG")
+		XCTAssertEqual(photos.added, ["IMG_0042.jpeg", "Clip (video)"], "Photos isn't offered an SVG")
 		session.stop()
 	}
 
@@ -1789,7 +1793,9 @@ private final class PhotosStub: NearbySharePhotoSaving, @unchecked Sendable {
 		lock.withLock { state.asks += 1 }
 	}
 
-	func add(_ url: URL, name: String, isVideo: Bool) async -> NearbySharePhotoResult {
+	var isRefused: Bool { result == .noAccess }
+
+	func add(_ url: URL, name: String, type: String, isVideo: Bool) async -> NearbySharePhotoResult {
 		let present = FileManager.default.fileExists(atPath: url.path)
 		return lock.withLock {
 			if present { state.added.append(isVideo ? "\(name) (video)" : name) }

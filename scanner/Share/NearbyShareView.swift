@@ -29,7 +29,7 @@ struct NearbyShareView: View {
 	@Environment(\.managedObjectContext) private var context
 	@Environment(\.scenePhase) private var scenePhase
 
-	/// Made on first appearance (it needs the environment's context), and kept by
+	/// Made on first appearance (it needs the route stack entry), and kept by
 	/// `NearbyShareSessionStore` while this screen is on the stack, so rebuilding the view doesn't
 	/// end it. Stopping and starting it again keeps its documents and gives them new PINs.
 	@State private var session: NearbyShareSession?
@@ -92,7 +92,7 @@ struct NearbyShareView: View {
 		}
 		// Compatible: a HEIC picture comes as a JPEG and an HEVC video as H.264, which any
 		// computer opens.
-		.photosPicker(isPresented: $pickingPhotos, selection: $photoSelection, maxSelectionCount: ShareLimits.maxDocuments,
+		.photosPicker(isPresented: $pickingPhotos, selection: $photoSelection, maxSelectionCount: photoRoom,
 					  matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
 		.onChange(of: photoSelection) { _, items in
 			guard !items.isEmpty else { return }
@@ -209,6 +209,11 @@ struct NearbyShareView: View {
 		default:
 			break
 		}
+	}
+
+	/// How many more photos fit in what's shared (at least one, so the picker opens).
+	private var photoRoom: Int {
+		max(1, ShareLimits.maxDocuments - (session?.documents.count ?? 0))
 	}
 
 	private func remove(_ document: NearbyShareSession.SharedDocument) {
@@ -775,7 +780,7 @@ struct NearbyShareView: View {
 				Text(verbatim: "\(Self.kindText(offer.kind)) · \(Self.byteText(offer.size))")
 					.font(RescrivaFont.ui(12))
 					.foregroundStyle(.graphite)
-				Text(Self.plannedPlace(offer.kind))
+				Text(Self.plannedPlace(offer.kind, photosRefused: session.photos.isRefused))
 					.font(RescrivaFont.ui(12))
 					.foregroundStyle(.graphite)
 			}
@@ -883,11 +888,14 @@ struct NearbyShareView: View {
 		#endif
 	}
 
-	/// Where an accepted file of `kind` is saved, for its card.
-	private static func plannedPlace(_ kind: NearbyShareUploadKind) -> String {
+	/// Where an accepted file of `kind` is saved, for its card. A picture goes to Files while
+	/// Rescriva may not add to Photos.
+	private static func plannedPlace(_ kind: NearbyShareUploadKind, photosRefused: Bool) -> String {
 		switch kind {
 		case .pdf: return String(localized: "Saves to PDF Files")
-		case .picture, .video: return String(localized: "Saves to Photos")
+		case .picture, .video:
+			guard photosRefused else { return String(localized: "Saves to Photos") }
+			return String(localized: "Saves to \(filesPlace), as Rescriva isn't allowed to add to Photos")
 		case .file: return String(localized: "Saves to \(filesPlace)")
 		}
 	}

@@ -98,7 +98,7 @@ final class NearbyShareSession {
 	/// relay room, plus any connected from it that have since left the relay. Above one, the
 	/// screen warns that strangers may be looking.
 	private(set) var untrustedPageCount = 0
-	/// Something received and saved, with its name and where it went: for a toast.
+	/// Something received and saved, with the name it was saved under and where: for a toast.
 	var onSaved: ((String, NearbyShareDestination) -> Void)?
 	/// A transfer with no bytes for this long is given up on (`ShareLimits.stallSeconds`; tests
 	/// shorten it).
@@ -904,21 +904,21 @@ final class NearbyShareSession {
 		let photos = photos
 		let filesFolder = receivedFilesFolder
 		BackgroundTime.protect("Share Nearby save") { [weak self] in
-			let destination = await NearbyShareFiles.saveReceived(url, name: upload.name, type: upload.type, library: library,
-																  photos: photos, filesFolder: filesFolder)
+			let saved = await NearbyShareFiles.saveReceived(url, name: upload.name, type: upload.type, library: library,
+															photos: photos, filesFolder: filesFolder)
 			NearbyShareFiles.remove(url.deletingLastPathComponent())
-			self?.saved(upload, to: destination, from: link)
+			self?.saved(upload, as: saved, from: link)
 		}
 	}
 
-	private func saved(_ upload: NearbyShareUpload, to destination: NearbyShareDestination?, from link: NearbyShareLink) {
-		if !link.isClosed { link.peer.send(.saved(xfer: upload.xfer, ok: destination != nil)) }
-		guard let destination else {
+	private func saved(_ upload: NearbyShareUpload, as saved: NearbyShareSavedFile?, from link: NearbyShareLink) {
+		if !link.isClosed { link.peer.send(.saved(xfer: upload.xfer, ok: saved != nil)) }
+		guard let saved else {
 			if let id = upload.transferID { updateTransfer(id, state: .failed(String(localized: "Rescriva couldn't save the file."))) }
 			return
 		}
-		if let id = upload.transferID { updateTransfer(id, state: .done, destination: destination) }
-		onSaved?(upload.name, destination)
+		if let id = upload.transferID { updateTransfer(id, state: .done, destination: saved.destination) }
+		onSaved?(saved.name, saved.destination)
 	}
 
 	private func failUpload(on link: NearbyShareLink, problem: String, reply: ShareOutbound?) {

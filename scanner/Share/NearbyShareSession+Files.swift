@@ -287,23 +287,34 @@ enum NearbyShareFiles {
 	/// `filesFolder` too, so nothing accepted is lost. Where it went, or nil when it couldn't be
 	/// saved anywhere. Leaves `url` behind only when it wasn't moved into `filesFolder`.
 	static func saveReceived(_ url: URL, name: String, type: String, library: PDFLibrary,
-							 photos: any NearbySharePhotoSaving, filesFolder: URL) async -> NearbyShareDestination? {
+							 photos: any NearbySharePhotoSaving, filesFolder: URL) async -> NearbyShareSavedFile? {
 		let kind = NearbyShareInput.uploadKind(type: type)
 		var photosAccessOff = false
 		switch kind {
 		case .pdf:
-			if await importPDF(url, name: name, library: library) { return .pdfFiles }
+			if await importPDF(url, name: name, library: library) { return NearbyShareSavedFile(destination: .pdfFiles, name: name) }
 		case .picture, .video:
-			let result = await photos.add(url, name: name, isVideo: kind == .video)
-			if result == .saved { return .photos }
+			let result = await photos.add(url, name: name, type: type, isVideo: kind == .video)
+			if result == .saved { return NearbyShareSavedFile(destination: .photos, name: name) }
 			photosAccessOff = result == .noAccess
 		case .file:
 			break
 		}
+		let filesName = nameForFiles(name, type: type)
 		let moved = await Task.detached(priority: .userInitiated) {
-			NearbyShareFiles.move(url, into: filesFolder, named: name)
+			NearbyShareFiles.move(url, into: filesFolder, named: filesName)
 		}.value
-		return moved == nil ? nil : .files(photosAccessOff: photosAccessOff)
+		guard let moved else { return nil }
+		return NearbyShareSavedFile(destination: .files(photosAccessOff: photosAccessOff), name: moved.lastPathComponent)
+	}
+
+	/// `name` with the extension its type calls for when it has none ("Clip" sent as video/mp4
+	/// is "Clip.mp4"), so Files knows what opens it. A name with an extension, or a file of no
+	/// known type, keeps its name.
+	nonisolated static func nameForFiles(_ name: String, type: String) -> String {
+		guard (name as NSString).pathExtension.isEmpty, type != NearbyShareInput.unknownType,
+			  let ext = UTType(mimeType: type)?.preferredFilenameExtension, !ext.isEmpty else { return name }
+		return name + "." + ext
 	}
 
 	/// Copies a received PDF into PDF Files. False when it won't open there.
@@ -355,6 +366,13 @@ enum NearbyShareFiles {
 	}
 }
 
+/// A received file once it's saved: where, and under what name ("Notes 2.zip" when Files had a
+/// "Notes.zip" already).
+struct NearbyShareSavedFile: Equatable {
+	let destination: NearbyShareDestination
+	let name: String
+}
+
 /// Where a received file was saved.
 enum NearbyShareDestination: Equatable {
 	case pdfFiles
@@ -378,8 +396,12 @@ protocol NearbySharePhotoSaving: Sendable {
 	/// Asks for permission to add to Photos when it hasn't been asked yet, without waiting for
 	/// the answer: called on Accept, so the question comes while the person is looking.
 	func askIfUndecided()
+	/// True when Rescriva has been told it may not add to Photos (or Photos is restricted), so a
+	/// picture would go to Files.
+	var isRefused: Bool { get }
 	/// Adds the file at `url`, which stays where it is, asking for permission first if need be.
-	func add(_ url: URL, name: String, isVideo: Bool) async -> NearbySharePhotoResult
+	/// `type` is its MIME type, in case its name has no extension to go by.
+	func add(_ url: URL, name: String, type: String, isVideo: Bool) async -> NearbySharePhotoResult
 }
 
 /// The Photos library, with add-only access: Rescriva can put pictures in but can't see any.
@@ -390,7 +412,12 @@ struct NearbySharePhotos: NearbySharePhotoSaving {
 		PHPhotoLibrary.requestAuthorization(for: .addOnly) { _ in }
 	}
 
-	func add(_ url: URL, name: String, isVideo: Bool) async -> NearbySharePhotoResult {
+	var isRefused: Bool {
+		let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+		return status == .denied || status == .restricted
+	}
+
+	func add(_ url: URL, name: String, type: String, isVideo: Bool) async -> NearbySharePhotoResult {
 		let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
 		guard status == .authorized || status == .limited else {
 			Log.share.notice("Share Nearby may not add to Photos, so a received picture goes in Files")
@@ -400,6 +427,7 @@ struct NearbySharePhotos: NearbySharePhotoSaving {
 			try await PHPhotoLibrary.shared().performChanges {
 				let options = PHAssetResourceCreationOptions()
 				options.originalFilename = name
+				options.uniformTypeIdentifier = UTType(mimeType: type)?.identifier
 				PHAssetCreationRequest.forAsset().addResource(with: isVideo ? .video : .photo, fileURL: url, options: options)
 			}
 			return .saved
