@@ -39,6 +39,8 @@ struct OpenAppIntent: AppIntent {
 	}
 }
 
+/// No phrase takes a parameter, so there's nothing for `updateAppShortcutParameters()` to refresh;
+/// call it when the parameter values change once one does.
 struct ScannerShortcuts: AppShortcutsProvider {
 	static var appShortcuts: [AppShortcut] {
 		

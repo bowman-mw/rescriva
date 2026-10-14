@@ -98,20 +98,18 @@ struct PersistenceController {
 
 	/// Starts indexing. The first time this version of the index runs on a device, the old index
 	/// (one item per recognized line, Recently Deleted scans included) is cleared and the scans
-	/// are indexed afresh. The version is recorded only once the reindex has been acknowledged,
+	/// are indexed afresh. Indexing starts first: Core Data won't clear the index of a delegate
+	/// that hasn't started. The version is recorded only once the reindex has been acknowledged,
 	/// and only when the clear succeeded: recorded any earlier, an app killed mid-rebuild (or a
 	/// clear that failed) would leave the old entries gone and every older scan out of Spotlight
 	/// until it was next changed. Clearing and reindexing again on the next launch is harmless.
 	private static func startSpotlightIndexing(_ indexer: SpotlightIndexer) {
-		guard UserDefaults.standard.integer(forKey: spotlightIndexVersionKey) < spotlightIndexVersion else {
-			indexer.startSpotlightIndexing()
-			return
-		}
+		indexer.startSpotlightIndexing()
+		guard UserDefaults.standard.integer(forKey: spotlightIndexVersionKey) < spotlightIndexVersion else { return }
 		indexer.deleteSpotlightIndex { error in
 			if let error {
 				Log.library.error("Couldn't clear the old Spotlight index: \(error)")
 			}
-			indexer.startSpotlightIndexing()
 			indexer.searchableIndex(CSSearchableIndex.default(), reindexAllSearchableItemsWithAcknowledgementHandler: {
 				guard error == nil else {
 					Log.library.notice("Spotlight reindexed, but the old index wasn't cleared; both run again next launch")

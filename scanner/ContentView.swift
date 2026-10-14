@@ -49,7 +49,6 @@ struct ContentView: View {
 		.task {
 			showsTemporaryLibraryAlert = libraryIsTemporary
 			MacWindow.applyMinimumSize()
-			ScannerShortcuts.updateAppShortcutParameters()
 			if UserDefaults.standard.bool(forKey: RescrivaPreference.seedSampleLibrary) {
 				SampleLibrary.seedIfEmpty(in: viewContext)
 			}
