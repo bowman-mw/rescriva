@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rescriva</title>
+<meta name="description" content="Rescriva scans pages, handwriting and whiteboards on iPhone, iPad and Mac and rebuilds them as editable Word and PowerPoint files or searchable PDFs, all on your device.">
+<link rel="canonical" href="https://rescriva.com/">
+<meta name="theme-color" content="#F5F2EA" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222625" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://rescriva.com/">
+<meta property="og:title" content="Rescriva">
+<meta property="og:description" content="Scan the page. Get back a document you can edit. For iPhone, iPad and Mac.">
+<meta property="og:image" content="https://rescriva.com/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap">
+<style>
+/* Layout: one sheet of paper on the desk. A 1120px column; the hero sets copy beside a phone,
+   features sit on a dot-grid sheet with its corner folded, screenshots run along a shelf. */
+:root {
+  /* Colour: Rescriva's paper (light) palette, from scanner/Design/RescrivaTheme.swift */
+  --stock: #F5F2EA;
+  --vellum: #FDFBF6;
+  --carbon: #1D2233;
+  --graphite: #676C7A;
+  --ink: #2B3B8C;
+  --on-ink: #FDFBF6;
+  --blue-pencil: #5A7BD0;
+  --wash: #E3E7F4;
+  --highlighter: #F6C823;
+  --marker-ink: #B88A00;
+  --print-ink: #1D2233;
+  --flap: #E9E4D6;
+  --rule: rgba(29, 34, 51, .12);
+  --dot: rgba(43, 59, 140, .16);
+  --shade: rgba(29, 34, 51, .10);
+  --bezel: #101218;
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .11 0 0 0 0 .13 0 0 0 0 .2 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --light-img: block;
+  --dark-img: none;
+
+  /* Type: New York where the system has it (Apple devices), Newsreader elsewhere; DM Sans for the interface */
+  --serif: ui-serif, "New York", "Newsreader", Georgia, serif;
+  --sans: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius: 10px;
+  --ease: cubic-bezier(.22, .8, .24, 1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --stock: #222625; --vellum: #2C302F; --carbon: #ECE9E1; --graphite: #A3A79F;
+    --ink: #A9BAF2; --on-ink: #1D2233; --blue-pencil: #87A1EA; --wash: #343A4C;
+    --highlighter: #F2D660; --marker-ink: #F2D660; --flap: #3A3F3D;
+    --rule: rgba(236, 233, 225, .14); --dot: rgba(169, 186, 242, .16); --shade: rgba(0, 0, 0, .35);
+    --bezel: #0B0C0E;
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .93 0 0 0 0 .91 0 0 0 0 .88 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --light-img: none; --dark-img: block;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --stock: #222625; --vellum: #2C302F; --carbon: #ECE9E1; --graphite: #A3A79F;
+  --ink: #A9BAF2; --on-ink: #1D2233; --blue-pencil: #87A1EA; --wash: #343A4C;
+  --highlighter: #F2D660; --marker-ink: #F2D660; --flap: #3A3F3D;
+  --rule: rgba(236, 233, 225, .14); --dot: rgba(169, 186, 242, .16); --shade: rgba(0, 0, 0, .35);
+  --bezel: #0B0C0E;
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .93 0 0 0 0 .91 0 0 0 0 .88 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --light-img: none; --dark-img: block;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background-color: var(--stock);
+  background-image: var(--grain);
+  color: var(--carbon);
+  font: 400 17px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+img { max-width: 100%; display: block; }
+a { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: .2em; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--blue-pencil); outline-offset: 3px; border-radius: 4px; }
+h1, h2, h3 { font-family: var(--serif); font-weight: 600; color: var(--carbon); text-wrap: balance; margin: 0; letter-spacing: -.01em; }
+p { margin: 0; }
+
+.wrap { max-width: 1120px; margin-inline: auto; padding-inline: 20px; }
+.label {
+  font: 600 12px/1.2 var(--sans);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--graphite);
+}
+.section { padding-block: 72px; }
+.section-head { display: grid; gap: 12px; max-width: 40rem; margin-bottom: 36px; }
+.section-head h2 { font-size: clamp(1.9rem, 3.4vw, 2.6rem); line-height: 1.12; }
+.section-head p { color: var(--graphite); }
+
+/* The highlighter: the one marker. Type on it is always print ink. */
+mark {
+  color: var(--print-ink);
+  background: linear-gradient(100deg, transparent .2em, var(--highlighter) .3em, var(--highlighter) calc(100% - .25em), transparent calc(100% - .1em));
+  background-size: 100% 78%;
+  background-position: 0 70%;
+  background-repeat: no-repeat;
+  padding-inline: .14em;
+  margin-inline: -.06em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.flag { color: var(--print-ink); background: var(--highlighter); border-radius: 3px 6px 4px 7px; padding: 0 .22em; white-space: nowrap; }
+
+.ink { width: 24px; height: 24px; flex: none; color: var(--ink); }
+
+/* Header */
+.top { padding-block: 22px; }
+.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--carbon); }
+.brand img { width: 34px; height: 34px; border-radius: 8px; box-shadow: 0 1px 2px var(--shade); }
+.brand span { font: 600 1.55rem/1 var(--serif); letter-spacing: -.01em; }
+.nav { display: flex; align-items: center; gap: 26px; font-size: 15px; }
+.nav a { color: var(--carbon); text-decoration: none; }
+.nav a:hover { color: var(--ink); }
+@media (max-width: 640px) { .nav .nav-link { display: none; } }
+
+/* App Store slot. "Coming soon" until APP_STORE_URL is set at the bottom of the page. */
+.store {
+  display: inline-flex; flex-direction: column; justify-content: center;
+  min-height: 52px; padding: 7px 20px 8px;
+  border-radius: var(--radius);
+  background: var(--ink); color: var(--on-ink);
+  text-decoration: none; line-height: 1.15;
+  box-shadow: 0 1px 1px var(--shade), 0 6px 18px var(--shade);
+  transition: transform .2s var(--ease), box-shadow .2s var(--ease);
+}
+.store:not([href]) { background: transparent; color: var(--ink); box-shadow: none; border: 1.5px dashed color-mix(in srgb, var(--ink) 55%, transparent); cursor: default; }
+.store[href]:hover { transform: translateY(-1px); box-shadow: 0 1px 1px var(--shade), 0 10px 24px var(--shade); }
+.store .kicker { font-size: 12px; letter-spacing: .02em; opacity: .85; }
+.store .name { font: 600 19px/1.1 var(--sans); }
+.store.small { min-height: 40px; padding: 4px 14px 5px; }
+.store.small .kicker { font-size: 10.5px; }
+.store.small .name { font-size: 15px; }
+
+/* Hero */
+.hero { padding-block: 32px 80px; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 56px; align-items: center; }
+.hero-copy { display: grid; gap: 22px; min-width: 0; }
+.hero h1 { font-size: clamp(2.5rem, 5.6vw, 4.35rem); line-height: 1.04; }
+.lede { font-size: clamp(1.05rem, 1.6vw, 1.2rem); color: var(--carbon); max-width: 34rem; }
+.cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; margin-top: 6px; }
+.fine { font-size: 14px; color: var(--graphite); }
+@media (max-width: 860px) {
+  .hero .wrap { grid-template-columns: minmax(0, 1fr); gap: 44px; }
+  .hero-figure { justify-self: center; }
+}
+
+/* Devices, drawn in CSS around real screenshots */
+.phone {
+  width: 100%;
+  padding: 3.4%;
+  border-radius: 16% / 7.4%;
+  background: var(--bezel);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .06) inset, 0 2px 4px var(--shade), 0 24px 60px -12px var(--shade);
+}
+.screen { position: relative; aspect-ratio: 660 / 1434; border-radius: 12.6% / 5.8%; overflow: hidden; background: #F5F2EA; }
+.screen img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.screen .light { display: var(--light-img); }
+.screen .dark { display: var(--dark-img); }
+
+.hero-figure { margin: 0; width: min(330px, 80vw); display: grid; gap: 18px; }
+.hero-figure figcaption, .note { font: italic 400 1.02rem/1.45 var(--serif); color: var(--graphite); }
+.hero-figure figcaption { text-align: center; text-wrap: balance; }
+
+/* The scan bar: the handwritten page is wiped away from the top as the bar passes. */
+.screen .before { animation: reveal 9s infinite; }
+.scanbar {
+  position: absolute; left: -2%; right: -2%; top: 0; height: 4px;
+  background: var(--highlighter);
+  box-shadow: 0 0 16px 5px rgba(246, 200, 35, .55);
+  opacity: 0;
+  animation: sweep 9s infinite;
+}
+@keyframes reveal {
+  0%, 14% { clip-path: inset(0 0 0 0); opacity: 1; animation-timing-function: cubic-bezier(.45, 0, .4, 1); }
+  52% { clip-path: inset(100% 0 0 0); opacity: 1; }
+  86% { clip-path: inset(100% 0 0 0); opacity: 0; }
+  87% { clip-path: inset(0 0 0 0); opacity: 0; animation-timing-function: ease-out; }
+  100% { clip-path: inset(0 0 0 0); opacity: 1; }
+}
+@keyframes sweep {
+  0%, 13% { top: 0; opacity: 0; }
+  14% { top: 0; opacity: 1; animation-timing-function: cubic-bezier(.45, 0, .4, 1); }
+  52% { top: calc(100% - 4px); opacity: 1; }
+  56%, 100% { top: calc(100% - 4px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen .before, .scanbar { display: none; animation: none; }
+  html { scroll-behavior: auto; }
+}
+
+/* Three steps */
+.steps { padding-block: 8px 24px; }
+.steps ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--rule); }
+.steps li { display: grid; gap: 10px; align-content: start; padding: 26px 28px 8px 0; min-width: 0; }
+.steps li + li { padding-left: 28px; border-left: 1px solid var(--rule); }
+.step-top { display: flex; align-items: center; gap: 12px; }
+.step-num { font: 600 13px/1 var(--sans); color: var(--graphite); font-variant-numeric: tabular-nums; }
+.steps h3 { font-size: 1.45rem; }
+.steps p { color: var(--graphite); font-size: 16px; }
+.exts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.exts span { font: 500 13px/1 var(--mono); padding: 6px 8px; border-radius: 6px; background: var(--wash); color: var(--ink); }
+@media (max-width: 760px) {
+  .steps ol { grid-template-columns: minmax(0, 1fr); }
+  .steps li, .steps li + li { padding: 22px 0 18px; border-left: 0; }
+  .steps li + li { border-top: 1px solid var(--rule); }
+}
+
+/* Features: a dot-grid sheet with its top-right corner folded over */
+.sheet-shadow { filter: drop-shadow(0 1px 1px var(--shade)) drop-shadow(0 12px 28px var(--shade)); }
+.sheet {
+  --fold: 48px;
+  position: relative;
+  background-color: var(--vellum);
+  background-image: radial-gradient(circle, var(--dot) 1.1px, transparent 1.5px);
+  background-size: 24px 24px;
+  background-position: 12px 12px;
+  border-radius: 4px;
+  clip-path: polygon(0 0, calc(100% - var(--fold)) 0, 100% var(--fold), 100% 100%, 0 100%);
+  padding: clamp(28px, 4vw, 52px);
+}
+.sheet::after {
+  content: ""; position: absolute; top: 0; right: 0; width: var(--fold); height: var(--fold);
+  background: linear-gradient(to bottom left, transparent 50%, color-mix(in srgb, var(--flap) 88%, var(--carbon)) 50%, var(--flap) 72%);
+  filter: drop-shadow(-1px 2px 2px var(--shade));
+}
+.features-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 40px 36px; }
+.feature { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.feature .ink { width: 30px; height: 30px; }
+.feature h3 { font-size: 1.28rem; line-height: 1.2; }
+.feature p { font-size: 15.5px; color: var(--graphite); }
+@media (max-width: 1040px) { .features-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .features-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; } .sheet { --fold: 34px; } }
+
+/* Screenshot shelf */
+.shelf-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.shelf-head .section-head { margin-bottom: 0; }
+.shelf-buttons { display: flex; gap: 8px; }
+.shelf-buttons button {
+  width: 44px; height: 44px; display: grid; place-items: center;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--vellum); color: var(--carbon); cursor: pointer;
+  box-shadow: 0 1px 2px var(--shade);
+}
+.shelf-buttons button:hover { color: var(--ink); }
+.shelf-buttons button:disabled { opacity: .4; cursor: default; }
+.shelf-buttons svg { width: 20px; height: 20px; }
+.shelf {
+  --edge: max(20px, calc((100vw - 1080px) / 2));
+  display: flex; gap: 32px;
+  overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--edge);
+  padding: 36px var(--edge) 28px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) transparent;
+}
+.shot { flex: none; width: clamp(220px, 62vw, 252px); margin: 0; display: grid; gap: 16px; align-content: start; scroll-snap-align: start; }
+.shot figcaption { font-size: 15px; color: var(--graphite); }
+.shot figcaption b { display: block; color: var(--carbon); font-weight: 600; margin-bottom: 2px; }
+@media (max-width: 640px) { .shelf-buttons { display: none; } }
+
+/* iPad and Mac */
+.split { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: 64px; align-items: center; }
+.tablet {
+  width: min(100%, 470px);
+  justify-self: center;
+  padding: 2.6%;
+  border-radius: 6% / 4.5%;
+  background: var(--bezel);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .06) inset, 0 2px 4px var(--shade), 0 30px 70px -16px var(--shade);
+}
+.tablet .screen { aspect-ratio: 1032 / 1376; border-radius: 3.6% / 2.7%; }
+.split-copy { display: grid; gap: 22px; min-width: 0; }
+.split-copy h2 { font-size: clamp(1.9rem, 3.4vw, 2.6rem); line-height: 1.12; }
+.ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.ticks li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 14px; align-items: start; }
+.ticks .ink { margin-top: 2px; }
+.margin-note {
+  position: relative;
+  padding: 14px 18px 14px 20px;
+  background: var(--vellum);
+  border-radius: 3px 8px 8px 3px;
+  box-shadow: 0 1px 2px var(--shade);
+  font: italic 400 1.05rem/1.5 var(--serif);
+  color: var(--carbon);
+}
+.margin-note::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; border-radius: 3px 0 0 3px; background: var(--highlighter); }
+.margin-note small { display: block; margin-top: 4px; font: 400 13px/1.4 var(--sans); font-style: normal; color: var(--graphite); }
+@media (max-width: 860px) { .split { grid-template-columns: minmax(0, 1fr); gap: 44px; } .split .tablet { order: 2; } }
+
+/* Privacy */
+.privacy-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+.privacy-grid > div { display: grid; gap: 10px; align-content: start; padding-top: 18px; border-top: 2px solid var(--carbon); min-width: 0; }
+.privacy-grid h3 { font-size: 1.2rem; }
+.privacy-grid p { color: var(--graphite); font-size: 16px; }
+@media (max-width: 760px) { .privacy-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Closing */
+.closing { padding-block: 40px 96px; }
+.closing .sheet { display: grid; justify-items: start; gap: 18px; }
+.closing h2 { font-size: clamp(2.1rem, 4.6vw, 3.4rem); line-height: 1.05; }
+.closing p { max-width: 36rem; color: var(--graphite); }
+
+/* Footer */
+.foot { border-top: 1px solid var(--rule); padding-block: 28px 40px; font-size: 14px; color: var(--graphite); }
+.foot .wrap { display: grid; gap: 14px; }
+.foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+.foot-links { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.foot-links a { color: var(--graphite); }
+.foot .brand span { font-size: 1.15rem; }
+.foot .brand img { width: 24px; height: 24px; border-radius: 6px; }
+.trademarks { font-size: 12.5px; max-width: 60rem; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+<!-- Rescriva's pen-drawn icons, from Tools/InkIcons/generate.py -->
+<symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 8.5 V3 H8.5 M15.5 3 H21 V8.5 M21 15.5 V21 H15.5 M8.5 21 H3 V15.5 M8.75 7 H13 L15.25 9.25 V17 H8.75 Z M13 7 V9.25 H15.25 M10.75 12.75 H13.25" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/><polygon points="2.22,7.798 2.002,9.28 3.905,9.28 3.78,7.798" fill="currentColor"/><polygon points="7.798,3.78 9.28,3.998 9.28,2.095 7.798,2.22" fill="currentColor"/><polygon points="16.202,2.22 14.72,2.002 14.72,3.905 16.202,3.78" fill="currentColor"/><polygon points="20.22,7.798 20.002,9.28 21.905,9.28 21.78,7.798" fill="currentColor"/><polygon points="21.78,16.202 21.998,14.72 20.095,14.72 20.22,16.202" fill="currentColor"/><polygon points="16.202,20.22 14.72,20.002 14.72,21.905 16.202,21.78" fill="currentColor"/><polygon points="7.798,21.78 9.28,21.998 9.28,20.095 7.798,20.22" fill="currentColor"/><polygon points="3.78,16.202 3.998,14.72 2.095,14.72 2.22,16.202" fill="currentColor"/></symbol>
+<symbol id="i-whiteboard" viewBox="0 0 24 24"><path d="M2.5 3.5 H21.5 V16.5 H2.5 Z M7.5 16.5 L6 21 M16.5 16.5 L18 21 M5.5 7 H10 V12.5 H5.5 Z M10 9.75 H14 M14 7 H18.5 V12.5 H14 Z" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/><polygon points="5.482,20.087 4.806,21.424 6.612,22.026 6.962,20.581" fill="currentColor"/><polygon points="17.038,20.581 17.299,22.056 19.105,21.454 18.518,20.087" fill="currentColor"/></symbol>
+<symbol id="i-document" viewBox="0 0 24 24"><path d="M5.5 2.5 H14 L18.5 7 V21.5 H5.5 Z M14 2.5 V7 H18.5 M8.5 11.5 H15.5 M8.5 15 H15.5 M8.5 18.5 H12.5" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/><polygon points="9.202,10.72 7.72,10.502 7.72,12.405 9.202,12.28" fill="currentColor"/><polygon points="14.798,12.28 16.28,12.498 16.28,10.595 14.798,10.72" fill="currentColor"/><polygon points="9.202,14.22 7.72,14.002 7.72,15.905 9.202,15.78" fill="currentColor"/><polygon points="14.798,15.78 16.28,15.998 16.28,14.095 14.798,14.22" fill="currentColor"/></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20 L5 15 L15.75 4.25 C16.6 3.4 17.9 3.4 18.75 4.25 L19.75 5.25 C20.6 6.1 20.6 7.4 19.75 8.25 L9 19 Z M14 6 L18 10 M5 15 L9 19" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><path d="M8.5 7 H20 V21.5 H8.5 Z M4 16.5 V2.5 H15.5 V7" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/><polygon points="3.22,15.798 3.002,17.28 4.905,17.28 4.78,15.798" fill="currentColor"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><path d="M17 10.25 C17 13.978 13.978 17 10.25 17 C6.522 17 3.5 13.978 3.5 10.25 C3.5 6.522 6.522 3.5 10.25 3.5 C13.978 3.5 17 6.522 17 10.25 Z M15.25 15.25 L21 21" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/><polygon points="19.952,21.055 20.846,22.258 22.191,20.912 21.055,19.952" fill="currentColor"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M2.5 4.5 H9 L11 7 H21.5 V19.5 H2.5 Z M2.5 10.25 H21.5" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/></symbol>
+<symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3 V14.5 M8 7 L12 3 L16 7 M8.5 9.75 H4.5 V21.5 H19.5 V9.75 H15.5" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/><polygon points="11.22,13.798 11.002,15.28 12.905,15.28 12.78,13.798" fill="currentColor"/><polygon points="7.945,5.952 6.742,6.846 8.088,8.191 9.048,7.055" fill="currentColor"/><polygon points="14.952,7.055 15.846,8.258 17.191,6.912 16.055,5.952" fill="currentColor"/><polygon points="7.798,10.53 9.28,10.748 9.28,8.845 7.798,8.97" fill="currentColor"/><polygon points="16.202,8.97 14.72,8.752 14.72,10.655 16.202,10.53" fill="currentColor"/></symbol>
+<symbol id="i-rebuild" viewBox="0 0 24 24"><path d="M19.75 12.5 C19.75 15.882 17.556 18.874 14.33 19.891 C11.105 20.908 7.592 19.716 5.652 16.945 C3.711 14.174 3.792 10.466 5.852 7.782 C7.911 5.099 11.472 4.061 14.651 5.217 M12.679 1.509 L14.651 5.217 L10.756 6.791" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/><polygon points="20.53,13.202 20.748,11.72 18.845,11.72 18.97,13.202" fill="currentColor"/><polygon points="13.697,1.763 13.194,0.352 11.514,1.245 12.32,2.495" fill="currentColor"/><polygon points="11.115,5.805 9.659,6.158 10.372,7.922 11.699,7.251" fill="currentColor"/></symbol>
+<symbol id="i-stack" viewBox="0 0 24 24"><path d="M3 9 H15 V21.5 H3 Z M6.5 5.75 H18.25 V18 M10 2.5 H21.5 V14.5" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/><polygon points="7.202,4.97 5.72,4.752 5.72,6.655 7.202,6.53" fill="currentColor"/><polygon points="17.47,17.298 17.252,18.78 19.155,18.78 19.03,17.298" fill="currentColor"/><polygon points="10.702,1.72 9.22,1.502 9.22,3.405 10.702,3.28" fill="currentColor"/><polygon points="20.72,13.798 20.502,15.28 22.405,15.28 22.28,13.798" fill="currentColor"/></symbol>
+<symbol id="i-book" viewBox="0 0 24 24"><path d="M6.75 2.75 H19 V17.5 H7 C5.9 17.5 5 18.4 5 19.5 V4.5 C5 3.5 5.75 2.75 6.75 2.75 Z M5 19.5 C5 20.6 5.9 21.5 7 21.5 H19 V17.5 M9 7 H15" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/></symbol>
+<symbol id="i-photo" viewBox="0 0 24 24"><path d="M3 4.5 H21 V19.5 H3 Z M3 16.5 L8.5 11 L13 15.5 L15.5 13 L21 18.5 M17.75 8.75 C17.75 9.716 16.966 10.5 16 10.5 C15.034 10.5 14.25 9.716 14.25 8.75 C14.25 7.784 15.034 7 16 7 C16.966 7 17.75 7.784 17.75 8.75 Z" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><path d="M4.5 10.5 H19.5 V21 H4.5 Z M8 10.5 V7.5 C8 5 9.8 3 12 3 C14.2 3 16 5 16 7.5 V10.5 M12 14 V17.5" fill="none" stroke="currentColor" stroke-width="1.56" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4"/></symbol>
+</svg>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Rescriva home">
+      <img src="assets/app-icon.png" alt="" width="34" height="34">
+      <span>Rescriva</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a class="nav-link" href="#features">Features</a>
+      <a class="nav-link" href="#screenshots">Screenshots</a>
+      <a class="nav-link" href="#privacy">Privacy</a>
+      <a class="store small" data-store aria-disabled="true">
+        <span class="kicker">Coming soon to the</span>
+        <span class="name">App Store</span>
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-copy">
+      <p class="label">Scanner for iPhone, iPad and Mac</p>
+      <h1>Scan the page. Get back a document you can <mark>edit</mark>.</h1>
+      <p class="lede">Rescriva reads print, handwriting and whiteboards, then rebuilds them as Word and PowerPoint files with real headings, equations and diagrams. It opens and marks up the PDFs you already have, too. All of it happens on your device.</p>
+      <div class="cta-row">
+        <a class="store" data-store aria-disabled="true">
+          <span class="kicker">Coming soon to the</span>
+          <span class="name">App Store</span>
+        </a>
+        <a href="#screenshots">See the screens</a>
+      </div>
+      <p class="fine">For iOS 17 and later. Rebuilding into Word and PowerPoint needs iOS 26.</p>
+    </div>
+
+    <figure class="hero-figure">
+      <div class="phone">
+        <div class="screen">
+          <img src="screens/document.webp" alt="Rescriva showing week 6 lab notes rebuilt as a Word document: a heading, a paragraph, the Michaelis–Menten equation, a checklist and a note." width="660" height="1434" fetchpriority="high">
+          <img class="before" src="screens/handwritten.webp" alt="" width="660" height="1434" fetchpriority="high">
+          <span class="scanbar" aria-hidden="true"></span>
+        </div>
+      </div>
+      <figcaption>Week 6 lab notes. As the scan bar passes, the handwriting comes back as a Word document.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="steps" aria-labelledby="how-title">
+  <div class="wrap">
+    <h2 id="how-title" class="label" style="margin-bottom:14px">How it works</h2>
+    <ol>
+      <li>
+        <div class="step-top"><svg class="ink" aria-hidden="true"><use href="#i-scan"/></svg><span class="step-num">1</span></div>
+        <h3>Capture</h3>
+        <p>Hold your iPhone over a page. Rescriva outlines it, takes it once you're steady, squares it up and lifts the shadows.</p>
+      </li>
+      <li>
+        <div class="step-top"><svg class="ink" aria-hidden="true"><use href="#i-rebuild"/></svg><span class="step-num">2</span></div>
+        <h3>Rebuild</h3>
+        <p>It reads the page in order, column by column, and finds the headings, lists, tables, equations and diagrams.</p>
+      </li>
+      <li>
+        <div class="step-top"><svg class="ink" aria-hidden="true"><use href="#i-share"/></svg><span class="step-num">3</span></div>
+        <h3>Export</h3>
+        <p>Save or share it as a Word document, a PowerPoint deck, a searchable PDF or plain text.</p>
+        <div class="exts" aria-label="File types"><span>.docx</span><span>.pptx</span><span>.pdf</span><span>.txt</span></div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section class="section" id="features" aria-labelledby="features-title">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="label">Features</p>
+      <h2 id="features-title">Made for real paper, and the PDFs you already have</h2>
+    </div>
+    <div class="sheet-shadow">
+      <div class="sheet">
+        <div class="features-grid">
+          <article class="feature">
+            <svg class="ink" aria-hidden="true"><use href="#i-scan"/></svg>
+            <h3>A camera made for pages</h3>
+            <p>Live page outline, auto-capture, perspective correction and shadow removal. Photograph a book spread and it splits into two pages at the fold.</p>
+          </article>
+          <article class="feature">
+            <svg class="ink" aria-hidden="true"><use href="#i-whiteboard"/></svg>
+            <h3>Whiteboards and handwriting</h3>
+            <p>Whiteboard mode flattens glare and keeps marker colors. Pick Color, Gray, a crisp black and white, or Ink for pen and marker.</p>
+          </article>
+          <article class="feature">
+            <svg class="ink" aria-hidden="true"><use href="#i-document"/></svg>
+            <h3>Word and PowerPoint, rebuilt</h3>
+            <p>Equations you can edit in Word, diagrams redrawn as shapes, checklists that still check, and notes that become Word comments.</p>
+          </article>
+          <article class="feature">
+            <svg class="ink" aria-hidden="true"><use href="#i-pencil"/></svg>
+            <h3>Fix what it isn't sure of</h3>
+            <p>Words Rescriva can't read for certain get a highlighter swipe, like <span class="flag">Lineweaver–Bunk</span>. Tap one to fix it before you export.</p>
+          </article>
+          <article class="feature">
+            <svg class="ink" aria-hidden="true"><use href="#i-copy"/></svg>
+            <h3>Your PDFs, too</h3>
+            <p>Open any PDF to read, search, fill in forms and mark up with Apple Pencil. Reorder its pages, or compare two versions to see what changed.</p>
+          </article>
+          <article class="feature">
+            <svg class="ink" aria-hidden="true"><use href="#i-search"/></svg>
+            <h3>Search every word</h3>
+            <p>Every scan gets an invisible text layer, so search finds the words inside your pages. So does Spotlight.</p>
+          </article>
+          <article class="feature">
+            <svg class="ink" aria-hidden="true"><use href="#i-folder"/></svg>
+            <h3>A library that sorts itself</h3>
+            <p>Folders, smart folders and pins. Receipts, invoices, contracts, recipes and whiteboards get tagged on their own. It all syncs through iCloud.</p>
+          </article>
+          <article class="feature">
+            <svg class="ink" aria-hidden="true"><use href="#i-share"/></svg>
+            <h3>Share Nearby</h3>
+            <p>Send a file to a computer on the same Wi-Fi. Open <a href="https://share.rescriva.com">share.rescriva.com</a> in its browser and type the PIN. Nothing is uploaded.</p>
+          </article>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="screenshots" aria-labelledby="screens-title" style="padding-bottom:40px">
+  <div class="wrap shelf-head">
+    <div class="section-head">
+      <p class="label">Screenshots</p>
+      <h2 id="screens-title">A look inside</h2>
+    </div>
+    <div class="shelf-buttons">
+      <button type="button" id="shelf-prev" aria-label="Previous screenshots" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4.5 L7.5 12 L15 19.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"/></svg></button>
+      <button type="button" id="shelf-next" aria-label="Next screenshots"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4.5 L16.5 12 L9 19.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"/></svg></button>
+    </div>
+  </div>
+  <div class="shelf" id="shelf" tabindex="0" role="region" aria-label="Screenshots, scroll sideways for more">
+    <figure class="shot">
+      <div class="phone"><div class="screen"><img src="screens/camera.webp" alt="The camera with a handwritten page squared up and the message: Got page 1. Next one whenever you are." width="660" height="1434" loading="lazy"></div></div>
+      <figcaption><b>Capture</b>The camera outlines the page and takes it once you're steady.</figcaption>
+    </figure>
+    <figure class="shot">
+      <div class="phone"><div class="screen"><img src="screens/handwritten.webp" alt="A handwritten page of lab notes on ruled paper, as scanned." width="660" height="1434" loading="lazy"></div></div>
+      <figcaption><b>The pages</b>Four pages of handwritten lab notes, as scanned.</figcaption>
+    </figure>
+    <figure class="shot">
+      <div class="phone"><div class="screen">
+        <img class="light" src="screens/document.webp" alt="The same notes rebuilt as a document, with a typeset equation, a checklist, a note and a redrawn diagram." width="660" height="1434" loading="lazy">
+        <img class="dark" src="screens/document-dark.webp" alt="The same notes rebuilt as a document, with a typeset equation, a checklist, a note and a redrawn diagram." width="660" height="1434" loading="lazy">
+      </div></div>
+      <figcaption><b>The document</b>The same notes rebuilt, with the equation typeset and the diagram redrawn as shapes.</figcaption>
+    </figure>
+    <figure class="shot">
+      <div class="phone"><div class="screen"><img src="screens/export.webp" alt="The Export sheet offering Word document, PowerPoint, Searchable PDF and Plain text, with notes as Word comments switched on." width="660" height="1434" loading="lazy"></div></div>
+      <figcaption><b>Export</b>Word, PowerPoint, searchable PDF or plain text, with notes kept as Word comments.</figcaption>
+    </figure>
+    <figure class="shot">
+      <div class="phone"><div class="screen"><img src="screens/markup.webp" alt="Annotating a whiteboard scan: a red circle around one box and a yellow highlight on a line of text." width="660" height="1434" loading="lazy"></div></div>
+      <figcaption><b>Mark up</b>Circle, highlight and draw on any page with pens, highlighters and shapes.</figcaption>
+    </figure>
+    <figure class="shot">
+      <div class="phone"><div class="screen">
+        <img class="light" src="screens/all-scans.webp" alt="All Scans: a grid of page thumbnails labelled Word, Slides and PDF, with tags such as #exam, #todo and #contract." width="660" height="1434" loading="lazy">
+        <img class="dark" src="screens/all-scans-dark.webp" alt="All Scans: a grid of page thumbnails labelled Word, Slides and PDF, with tags such as #exam, #todo and #contract." width="660" height="1434" loading="lazy">
+      </div></div>
+      <figcaption><b>All your scans</b>Every scan in one place, with pins, favorites and tags.</figcaption>
+    </figure>
+    <figure class="shot">
+      <div class="phone"><div class="screen">
+        <img class="light" src="screens/library.webp" alt="The library home: search every word you've scanned, All Scans, Favorites, a smart folder and folders for Biology 201, Home and Work." width="660" height="1434" loading="lazy">
+        <img class="dark" src="screens/library-dark.webp" alt="The library home: search every word you've scanned, All Scans, Favorites, a smart folder and folders for Biology 201, Home and Work." width="660" height="1434" loading="lazy">
+      </div></div>
+      <figcaption><b>The library</b>Folders, smart folders, and search across every word you've scanned.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="section" id="ipad" aria-labelledby="ipad-title">
+  <div class="wrap split">
+    <div class="tablet">
+      <div class="screen"><img src="screens/ipad.webp" alt="Rescriva on iPad: open scans as tabs across the top, four handwritten pages in a grid, and choices to make the scan into a PDF, a Word document or slides." width="1032" height="1376" loading="lazy"></div>
+    </div>
+    <div class="split-copy">
+      <p class="label">iPad and Mac</p>
+      <h2 id="ipad-title">Room to work on a bigger screen</h2>
+      <ul class="ticks">
+        <li><svg class="ink" aria-hidden="true"><use href="#i-stack"/></svg><p>Open scans sit side by side as tabs, and every page lays out in a grid.</p></li>
+        <li><svg class="ink" aria-hidden="true"><use href="#i-copy"/></svg><p>Compare a scan with another PDF to see what changed between versions.</p></li>
+        <li><svg class="ink" aria-hidden="true"><use href="#i-book"/></svg><p>The Mac app keeps the same library, synced through iCloud.</p></li>
+        <li><svg class="ink" aria-hidden="true"><use href="#i-photo"/></svg><p>A Safari extension sends web pages and PDFs straight into Rescriva.</p></li>
+      </ul>
+      <p class="margin-note">Looks like handwritten notes with a little diagram. Word should suit them.<small>Rescriva suggests the format that fits the pages.</small></p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="privacy" aria-labelledby="privacy-title">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="label">Privacy</p>
+      <h2 id="privacy-title">Your pages stay with you</h2>
+    </div>
+    <div class="privacy-grid">
+      <div>
+        <svg class="ink" aria-hidden="true"><use href="#i-lock"/></svg>
+        <h3>Read on your device</h3>
+        <p>Reading, rebuilding and exporting all happen on your iPhone, iPad or Mac. There's no Rescriva account and no Rescriva server.</p>
+      </div>
+      <div>
+        <svg class="ink" aria-hidden="true"><use href="#i-folder"/></svg>
+        <h3>Synced through your iCloud</h3>
+        <p>Your library syncs between your devices through your own iCloud account.</p>
+      </div>
+      <div>
+        <svg class="ink" aria-hidden="true"><use href="#i-share"/></svg>
+        <h3>Shared directly</h3>
+        <p>Share Nearby sends files straight from one device to the other, encrypted. The relay only passes the few lines that set up the connection. <a href="https://github.com/bowman-mw/rescriva-share/blob/main/PROTOCOL.md">How it works</a></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="closing" id="get" aria-labelledby="get-title">
+  <div class="wrap">
+    <div class="sheet-shadow">
+      <div class="sheet">
+        <p class="label">Rescriva for iPhone, iPad and Mac</p>
+        <h2 id="get-title">Bring your paper <mark>in</mark>.</h2>
+        <p>Lecture notes, whiteboards, contracts, receipts and the PDFs that came with them, kept in one library you can search.</p>
+        <a class="store" data-store aria-disabled="true">
+          <span class="kicker">Coming soon to the</span>
+          <span class="name">App Store</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-row">
+      <a class="brand" href="#top"><img src="assets/app-icon.png" alt="" width="24" height="24"><span>Rescriva</span></a>
+      <nav class="foot-links" aria-label="More">
+        <a href="https://share.rescriva.com">Share Nearby</a>
+        <a href="#privacy">Privacy</a>
+        <span>© 2026 Rescriva</span>
+      </nav>
+    </div>
+    <p class="trademarks">Apple, iPhone, iPad, Mac, Apple Pencil, iCloud, Safari and Spotlight are trademarks of Apple Inc. App Store is a service mark of Apple Inc. Word and PowerPoint are trademarks of Microsoft Corporation.</p>
+  </div>
+</footer>
+
+<script>
+  // When Rescriva is live, paste its App Store link here, for example
+  // "https://apps.apple.com/app/rescriva/id0000000000". Every App Store button on the page switches over.
+  const APP_STORE_URL = "";
+
+  if (APP_STORE_URL) {
+    for (const a of document.querySelectorAll("[data-store]")) {
+      a.href = APP_STORE_URL;
+      a.removeAttribute("aria-disabled");
+      a.querySelector(".kicker").textContent = "Download on the";
+    }
+  }
+
+  // Screenshot shelf arrows
+  const shelf = document.getElementById("shelf");
+  const prev = document.getElementById("shelf-prev");
+  const next = document.getElementById("shelf-next");
+  const step = () => { const s = shelf.querySelector(".shot"); return s ? s.getBoundingClientRect().width + 32 : 280; };
+  const update = () => {
+    prev.disabled = shelf.scrollLeft < 8;
+    next.disabled = shelf.scrollLeft + shelf.clientWidth > shelf.scrollWidth - 8;
+  };
+  prev.addEventListener("click", () => shelf.scrollBy({ left: -step() * 2, behavior: "smooth" }));
+  next.addEventListener("click", () => shelf.scrollBy({ left: step() * 2, behavior: "smooth" }));
+  shelf.addEventListener("scroll", update, { passive: true });
+  addEventListener("resize", update);
+  update();
+</script>
+</body>
+</html>
