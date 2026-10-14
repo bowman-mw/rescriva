@@ -1589,6 +1589,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Rescriva uses the camera to scan pages and whiteboards. Everything stays on this iPhone.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Rescriva connects directly to computers and phones on your network when you use Share Nearby.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Rescriva adds photos and videos you receive with Share Nearby to your library. It can't see the rest of your photos.";
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=macosx*]" = YES;
@@ -1636,6 +1637,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Rescriva uses the camera to scan pages and whiteboards. Everything stays on this iPhone.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Rescriva connects directly to computers and phones on your network when you use Share Nearby.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Rescriva adds photos and videos you receive with Share Nearby to your library. It can't see the rest of your photos.";
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=macosx*]" = YES;

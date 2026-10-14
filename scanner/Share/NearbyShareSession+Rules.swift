@@ -2,14 +2,26 @@
 //  NearbyShareSession+Rules.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  Two small types a Share Nearby session leans on (not an extension of it, despite the name:
+//  Small types a Share Nearby session leans on (not an extension of it, despite the name:
 //  renaming the file means touching the project file). NearbySharePINLock counts wrong PINs on
 //  one document and says when tries are refused (Docs/Rescriva-Share-Protocol.md §1.3);
-//  NearbyShareInput checks the text pages send and names the pages. Pure Foundation, driven by
-//  the dates passed in, so tests can run them with any clock.
+//  NearbyShareInput checks the text pages send, sorts what they send by kind and names the
+//  pages. Pure Foundation, driven by the dates passed in, so tests can run them with any clock.
 //
 
 import Foundation
+
+/// What a received file is, by the type its page gave it. That says where it's saved.
+enum NearbyShareUploadKind: Equatable {
+	/// Saved in PDF Files.
+	case pdf
+	/// A picture Photos takes: saved in Photos.
+	case picture
+	/// A video Photos takes: saved in Photos.
+	case video
+	/// Anything else: saved in Files.
+	case file
+}
 
 /// Wrong PINs for one shared document, counted per connection ("link") so that one page can't lock
 /// everyone out. Five wrong tries from a link refuse that link for `linkCooldown`. Only when wrong
@@ -128,14 +140,51 @@ enum NearbyShareInput {
 		return difference == 0
 	}
 
-	/// What the app takes: a PDF or an image (PROTOCOL.md §4).
-	static func acceptsUpload(type: String) -> Bool {
-		if type == "application/pdf" { return true }
-		guard type.hasPrefix("image/"), type.utf8.count > "image/".utf8.count, type.utf8.count <= 64 else { return false }
-		return type.utf8.allSatisfy { byte in
-			(48...57).contains(byte) || (97...122).contains(byte) || byte == UInt8(ascii: "/")
-				|| byte == UInt8(ascii: "+") || byte == UInt8(ascii: ".") || byte == UInt8(ascii: "-")
-		}
+	/// What an upload's type reads as when the page gave none, or one that isn't a plain type.
+	static let unknownType = "application/octet-stream"
+	/// The longest media type kept; a longer one reads as `unknownType`.
+	static let maxTypeBytes = 127
+	/// The picture types Photos takes. Anything else that calls itself a picture (SVG, Photoshop)
+	/// is saved in Files.
+	static let photoTypes: Set<String> = [
+		"image/jpeg", "image/jpg", "image/png", "image/heic", "image/heif", "image/gif", "image/tiff", "image/webp",
+		"image/bmp", "image/x-adobe-dng",
+	]
+	/// The video types Photos takes. Anything else that calls itself a video (WebM, Matroska) is
+	/// saved in Files.
+	static let videoTypes: Set<String> = ["video/mp4", "video/quicktime", "video/x-m4v", "video/3gpp"]
+
+	/// The media type a page gave an upload, ready to compare: lower case and without parameters
+	/// ("image/PNG; x=y" is "image/png"). The app takes a file of any type (PROTOCOL.md §4), so
+	/// anything that isn't a plain type/subtype of [a-z0-9+.-], up to `maxTypeBytes`, isn't
+	/// refused; it reads as `unknownType` and the file is saved in Files.
+	static func uploadType(_ type: String) -> String {
+		let bare = (type.components(separatedBy: ";").first ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+		let parts = bare.split(separator: "/", omittingEmptySubsequences: false)
+		guard bare.utf8.count <= maxTypeBytes, parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty,
+			  bare.utf8.allSatisfy(isTypeByte) else { return unknownType }
+		return bare
+	}
+
+	private static func isTypeByte(_ byte: UInt8) -> Bool {
+		(48...57).contains(byte) || (97...122).contains(byte) || byte == UInt8(ascii: "/")
+			|| byte == UInt8(ascii: "+") || byte == UInt8(ascii: ".") || byte == UInt8(ascii: "-")
+	}
+
+	/// What an upload of `type` (as `uploadType` gives it) is, which says where it's saved.
+	static func uploadKind(type: String) -> NearbyShareUploadKind {
+		if type == "application/pdf" { return .pdf }
+		if photoTypes.contains(type) { return .picture }
+		if videoTypes.contains(type) { return .video }
+		return .file
+	}
+
+	/// Whether a page that isn't paired downloads a file of `type` and `size` from this device:
+	/// the page refuses other types, and anything over its caps (PROTOCOL.md §4).
+	static func unpairedPageTakes(type: String, size: Int64) -> Bool {
+		guard ShareLimits.unpairedPageTypes.contains(type) else { return false }
+		let cap = type == "application/pdf" ? ShareLimits.unpairedPageMaxPDFBytes : ShareLimits.unpairedPageMaxBytes
+		return size <= cap
 	}
 
 	/// `text` made safe as one file name (`String.safeFileName`); `fallback`, made safe the same

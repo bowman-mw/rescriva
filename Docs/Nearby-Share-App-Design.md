@@ -32,7 +32,7 @@ enum NearbyShareConfig {
 	static var siteURL: URL { get }
 	static let chunkSize = 64 * 1024
 	static let highWater = 1 << 20
-	static let maxIncomingBytes: Int64 = 1 << 30
+	static let maxIncomingBytes: Int64 = 1 << 30   // any type
 	/// How long no-relay pairing tries before showing the connection code.
 	static let codeDelay: Duration = .seconds(4)
 	/// How long a connection code stays up without connecting.
@@ -170,6 +170,10 @@ enum ShareLimits {
 	static let pageDevices: Set<String>         // "phone", "tablet", "computer"
 	static let appDevices: Set<String>          // "iphone", "ipad", "mac"
 	static let relayDevices: Set<String>        // both
+	/// The page's copy is peer.js SAVED_TYPES and MAX_UNTRUSTED_BYTES: what an unpaired page downloads.
+	static let unpairedPageTypes: Set<String>
+	static let unpairedPageMaxPDFBytes: Int64 = 1 << 30
+	static let unpairedPageMaxBytes: Int64 = 128 << 20
 }
 
 /// What the page sends over the data channel (PROTOCOL.md §4).
@@ -307,7 +311,8 @@ final class ShareRelay {
 enum NearbyShareItem: Hashable {
 	case scan(Scan)          // exported as a searchable PDF
 	case pdf(UUID)           // PDFLibrary item, current version
-	case file(URL, name: String)
+	case file(URL, name: String)   // an export, or a file picked in Files
+	case photo(PhotosPickerItem)   // a photo or video picked from Photos
 }
 
 @MainActor @Observable
@@ -323,12 +328,13 @@ final class NearbyShareSession {
 	}
 	/// `checkNumber` is set for a page that proved nothing (ShareCodes.checkNumber); nil for a trusted one.
 	struct Device: Identifiable { let id: UUID; var name: String; var kind: String; var trusted: Bool; var checkNumber: String? }
-	struct IncomingOffer: Identifiable { let id: String; let deviceName: String; let name: String; let size: Int64; let type: String }
+	struct IncomingOffer: Identifiable { let id: String; let deviceName: String; let name: String; let size: Int64; let type: String; var kind: NearbyShareUploadKind }
 	struct Transfer: Identifiable {
 		enum Direction { case sending, receiving }
 		enum State: Equatable { case moving, done, failed(String) }
 		let id: UUID; let direction: Direction; let name: String; let deviceName: String
 		var done: Int64; let total: Int64; var state: State
+		var destination: NearbyShareDestination?   // .pdfFiles, .photos or .files(photosAccessOff:)
 	}
 	enum RelayState: Equatable { case off, connecting, open, unavailable }
 	enum PairingState: Equatable { case idle, connecting, showCode(String), connected(String), failed(String) }
@@ -345,12 +351,16 @@ final class NearbyShareSession {
 	/// Pages that proved nothing: the `auto` room's web peers (from the relay's welcome/join/leave) plus any
 	/// connected from it that the relay no longer lists. Above one, the screen shows a warning banner.
 	private(set) var untrustedPageCount: Int
-	/// Something received and saved: for a toast.
-	var onSaved: ((String) -> Void)?
+	/// Something received and saved, and where it went: for a toast.
+	var onSaved: ((String, NearbyShareDestination) -> Void)?
 	/// `ShareLimits.stallSeconds`; tests shorten it.
 	var stallSeconds: TimeInterval
+	/// `NearbyShareFiles.receivedFilesFolder`; tests point it at a folder of their own.
+	var receivedFilesFolder: URL
+	/// `NearbySharePhotos()`; tests stand in their own `NearbySharePhotoSaving`.
+	var photos: any NearbySharePhotoSaving
 
-	init(items: [NearbyShareItem], library: PDFLibrary = .shared, context: NSManagedObjectContext)
+	init(items: [NearbyShareItem], library: PDFLibrary = .shared)
 	/// A new session: session id, share key, PINs. Joins the relay rooms (auto + roomId(key)) and prepares files.
 	func start()
 	/// Sends docs [] and bye, closes every peer and relay, deletes temp files. Idempotent.
@@ -375,7 +385,8 @@ extensions of the session (the names stay because renaming a file means touching
 `NearbyShareLink` (one connection; `provesItself`, `canDownload`, `checkNumber`); `NearbySharePINLock`
 and `NearbyShareInput` (pure, clock-driven rules); `NearbyShareFiles`, `NearbyShareChunkFile` (a file
 read or written a chunk at a time on its own queue, so the main actor never waits on the disk) and
-`NearbyShareUpload`.
+`NearbyShareUpload`; `NearbySharePhotos` (add-only PhotoKit) and `NearbySharePickedFile` (the
+`Transferable` a picked photo arrives as).
 
 Behaviour:
 - **Trust.** A peer with a secret (from the share key's room, or a pairing) sees everything once
@@ -391,13 +402,21 @@ Behaviour:
 - **Downloads.** Only for documents that are ready. One transfer per peer at a time, in a queue:
   `file`, 64 KiB binary chunks (read off the main actor) with `waitForRoom()`, then `end`. When the
   page stops reading for `stallSeconds` the transfer is cancelled and shown as failed.
-- **Uploads.** A PDF or `image/*` up to `maxIncomingBytes` goes in `incoming` for Accept/Decline.
-  Anything else is declined with reason `type`. Accepted bytes are queued to a temp file off the
-  main actor and checked against the size. `cancel` from the page frees the slot and deletes the
-  partial file, and so does a stall: no chunk for `stallSeconds` sends `cancel` and shows the
-  transfer as failed, so a page whose upload died without saying so can offer again. A PDF goes
-  into the library with `PDFLibrary.importPDF(at:title:)` (title = the name without its extension).
-  An image becomes a scan with `PhotoImport.scan(from:in:)`. Reply `saved {ok}` and call `onSaved`.
+- **Uploads.** A file of any type up to `maxIncomingBytes` goes in `incoming` for Accept/Decline;
+  only the size is declined (`size`). `NearbyShareInput.uploadType` lower-cases the type and drops
+  its parameters; a missing or malformed one reads as `application/octet-stream`. Accepted bytes
+  are queued to a temp file off the main actor and checked against the size. `cancel` from the
+  page frees the slot and deletes the partial file, and so does a stall: no chunk for
+  `stallSeconds` sends `cancel` and shows the transfer as failed, so a page whose upload died
+  without saying so can offer again. `NearbyShareInput.uploadKind` says where it's saved
+  (`NearbyShareFiles.saveReceived`): a PDF into the library with `PDFLibrary.importPDF(at:title:)`
+  (title = the name without its extension); a picture or video of a type Photos takes
+  (`photoTypes`, `videoTypes`) into Photos through `PHAssetCreationRequest`, with add-only access
+  asked for on Accept; anything else into `receivedFilesFolder`, Documents/Received (On My iPhone ›
+  Rescriva › Received in Files; Downloads on a Mac), as "name 2", "name 3"… when the name is taken.
+  Not the top of Documents: Quick Look's launch sweep deletes names like "scan.jpg" there. A PDF
+  that won't open and a picture Photos refuses (or may not have) go to Files too, so nothing
+  accepted is lost. Reply `saved {ok}` and call `onSaved` with where it went.
 - **No-relay pairing.** Start the direct peer. If it isn't open after `codeDelay`, set
   `.showCode(grouped code)` from `ShareNetwork.codeCandidate`; with no candidate,
   `.failed("…")`. When a pairing peer opens and proves itself, set `.connected(name)` and close the
@@ -409,7 +428,12 @@ Behaviour:
   Accept/Decline cards and Activity alike.
 - **Files.** Prepared in `tmp/NearbyShare/<session>/` and deleted by `stop()`. The first session
   to start in a process deletes every other folder there and every folder in
-  `tmp/NearbyShareReceived/`, left by a run killed mid-share. A scan
+  `tmp/NearbyShareReceived/` and `tmp/NearbySharePicked/`, left by a run killed mid-share. A
+  picked photo is loaded each time the session starts, with the picker's `.compatible` encoding
+  (HEIC → JPEG, HEVC → H.264), through `tmp/NearbySharePicked/<uuid>/`. A `.file` is copied under
+  an `NSFileCoordinator`, so an iCloud Drive file is downloaded first; a folder or package is
+  refused. A document whose type or size an unpaired page won't take says "Only a paired page can
+  download this." A scan
   goes through `ExportService.makeFile(for:format: .pdf, includeNotes: true)`. A PDF item: wait for
   `library.waitForSave(of:)`, then copy `currentURL(for:)` to "<title>.pdf". Document ids are
   random base64url strings, new every session.
@@ -420,7 +444,8 @@ Behaviour:
   `.onDisappear { stop }`. On `scenePhase == .background`, stop. On `.active` after that, start
   fresh (new PINs). `UIApplication.shared.isIdleTimerDisabled = true` while showing. Sections:
   - **Shared:** rows with the name, size and a large PIN (`482 913`), a remove button, and
-    **Add documents**.
+    **Add documents** (the library picker), **Add photos** (`photosPicker`, images and videos)
+    and **Add files** (`fileImporter`, `.data`).
   - **Open on a phone:** the QR code of `openLink`, "Scan with a phone's camera. It opens these
     files with no PIN", and Copy link.
   - **Computer:** **Scan a computer's code** (iOS, when `DataScannerViewController.isSupported`),
@@ -438,8 +463,10 @@ Behaviour:
     otherwise "Pair with a computer outside your network?", whose default action is Cancel and
     whose "Pair anyway" is destructive and dials every candidate. The screen is not opened for
     such a link (see `NearbySharePending` below); one already open is brought to the front.
-  - **Waiting for you:** Accept/Decline cards.
-  - **Activity:** transfers with progress.
+  - **Waiting for you:** Accept/Decline cards, with the kind (PDF, Picture, Video, File) and
+    where it saves.
+  - **Activity:** transfers with progress, and where a received file was saved. The toast names
+    the place too; one that went to Files because Photos access is off offers "Allow Photos".
   - The relay state as one line under the title.
 - `ShareDocumentPicker.swift`: a sheet listing live scans (Core Data `Scan`, newest first,
   `deletedAt == nil`) and `PDFLibrary.shared.items`, with multi-select → `[NearbyShareItem]`.
@@ -478,5 +505,10 @@ Behaviour:
     `packageProductDependencies`, and the reference in `PBXProject.packageReferences`.
 - Build settings, both scanner configurations: `INFOPLIST_KEY_NSLocalNetworkUsageDescription =
   "Rescriva connects directly to computers and phones on your network when you use Share Nearby."`
-- `scanner/Info.plist`: `NSAppTransportSecurity` → `NSAllowsLocalNetworking = true`.
+  and `INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Rescriva adds photos and videos you
+  receive with Share Nearby to your library. It can't see the rest of your photos."`
+- `scanner/Info.plist`: `NSAppTransportSecurity` → `NSAllowsLocalNetworking = true`;
+  `UIFileSharingEnabled = true` (with `LSSupportsOpeningDocumentsInPlace`, so Documents shows in Files).
+- `scanner/scanner.entitlements` (the Mac's sandbox): `com.apple.security.files.downloads.read-write`
+  for received files, `com.apple.security.personal-information.photos-library` for Photos.
 - Don't change bundle ids, `ITSAppUsesNonExemptEncryption` or signing settings.
