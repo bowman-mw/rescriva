@@ -43,10 +43,8 @@ enum NearbyShareConfig {
 	static let chunkSize = 64 * 1024
 	/// Senders wait while the data channel has more than this buffered.
 	static let highWater = 1 << 20
-	/// The largest file a page may send to the app.
+	/// The largest file a page may send to the app, of any kind.
 	static let maxIncomingBytes: Int64 = 1 << 30
-	/// The largest picture a page may send: far more than any photo, far less than a PDF may be.
-	static let maxIncomingImageBytes: Int64 = 128 << 20
 	/// How long no-relay pairing tries before showing the connection code.
 	static let codeDelay: Duration = .seconds(4)
 	/// How long a connection code stays up without connecting. After a code fails, the page throws

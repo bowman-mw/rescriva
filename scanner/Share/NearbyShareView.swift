@@ -2,11 +2,13 @@
 //  NearbyShareView.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  Share Nearby: documents shared with computers and phones close by, through
-//  share.rescriva.com. Each document has its own PIN, set large so it reads
-//  across a desk; a phone that scans this screen's QR code (or a computer
-//  paired with the page's code) needs none. Requests to send files here wait
-//  for Accept, and transfers show their progress. A page found through the relay
+//  Share Nearby: documents, photos and files shared with computers and phones
+//  close by, through share.rescriva.com. Each one has its own PIN, set large so
+//  it reads across a desk; a phone that scans this screen's QR code (or a
+//  computer paired with the page's code) needs none. Requests to send files here
+//  wait for Accept; then a PDF goes to PDF Files, a picture or video to Photos,
+//  and anything else to Rescriva's folder in Files (Downloads, on a Mac).
+//  Transfers show their progress. A page found through the relay
 //  on the same network proves nothing, so its row shows a six-digit check number
 //  the page shows too, and the screen warns when more than one such page is
 //  about. Sharing runs only while this screen is the one showing and the app is
@@ -14,8 +16,10 @@
 //  the sharing, and coming back starts again with new PINs.
 //
 
+import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct NearbyShareView: View {
 	/// What the screen was opened with (also how the route is found on the stack).
@@ -25,7 +29,7 @@ struct NearbyShareView: View {
 	@Environment(\.managedObjectContext) private var context
 	@Environment(\.scenePhase) private var scenePhase
 
-	/// Made on first appearance (it needs the environment's context), and kept by
+	/// Made on first appearance (it needs the route stack entry), and kept by
 	/// `NearbyShareSessionStore` while this screen is on the stack, so rebuilding the view doesn't
 	/// end it. Stopping and starting it again keeps its documents and gives them new PINs.
 	@State private var session: NearbyShareSession?
@@ -35,6 +39,9 @@ struct NearbyShareView: View {
 	/// A pairing link that came from outside the app, waiting for the user to say yes.
 	@State private var confirmingPairing: SharePairingOffer?
 	@State private var picking = false
+	@State private var pickingPhotos = false
+	@State private var photoSelection: [PhotosPickerItem] = []
+	@State private var pickingFiles = false
 	@State private var scanning = false
 	@State private var showsPasteField = false
 	@State private var pastedLink = ""
@@ -82,6 +89,19 @@ struct NearbyShareView: View {
 		}
 		.sheet(isPresented: $scanning) {
 			ShareCodeScanner { pair(link: $0) }
+		}
+		// Compatible: a HEIC picture comes as a JPEG and an HEVC video as H.264, which any
+		// computer opens.
+		.photosPicker(isPresented: $pickingPhotos, selection: $photoSelection, maxSelectionCount: photoRoom,
+					  matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
+		.onChange(of: photoSelection) { _, items in
+			guard !items.isEmpty else { return }
+			session?.add(items.map { .photo($0) })
+			photoSelection = []
+		}
+		.fileImporter(isPresented: $pickingFiles, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
+			guard case .success(let urls) = result else { return }
+			session?.add(urls.map { .file($0, name: $0.lastPathComponent) })
 		}
 		.alert(pairingAlertTitle, isPresented: confirmingBinding, presenting: confirmingPairing) { offer in
 			if offer.isWithinPrivateNetwork {
@@ -132,11 +152,24 @@ struct NearbyShareView: View {
 	}
 
 	private func makeSession() -> NearbyShareSession {
-		let made = NearbyShareSession(items: items, context: context)
-		made.onSaved = { [weak router] name in
-			router?.showToast(String(localized: "Received “\(name)”"), style: .exported)
+		let made = NearbyShareSession(items: items)
+		made.onSaved = { [weak router] name, destination in
+			Self.showSaved(name, destination, router: router)
 		}
 		return made
+	}
+
+	/// "Saved “IMG_0042.jpeg” to Photos". A picture that went to Files because Photos access is
+	/// off offers the way to Settings.
+	private static func showSaved(_ name: String, _ destination: NearbyShareDestination, router: RescrivaRouter?) {
+		let message = String(localized: "Saved “\(name)” to \(placeName(destination))")
+		guard destination == .files(photosAccessOff: true), let settings = URL(string: UIApplication.openSettingsURLString) else {
+			router?.showToast(message, style: .exported)
+			return
+		}
+		router?.showToast(message, style: .exported, actionLabel: String(localized: "Allow Photos")) {
+			UIApplication.shared.open(settings)
+		}
 	}
 
 	/// The view went away. Only when its entry left the stack does the sharing end: a view rebuilt
@@ -176,6 +209,11 @@ struct NearbyShareView: View {
 		default:
 			break
 		}
+	}
+
+	/// How many more photos fit in what's shared (at least one, so the picker opens).
+	private var photoRoom: Int {
+		max(1, ShareLimits.maxDocuments - (session?.documents.count ?? 0))
 	}
 
 	private func remove(_ document: NearbyShareSession.SharedDocument) {
@@ -347,7 +385,7 @@ struct NearbyShareView: View {
 	private func sharedCard(_ session: NearbyShareSession) -> some View {
 		VStack(spacing: 0) {
 			if session.documents.isEmpty {
-				Text("Nothing shared yet. Add scans or PDFs and they show up on the page, each with its own PIN.")
+				Text("Nothing shared yet. Add scans, PDFs, photos or other files and they show up on the page, each with its own PIN.")
 					.font(RescrivaFont.note(15))
 					.foregroundStyle(.graphite)
 					.frame(maxWidth: .infinity, alignment: .leading)
@@ -368,22 +406,31 @@ struct NearbyShareView: View {
 					.padding(.vertical, 10)
 				rule
 			}
-			Button { picking = true } label: {
-				HStack(spacing: 10) {
-					Glyph("plus", size: 15, weight: .semibold)
-					Text("Add documents")
-						.font(RescrivaFont.ui(15, weight: .medium))
-					Spacer(minLength: 0)
-				}
-				.foregroundStyle(.ink)
-				.padding(.vertical, 14)
-				.padding(.horizontal, 16)
-				.contentShape(Rectangle())
-			}
-			.buttonStyle(.plain)
+			addRow("Add documents", glyph: "doc") { picking = true }
+			rule
+			addRow("Add photos", glyph: "photo") { pickingPhotos = true }
+			rule
+			addRow("Add files", glyph: "folder") { pickingFiles = true }
 		}
 		.paperCard()
 		.padding(.horizontal, 16)
+	}
+
+	private func addRow(_ title: LocalizedStringKey, glyph: String, action: @escaping () -> Void) -> some View {
+		Button(action: action) {
+			HStack(spacing: 10) {
+				Glyph(glyph, size: 15, weight: .semibold)
+					.frame(width: 20)
+				Text(title)
+					.font(RescrivaFont.ui(15, weight: .medium))
+				Spacer(minLength: 0)
+			}
+			.foregroundStyle(.ink)
+			.padding(.vertical, 14)
+			.padding(.horizontal, 16)
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
 	}
 
 	/// The name, size and PIN side by side where they fit, the PIN on its own line where not.
@@ -428,6 +475,12 @@ struct NearbyShareView: View {
 				Text(document.size > 0 ? Self.byteText(document.size) : String(localized: "Ready"))
 					.font(RescrivaFont.ui(12))
 					.foregroundStyle(.graphite)
+				if !NearbyShareInput.unpairedPageTakes(type: document.type, size: document.size) {
+					Text("Only a paired page can download this.")
+						.font(RescrivaFont.ui(12))
+						.foregroundStyle(.graphite)
+						.fixedSize(horizontal: false, vertical: true)
+				}
 			case .failed(let reason):
 				Text(reason)
 					.font(RescrivaFont.ui(12))
@@ -724,7 +777,10 @@ struct NearbyShareView: View {
 					.font(RescrivaFont.header(19))
 					.foregroundStyle(.carbon)
 					.lineLimit(3)
-				Text(verbatim: "\(Self.kindText(offer.type)) · \(Self.byteText(offer.size))")
+				Text(verbatim: "\(Self.kindText(offer.kind)) · \(Self.byteText(offer.size))")
+					.font(RescrivaFont.ui(12))
+					.foregroundStyle(.graphite)
+				Text(Self.plannedPlace(offer.kind, photosRefused: session.photos.isRefused))
 					.font(RescrivaFont.ui(12))
 					.foregroundStyle(.graphite)
 			}
@@ -813,10 +869,49 @@ struct NearbyShareView: View {
 		code.filter { $0.isLetter || $0.isNumber }.map(String.init).joined(separator: " ")
 	}
 
-	private static func kindText(_ type: String) -> String {
-		if type.lowercased() == "application/pdf" { return String(localized: "PDF") }
-		if type.lowercased().hasPrefix("image/") { return String(localized: "Picture") }
-		return String(localized: "File")
+	private static func kindText(_ kind: NearbyShareUploadKind) -> String {
+		switch kind {
+		case .pdf: return String(localized: "PDF")
+		case .picture: return String(localized: "Picture")
+		case .video: return String(localized: "Video")
+		case .file: return String(localized: "File")
+		}
+	}
+
+	/// Where Files keeps what's received: Rescriva's Received folder, or Downloads on a Mac
+	/// (`NearbyShareFiles.receivedFilesFolder`).
+	private static var filesPlace: String {
+		#if targetEnvironment(macCatalyst)
+		return String(localized: "Downloads")
+		#else
+		return String(localized: "Files, in Rescriva › Received")
+		#endif
+	}
+
+	/// Where an accepted file of `kind` is saved, for its card. A picture goes to Files while
+	/// Rescriva may not add to Photos.
+	private static func plannedPlace(_ kind: NearbyShareUploadKind, photosRefused: Bool) -> String {
+		switch kind {
+		case .pdf: return String(localized: "Saves to PDF Files")
+		case .picture, .video:
+			guard photosRefused else { return String(localized: "Saves to Photos") }
+			return String(localized: "Saves to \(filesPlace), as Rescriva isn't allowed to add to Photos")
+		case .file: return String(localized: "Saves to \(filesPlace)")
+		}
+	}
+
+	/// "Photos", "PDF Files", "Files" or "Downloads", for the toast.
+	private static func placeName(_ destination: NearbyShareDestination) -> String {
+		switch destination {
+		case .pdfFiles: return String(localized: "PDF Files")
+		case .photos: return String(localized: "Photos")
+		case .files:
+			#if targetEnvironment(macCatalyst)
+			return String(localized: "Downloads")
+			#else
+			return String(localized: "Files")
+			#endif
+		}
 	}
 
 	private static func transferStatus(_ transfer: NearbyShareSession.Transfer) -> String {
@@ -824,9 +919,21 @@ struct NearbyShareView: View {
 		case .moving:
 			return String(localized: "\(byteText(transfer.done)) of \(byteText(transfer.total))")
 		case .done:
-			return transfer.direction == .sending ? String(localized: "Sent") : String(localized: "Saved to your library")
+			guard transfer.direction == .receiving else { return String(localized: "Sent") }
+			return savedStatus(transfer.destination)
 		case .failed(let reason):
 			return reason
+		}
+	}
+
+	private static func savedStatus(_ destination: NearbyShareDestination?) -> String {
+		switch destination {
+		case .pdfFiles: return String(localized: "Saved to PDF Files")
+		case .photos: return String(localized: "Saved to Photos")
+		case .files(photosAccessOff: false): return String(localized: "Saved to \(filesPlace)")
+		case .files(photosAccessOff: true):
+			return String(localized: "Saved to \(filesPlace). Rescriva isn't allowed to add to Photos; you can change that in Settings.")
+		case nil: return String(localized: "Saved")
 		}
 	}
 

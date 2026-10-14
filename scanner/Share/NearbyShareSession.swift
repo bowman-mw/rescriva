@@ -17,6 +17,8 @@
 import CoreData
 import Foundation
 import Observation
+import PhotosUI
+import SwiftUI
 import UIKit
 
 /// Something to share nearby.
@@ -25,8 +27,10 @@ enum NearbyShareItem: Hashable {
 	case scan(Scan)
 	/// A PDF Files item, in its current version.
 	case pdf(UUID)
-	/// A file that's already made, such as an export.
+	/// A file that's already made, such as an export, or one picked in Files.
 	case file(URL, name: String)
+	/// A photo or video picked from the Photos library.
+	case photo(PhotosPickerItem)
 }
 
 @MainActor
@@ -40,6 +44,8 @@ final class NearbyShareSession {
 		var size: Int64
 		var pin: String
 		var state: State
+		/// Its MIME type, once its file is ready.
+		var type = ""
 	}
 
 	struct Device: Identifiable {
@@ -58,6 +64,8 @@ final class NearbyShareSession {
 		let name: String
 		let size: Int64
 		let type: String
+
+		var kind: NearbyShareUploadKind { NearbyShareInput.uploadKind(type: type) }
 	}
 
 	struct Transfer: Identifiable {
@@ -70,6 +78,8 @@ final class NearbyShareSession {
 		var done: Int64
 		let total: Int64
 		var state: State
+		/// Where a received file was saved, once it's done.
+		var destination: NearbyShareDestination?
 	}
 
 	enum RelayState: Equatable { case off, connecting, open, unavailable }
@@ -88,11 +98,16 @@ final class NearbyShareSession {
 	/// relay room, plus any connected from it that have since left the relay. Above one, the
 	/// screen warns that strangers may be looking.
 	private(set) var untrustedPageCount = 0
-	/// Something received and saved: for a toast.
-	var onSaved: ((String) -> Void)?
+	/// Something received and saved, with the name it was saved under and where: for a toast.
+	var onSaved: ((String, NearbyShareDestination) -> Void)?
 	/// A transfer with no bytes for this long is given up on (`ShareLimits.stallSeconds`; tests
 	/// shorten it).
 	var stallSeconds: TimeInterval = ShareLimits.stallSeconds
+	/// Where received files go that don't go to PDF Files or Photos
+	/// (`NearbyShareFiles.receivedFilesFolder`); tests point it elsewhere.
+	@ObservationIgnored var receivedFilesFolder = NearbyShareFiles.receivedFilesFolder
+	/// What puts received pictures and videos in Photos; tests stand in their own.
+	@ObservationIgnored var photos: any NearbySharePhotoSaving = NearbySharePhotos()
 
 	// MARK: Limits
 
@@ -133,7 +148,6 @@ final class NearbyShareSession {
 	}
 
 	private let library: PDFLibrary
-	private let context: NSManagedObjectContext
 	/// What's shared. It outlives stop(); each start() makes fresh documents (new ids and PINs) from it.
 	@ObservationIgnored private var sources: [NearbyShareItem]
 	@ObservationIgnored private var sessionID = ""
@@ -156,15 +170,14 @@ final class NearbyShareSession {
 	/// Ends a connection code that's been showing for `NearbyShareConfig.codeLifetime`.
 	@ObservationIgnored private var codeExpiry: Task<Void, Never>?
 
-	init(items: [NearbyShareItem], library: PDFLibrary, context: NSManagedObjectContext) {
+	init(items: [NearbyShareItem], library: PDFLibrary) {
 		self.library = library
-		self.context = context
 		self.sources = Self.unique(items, limit: ShareLimits.maxDocuments)
 	}
 
 	/// With `PDFLibrary.shared`. (A default argument can't name it: it belongs to the main actor.)
-	convenience init(items: [NearbyShareItem], context: NSManagedObjectContext) {
-		self.init(items: items, library: .shared, context: context)
+	convenience init(items: [NearbyShareItem]) {
+		self.init(items: items, library: .shared)
 	}
 
 	// MARK: Lifecycle
@@ -296,6 +309,7 @@ final class NearbyShareSession {
 			files[id] = file
 			documents[index].name = file.name
 			documents[index].size = file.size
+			documents[index].type = file.type
 			documents[index].state = .ready
 			broadcastDocs()
 		case .failure(let error):
@@ -799,19 +813,15 @@ final class NearbyShareSession {
 
 	// MARK: Uploads
 
-	/// A page asks to send a file. A PDF or an image waits in `incoming` for Accept or Decline.
+	/// A page asks to send a file. A file of any type waits in `incoming` for Accept or Decline;
+	/// its type only says where it's saved.
 	private func offered(_ xfer: String, name: String, size: Int64, type: String, by link: NearbyShareLink) {
 		guard link.upload == nil else {
 			link.peer.send(.decline(xfer: xfer, reason: "busy"))
 			return
 		}
-		let type = type.lowercased()
-		guard NearbyShareInput.acceptsUpload(type: type) else {
-			link.peer.send(.decline(xfer: xfer, reason: "type"))
-			return
-		}
-		let limit = type == "application/pdf" ? NearbyShareConfig.maxIncomingBytes : NearbyShareConfig.maxIncomingImageBytes
-		guard size > 0, size <= limit else {
+		let type = NearbyShareInput.uploadType(type)
+		guard size > 0, size <= NearbyShareConfig.maxIncomingBytes else {
 			link.peer.send(.decline(xfer: xfer, reason: "size"))
 			return
 		}
@@ -835,6 +845,7 @@ final class NearbyShareSession {
 		addTransfer(transfer)
 		link.peer.send(.accept(xfer: upload.xfer))
 		watchUpload(upload, on: link, after: .seconds(stallSeconds))
+		if offer.kind == .picture || offer.kind == .video { photos.askIfUndecided() }
 	}
 
 	/// Gives up on `upload` once no chunk has come for `stallSeconds`: a page whose upload failed
@@ -873,7 +884,7 @@ final class NearbyShareSession {
 		if let id = upload.transferID { showProgress(id, done: upload.received) }
 	}
 
-	/// The last chunk is in: check the size, then bring the file into the Library.
+	/// The last chunk is in: check the size, then save the file where its kind belongs.
 	private func uploadEnded(_ xfer: String, on link: NearbyShareLink) {
 		guard let upload = link.upload, upload.xfer == xfer, upload.isReceiving else { return }
 		link.upload = nil
@@ -887,24 +898,27 @@ final class NearbyShareSession {
 		save(url, upload: upload, from: link)
 	}
 
-	/// Imports with background time, so leaving the app mid-import doesn't lose the file.
+	/// Saves with background time, so leaving the app mid-save doesn't lose the file.
 	private func save(_ url: URL, upload: NearbyShareUpload, from link: NearbyShareLink) {
 		let library = library
-		let context = context
-		BackgroundTime.protect("Share Nearby import") { [weak self] in
-			let ok = await NearbyShareFiles.importReceived(url, name: upload.name, type: upload.type,
-															library: library, context: context)
+		let photos = photos
+		let filesFolder = receivedFilesFolder
+		BackgroundTime.protect("Share Nearby save") { [weak self] in
+			let saved = await NearbyShareFiles.saveReceived(url, name: upload.name, type: upload.type, library: library,
+															photos: photos, filesFolder: filesFolder)
 			NearbyShareFiles.remove(url.deletingLastPathComponent())
-			self?.saved(upload, ok: ok, from: link)
+			self?.saved(upload, as: saved, from: link)
 		}
 	}
 
-	private func saved(_ upload: NearbyShareUpload, ok: Bool, from link: NearbyShareLink) {
-		if !link.isClosed { link.peer.send(.saved(xfer: upload.xfer, ok: ok)) }
-		if let id = upload.transferID {
-			updateTransfer(id, state: ok ? .done : .failed(String(localized: "Rescriva couldn't open the file.")))
+	private func saved(_ upload: NearbyShareUpload, as saved: NearbyShareSavedFile?, from link: NearbyShareLink) {
+		if !link.isClosed { link.peer.send(.saved(xfer: upload.xfer, ok: saved != nil)) }
+		guard let saved else {
+			if let id = upload.transferID { updateTransfer(id, state: .failed(String(localized: "Rescriva couldn't save the file."))) }
+			return
 		}
-		if ok { onSaved?(upload.name) }
+		if let id = upload.transferID { updateTransfer(id, state: .done, destination: saved.destination) }
+		onSaved?(saved.name, saved.destination)
 	}
 
 	private func failUpload(on link: NearbyShareLink, problem: String, reply: ShareOutbound?) {
@@ -936,10 +950,11 @@ final class NearbyShareSession {
 		transfers.remove(at: oldest)
 	}
 
-	private func updateTransfer(_ id: UUID, state: Transfer.State) {
+	private func updateTransfer(_ id: UUID, state: Transfer.State, destination: NearbyShareDestination? = nil) {
 		guard let index = transfers.firstIndex(where: { $0.id == id }) else { return }
 		if state == .done { transfers[index].done = transfers[index].total }
 		transfers[index].state = state
+		transfers[index].destination = destination
 	}
 
 	/// Progress a step at a time, so the screen isn't redrawn for every chunk.

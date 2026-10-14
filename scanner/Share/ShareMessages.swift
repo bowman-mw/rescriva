@@ -45,6 +45,20 @@ enum ShareLimits {
 	static let appDevices: Set<String> = ["iphone", "ipad", "mac"]
 	/// Everything the relay lists a peer as.
 	static let relayDevices: Set<String> = pageDevices.union(appDevices)
+	/// What a page saves from a device it isn't paired with (rescriva-share's assets/peer.js
+	/// `SAVED_TYPES`): PDFs, plain pictures, MP4 and QuickTime videos, and the app's export
+	/// formats. A paired page saves any type.
+	static let unpairedPageTypes: Set<String> = [
+		"application/pdf", "image/png", "image/jpeg", "image/heic", "image/heif", "image/gif", "image/webp", "image/tiff",
+		"video/mp4", "video/quicktime",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"text/markdown", "text/plain",
+	]
+	/// The most such a page takes in one PDF, and in one file of any other type (its
+	/// `MAX_UNTRUSTED_BYTES`). A paired page takes any size.
+	static let unpairedPageMaxPDFBytes: Int64 = 1 << 30
+	static let unpairedPageMaxBytes: Int64 = 128 << 20
 }
 
 /// What the page sends over the data channel (PROTOCOL.md §4).

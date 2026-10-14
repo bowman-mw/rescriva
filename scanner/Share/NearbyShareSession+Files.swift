@@ -2,24 +2,30 @@
 //  NearbyShareSession+Files.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  The files behind a Share Nearby session, in three types rather than an extension of the session
-//  (the file keeps its name because renaming it means touching the project file): NearbyShareFiles
-//  makes, imports and sweeps them, NearbyShareChunkFile reads or writes one a chunk at a time off
-//  the main actor, and NearbyShareUpload is one file arriving from a page. What's shared is copied
-//  into its own folder first, so a page always downloads a fixed file:
+//  The files behind a Share Nearby session, in types of their own rather than an extension of the
+//  session (the file keeps its name because renaming it means touching the project file):
+//  NearbyShareFiles makes, saves and sweeps them, NearbyShareChunkFile reads or writes one a chunk
+//  at a time off the main actor, NearbyShareUpload is one file arriving from a page, and
+//  NearbySharePhotos puts received pictures and videos in the Photos library. What's shared is
+//  copied into its own folder first, so a page always downloads a fixed file:
 //
 //      tmp/NearbyShare/<session>/<document id>/<name>   deleted when the session stops
-//      tmp/NearbyShareReceived/<uuid>/<name>             one upload, deleted once it's imported
+//      tmp/NearbySharePicked/<uuid>/<name>               a picked photo, on its way to the above
+//      tmp/NearbyShareReceived/<uuid>/<name>             one upload, deleted once it's saved
 //
-//  Received files live outside the session's folder, so an import that finishes after the
-//  session stops (the app went to the background) still has its file. Folders left behind in
-//  either place when the app was killed mid-share go when the next run's first session starts.
+//  A received file is saved by its kind: a PDF in PDF Files, a picture or video in Photos, and
+//  anything else in Documents/Received, which the Files app shows as On My iPhone › Rescriva ›
+//  Received (Downloads, on a Mac). Until then it lives outside the session's folder, so a save
+//  that finishes after the session stops (the app went to the background) still has its file.
+//  Folders left behind in tmp/ when the app was killed mid-share go when the next run's first
+//  session starts.
 //
 
 import CoreData
 import Foundation
-import ImageIO
-import UIKit
+import Photos
+import PhotosUI
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// A shared document's file, ready to send.
@@ -62,15 +68,22 @@ enum NearbyShareFiles {
 		FileManager.default.temporaryDirectory.appendingPathComponent("NearbyShareReceived", isDirectory: true)
 	}
 
+	/// tmp/NearbySharePicked/, which holds a folder for each photo the picker hands over.
+	nonisolated static var pickedFolderRoot: URL {
+		FileManager.default.temporaryDirectory.appendingPathComponent("NearbySharePicked", isDirectory: true)
+	}
+
 	/// The folder for a session that's starting. The first session in this process also deletes
-	/// every other folder in tmp/NearbyShare/ and every folder in tmp/NearbyShareReceived/: none
-	/// of them are this process's (nothing is received before a session starts), so they're what
-	/// earlier runs left when the app was killed mid-share.
+	/// every other folder in tmp/NearbyShare/ and every folder in tmp/NearbyShareReceived/ and
+	/// tmp/NearbySharePicked/: none of them are this process's (nothing is received or picked
+	/// before a session starts), so they're what earlier runs left when the app was killed
+	/// mid-share.
 	static func startingSessionFolder(_ session: String) -> URL {
 		if !sweptLeftovers {
 			sweptLeftovers = true
 			removeInBackground(leftoverFolders(in: sessionsFolder, keeping: [session])
-				+ leftoverFolders(in: receivedFolderRoot, keeping: []))
+				+ leftoverFolders(in: receivedFolderRoot, keeping: [])
+				+ leftoverFolders(in: pickedFolderRoot, keeping: []))
 		}
 		return sessionFolder(session)
 	}
@@ -139,6 +152,8 @@ enum NearbyShareFiles {
 			return NearbyShareInput.fileName(title, fallback: "PDF") + ".pdf"
 		case .file(let url, let name):
 			return NearbyShareInput.fileName(name, fallback: url.lastPathComponent)
+		case .photo:
+			return String(localized: "Photo")
 		}
 	}
 
@@ -160,6 +175,7 @@ enum NearbyShareFiles {
 			case .scan(let scan): url = try await exportScan(scan, into: folder)
 			case .pdf(let id): url = try await copyPDF(id, into: folder, library: library)
 			case .file(let source, let name): url = try await copyFile(source, named: name, into: folder)
+			case .photo(let item): url = try await loadPhoto(item, into: folder)
 			}
 			return .success(try describe(url))
 		} catch {
@@ -188,11 +204,46 @@ enum NearbyShareFiles {
 		return destination
 	}
 
+	/// A file that's already made, or one picked in Files. It's read through a file coordinator, so
+	/// a file in iCloud Drive that isn't on the device yet is downloaded first.
 	private static func copyFile(_ source: URL, named name: String, into folder: URL) async throws -> URL {
 		let destination = folder.appendingPathComponent(NearbyShareInput.fileName(name, fallback: source.lastPathComponent))
-		let scoped = source.startAccessingSecurityScopedResource()
-		defer { if scoped { source.stopAccessingSecurityScopedResource() } }
-		try await copyOffMain(source, to: destination)
+		try await Task.detached(priority: .userInitiated) {
+			let scoped = source.startAccessingSecurityScopedResource()
+			defer { if scoped { source.stopAccessingSecurityScopedResource() } }
+			try NearbyShareFiles.coordinatedCopy(source, to: destination)
+		}.value
+		return destination
+	}
+
+	/// Copies `source` to `destination` under a file coordinator. A folder or a package isn't one
+	/// file a page can download, so it's refused.
+	nonisolated private static func coordinatedCopy(_ source: URL, to destination: URL) throws {
+		var coordinationError: NSError?
+		var copyError: Error?
+		NSFileCoordinator().coordinate(readingItemAt: source, options: .withoutChanges, error: &coordinationError) { readable in
+			do {
+				guard try readable.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+					throw NearbyShareFileError.unreadable
+				}
+				try FileManager.default.copyItem(at: readable, to: destination)
+			} catch {
+				copyError = error
+			}
+		}
+		if let error = coordinationError ?? copyError { throw error }
+	}
+
+	/// A photo or video picked from the Photos library, moved into `folder`. The picker is asked
+	/// for the `.compatible` encoding, so a HEIC picture comes as a JPEG and an HEVC video as
+	/// H.264, which any computer opens.
+	private static func loadPhoto(_ item: PhotosPickerItem, into folder: URL) async throws -> URL {
+		guard let picked = try await item.loadTransferable(type: NearbySharePickedFile.self) else {
+			throw NearbyShareFileError.missing
+		}
+		defer { remove(picked.url.deletingLastPathComponent()) }
+		let destination = folder.appendingPathComponent(picked.url.lastPathComponent)
+		try FileManager.default.moveItem(at: picked.url, to: destination)
 		return destination
 	}
 
@@ -219,54 +270,195 @@ enum NearbyShareFiles {
 
 	// MARK: Receiving
 
-	/// Brings a received file into the Library: a PDF into PDF Files (titled with its name), an
-	/// image as a new scan. False when it won't open.
-	static func importReceived(_ url: URL, name: String, type: String, library: PDFLibrary,
-							   context: NSManagedObjectContext) async -> Bool {
-		if type == "application/pdf" {
-			do {
-				_ = try await library.importPDF(at: url, title: NearbyShareInput.title(fromFileName: name))
-				return true
-			} catch {
-				Log.share.error("Share Nearby couldn't import a received PDF: \(error)")
-				return false
-			}
-		}
-		let maxSide = maxImageSide
-		let decoded = await Task.detached(priority: .userInitiated) {
-			NearbyShareFiles.image(at: url, maxSide: maxSide)
-		}.value
-		guard let image = decoded else {
-			Log.share.notice("Share Nearby received an image that won't open")
-			return false
-		}
-		return await PhotoImport.scan(from: [image], in: context) != nil
+	/// Documents/Received, which the Files app shows as On My iPhone › Rescriva › Received; on a
+	/// Mac, Downloads. Not the top of Documents: earlier versions wrote Quick Look's copies there,
+	/// and the sweep at launch deletes whatever is named like one ("scan.jpg").
+	nonisolated static var receivedFilesFolder: URL {
+		#if targetEnvironment(macCatalyst)
+		return URL.downloadsDirectory
+		#else
+		return URL.documentsDirectory.appendingPathComponent("Received", isDirectory: true)
+		#endif
 	}
 
-	/// A received picture's longest side once it's scaled down: a phone camera's full size.
-	static let maxImageSide = 4_096
-	/// Pictures with more pixels than this aren't decoded at all.
-	nonisolated static let maxImagePixels = 200_000_000
+	/// Saves a received file where its kind belongs: a PDF in PDF Files (titled with its name), a
+	/// picture or a video in Photos, anything else in `filesFolder`. What won't go where it
+	/// belongs (a PDF that won't open, a picture Photos refuses or may not have) goes in
+	/// `filesFolder` too, so nothing accepted is lost. Where it went, or nil when it couldn't be
+	/// saved anywhere. Leaves `url` behind only when it wasn't moved into `filesFolder`.
+	static func saveReceived(_ url: URL, name: String, type: String, library: PDFLibrary,
+							 photos: any NearbySharePhotoSaving, filesFolder: URL) async -> NearbyShareSavedFile? {
+		let kind = NearbyShareInput.uploadKind(type: type)
+		var photosAccessOff = false
+		switch kind {
+		case .pdf:
+			if await importPDF(url, name: name, library: library) { return NearbyShareSavedFile(destination: .pdfFiles, name: name) }
+		case .picture, .video:
+			let result = await photos.add(url, name: name, type: type, isVideo: kind == .video)
+			if result == .saved { return NearbyShareSavedFile(destination: .photos, name: name) }
+			photosAccessOff = result == .noAccess
+		case .file:
+			break
+		}
+		let filesName = nameForFiles(name, type: type)
+		let moved = await Task.detached(priority: .userInitiated) {
+			NearbyShareFiles.move(url, into: filesFolder, named: filesName)
+		}.value
+		guard let moved else { return nil }
+		return NearbyShareSavedFile(destination: .files(photosAccessOff: photosAccessOff), name: moved.lastPathComponent)
+	}
 
-	/// The picture at `url`, upright and scaled down to at most `maxSide` pixels on its longest
-	/// side, read straight from the file without holding all of it in memory. Nil when it won't
-	/// open or is absurdly large. Runs on any thread.
-	nonisolated static func image(at url: URL, maxSide: Int) -> UIImage? {
-		let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
-		guard maxSide > 0, let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions),
-			  CGImageSourceGetCount(source) > 0 else { return nil }
-		guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-			  let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
-			  let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
-			  width > 0, height > 0, width <= maxImagePixels / height else { return nil }
-		let options: [CFString: Any] = [
-			kCGImageSourceCreateThumbnailFromImageAlways: true,
-			kCGImageSourceCreateThumbnailWithTransform: true,
-			kCGImageSourceShouldCacheImmediately: true,
-			kCGImageSourceThumbnailMaxPixelSize: min(maxSide, max(width, height)),
-		]
-		guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-		return UIImage(cgImage: image)
+	/// `name` with the extension its type calls for when it has none ("Clip" sent as video/mp4
+	/// is "Clip.mp4"), so Files knows what opens it. A name with an extension, or a file of no
+	/// known type, keeps its name.
+	nonisolated static func nameForFiles(_ name: String, type: String) -> String {
+		guard (name as NSString).pathExtension.isEmpty, type != NearbyShareInput.unknownType,
+			  let ext = UTType(mimeType: type)?.preferredFilenameExtension, !ext.isEmpty else { return name }
+		return name + "." + ext
+	}
+
+	/// Copies a received PDF into PDF Files. False when it won't open there.
+	private static func importPDF(_ url: URL, name: String, library: PDFLibrary) async -> Bool {
+		do {
+			_ = try await library.importPDF(at: url, title: NearbyShareInput.title(fromFileName: name))
+			return true
+		} catch {
+			Log.share.error("Share Nearby couldn't import a received PDF, so it goes in Files: \(error)")
+			return false
+		}
+	}
+
+	/// How far "name 2", "name 3"… go looking for a free name.
+	nonisolated static let maxNameNumber = 999
+
+	/// Moves `url` into `folder` (made if need be) as `name`, or "name 2", "name 3"… when that's
+	/// taken, so nothing already there is replaced. Its new place, or nil. Runs on any thread.
+	nonisolated static func move(_ url: URL, into folder: URL, named name: String) -> URL? {
+		do {
+			try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		} catch {
+			Log.share.error("Share Nearby couldn't make the folder for received files: \(error)")
+			return nil
+		}
+		for number in 1...maxNameNumber {
+			let destination = folder.appendingPathComponent(numberedName(name, number))
+			do {
+				try FileManager.default.moveItem(at: url, to: destination)
+				return destination
+			} catch let error as CocoaError where error.code == .fileWriteFileExists {
+				continue
+			} catch {
+				Log.share.error("Share Nearby couldn't save a received file: \(error)")
+				return nil
+			}
+		}
+		Log.share.error("Share Nearby found no free name for a received file")
+		return nil
+	}
+
+	/// `name` for the first, then "name 2", "name 3"… with the extension kept at the end
+	/// ("Notes 2.zip").
+	nonisolated static func numberedName(_ name: String, _ number: Int) -> String {
+		guard number > 1 else { return name }
+		let ext = (name as NSString).pathExtension
+		let stem = (name as NSString).deletingPathExtension
+		return ext.isEmpty ? "\(stem) \(number)" : "\(stem) \(number).\(ext)"
+	}
+}
+
+/// A received file once it's saved: where, and under what name ("Notes 2.zip" when Files had a
+/// "Notes.zip" already).
+struct NearbyShareSavedFile: Equatable {
+	let destination: NearbyShareDestination
+	let name: String
+}
+
+/// Where a received file was saved.
+enum NearbyShareDestination: Equatable {
+	case pdfFiles
+	case photos
+	/// `NearbyShareFiles.receivedFilesFolder`. `photosAccessOff` when it's a picture or video that
+	/// went there because Rescriva may not add to Photos.
+	case files(photosAccessOff: Bool)
+}
+
+/// What adding a received picture or video to Photos came to.
+enum NearbySharePhotoResult: Equatable {
+	case saved
+	/// Rescriva may not add to Photos: the person said no, or it's restricted.
+	case noAccess
+	/// Photos wouldn't take the file.
+	case failed
+}
+
+/// Puts received pictures and videos in the Photos library. Tests stand in their own.
+protocol NearbySharePhotoSaving: Sendable {
+	/// Asks for permission to add to Photos when it hasn't been asked yet, without waiting for
+	/// the answer: called on Accept, so the question comes while the person is looking.
+	func askIfUndecided()
+	/// True when Rescriva has been told it may not add to Photos (or Photos is restricted), so a
+	/// picture would go to Files.
+	var isRefused: Bool { get }
+	/// Adds the file at `url`, which stays where it is, asking for permission first if need be.
+	/// `type` is its MIME type, in case its name has no extension to go by.
+	func add(_ url: URL, name: String, type: String, isVideo: Bool) async -> NearbySharePhotoResult
+}
+
+/// The Photos library, with add-only access: Rescriva can put pictures in but can't see any.
+/// Not on the main actor: Photos runs the change block on a queue of its own.
+struct NearbySharePhotos: NearbySharePhotoSaving {
+	func askIfUndecided() {
+		guard PHPhotoLibrary.authorizationStatus(for: .addOnly) == .notDetermined else { return }
+		PHPhotoLibrary.requestAuthorization(for: .addOnly) { _ in }
+	}
+
+	var isRefused: Bool {
+		let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+		return status == .denied || status == .restricted
+	}
+
+	func add(_ url: URL, name: String, type: String, isVideo: Bool) async -> NearbySharePhotoResult {
+		let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+		guard status == .authorized || status == .limited else {
+			Log.share.notice("Share Nearby may not add to Photos, so a received picture goes in Files")
+			return .noAccess
+		}
+		do {
+			try await PHPhotoLibrary.shared().performChanges {
+				let options = PHAssetResourceCreationOptions()
+				options.originalFilename = name
+				options.uniformTypeIdentifier = UTType(mimeType: type)?.identifier
+				PHAssetCreationRequest.forAsset().addResource(with: isVideo ? .video : .photo, fileURL: url, options: options)
+			}
+			return .saved
+		} catch {
+			Log.share.error("Photos wouldn't take a received file, so it goes in Files: \(error)")
+			return .failed
+		}
+	}
+}
+
+/// A picked photo or video as the picker hands it over. The picker deletes its own copy once
+/// the import returns, so the file is copied into a fresh folder in tmp/NearbySharePicked/ first.
+struct NearbySharePickedFile: Transferable {
+	let url: URL
+
+	static var transferRepresentation: some TransferRepresentation {
+		FileRepresentation(importedContentType: .image) { received in try Self(copying: received.file) }
+		FileRepresentation(importedContentType: .movie) { received in try Self(copying: received.file) }
+	}
+
+	private init(copying file: URL) throws {
+		let folder = NearbyShareFiles.pickedFolderRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+		let destination = folder.appendingPathComponent(NearbyShareInput.fileName(file.lastPathComponent, fallback: "Photo"))
+		do {
+			try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+			try FileManager.default.copyItem(at: file, to: destination)
+		} catch {
+			NearbyShareFiles.remove(folder)
+			throw error
+		}
+		url = destination
 	}
 }
 

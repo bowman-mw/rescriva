@@ -3,6 +3,8 @@
 > **Status, 2026-10-13:** the app side is built, tested end to end in the simulator, and merged into
 > `main`. share.rescriva.com and relay.rescriva.com are live. It still needs a real-device test,
 > including Personal Hotspot (§9). Sections 3–8 describe the state at the time of the handoff.
+> Since 2026-10-14 the app also sends photos and any file, and takes any file from a page: PDFs go
+> to PDF Files, photos and videos to Photos, the rest to Files (Docs/Nearby-Share-App-Design.md).
 
 Written 2026-10-12 when the work was paused for a cloud session. Branch `nearby-share` in
 **`bowman-mw/rescriva`** (the app's new home; the old fork `bowman-mw/OpenScanner` is frozen, so
