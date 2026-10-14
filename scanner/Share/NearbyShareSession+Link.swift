@@ -2,9 +2,11 @@
 //  NearbyShareSession+Link.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  One connection a Share Nearby session holds with a web page: its SharePeer, where it came
-//  from (a relay room, or a scanned pairing code), what the page has proved or unlocked, and its
-//  one download and one upload at a time (Docs/Rescriva-Share-Protocol.md §4).
+//  NearbyShareLink, one connection a Share Nearby session holds with a web page (a class of its
+//  own, not an extension of the session; the file keeps its name because renaming it means
+//  touching the project file): its SharePeer, where it came from (a relay room, or a scanned
+//  pairing code), what the page has proved or unlocked, its check number when it proved nothing,
+//  and its one download and one upload at a time (Docs/Rescriva-Share-Protocol.md §4).
 //
 
 import Foundation
@@ -84,10 +86,24 @@ final class NearbyShareLink {
 	/// True when the page's hello `proof` matches this connection's secret and fingerprints, or
 	/// when there's no secret to prove.
 	func provesItself(_ proof: String?) -> Bool {
-		guard let secret = peer.secret else { return true }
-		guard let proof, let offer = peer.offerFingerprint, let answer = peer.answerFingerprint else { return false }
-		let expected = ShareCodes.proof(secret: secret, role: "web", offerFingerprint: offer, answerFingerprint: answer)
+		Self.proves(proof, secret: peer.secret, offerFingerprint: peer.offerFingerprint, answerFingerprint: peer.answerFingerprint)
+	}
+
+	/// The rule behind `provesItself`: with no secret anything passes; with one, `proof` must be
+	/// the page's HMAC over both fingerprints, which must both be known.
+	nonisolated static func proves(_ proof: String?, secret: Data?, offerFingerprint: String?, answerFingerprint: String?) -> Bool {
+		guard let secret else { return true }
+		guard let proof, let offerFingerprint, let answerFingerprint else { return false }
+		let expected = ShareCodes.proof(secret: secret, role: "web", offerFingerprint: offerFingerprint, answerFingerprint: answerFingerprint)
 		return NearbyShareInput.same(proof, expected)
+	}
+
+	/// The six digits this device and the page both show for a connection that proved nothing
+	/// (`ShareCodes.checkNumber`), once both fingerprints are applied. Nil for a connection with a
+	/// secret: its proof already says the two ends see the same connection.
+	var checkNumber: String? {
+		guard peer.secret == nil, let offer = peer.offerFingerprint, let answer = peer.answerFingerprint else { return nil }
+		return ShareCodes.checkNumber(offerFingerprint: offer, answerFingerprint: answer)
 	}
 
 	/// The app's own proof for its hello; nil when there's no secret, or no fingerprints yet.

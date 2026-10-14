@@ -55,7 +55,7 @@ struct FigureStore: Sendable {
 		do {
 			return try Data(contentsOf: url)
 		} catch {
-			print("Rescriva: couldn't read a figure: \(error)")
+			Log.library.error("Couldn't read a figure: \(error)")
 			return nil
 		}
 	}
@@ -85,7 +85,7 @@ struct FigureStore: Sendable {
 		do {
 			try save(made, for: source.assetID, scanID: scanID)
 		} catch {
-			print("Rescriva: couldn't store a figure: \(error)")
+			Log.library.error("Couldn't store a figure: \(error)")
 		}
 		return made
 	}
@@ -97,7 +97,7 @@ struct FigureStore: Sendable {
 		do {
 			try FileManager.default.removeItem(at: url)
 		} catch {
-			print("Rescriva: couldn't remove a scan's figures: \(error)")
+			Log.library.error("Couldn't remove a scan's figures: \(error)")
 		}
 	}
 
@@ -116,7 +116,7 @@ struct FigureStore: Sendable {
 				try FileManager.default.removeItem(at: url)
 				removed += 1
 			} catch {
-				print("Rescriva: couldn't remove a figure: \(error)")
+				Log.library.error("Couldn't remove a figure: \(error)")
 			}
 		}
 		return removed
@@ -141,7 +141,7 @@ struct FigureStore: Sendable {
 		do {
 			return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
 		} catch {
-			print("Rescriva: couldn't list figures: \(error)")
+			Log.library.error("Couldn't list figures: \(error)")
 			return []
 		}
 	}
@@ -274,11 +274,15 @@ enum FigureAssets {
 	}
 
 	/// Deletes the scan's pictures that its rebuilt document no longer needs (all of them when it
-	/// has none), off the main thread.
-	static func prune(_ scan: Scan, store: FigureStore = .shared) {
-		guard let scanID = scan.id else { return }
+	/// has none), off the main thread. What to keep is decided here, on the main actor, before the
+	/// task starts, and the deletion then owes nothing to the screen that asked: pictures a rebuild
+	/// or Review made stale must go even once that screen has closed. The task is returned (nil
+	/// for a scan with no id) so a caller that needs to can wait for it or cancel it.
+	@discardableResult
+	static func prune(_ scan: Scan, store: FigureStore = .shared) -> Task<Void, Never>? {
+		guard let scanID = scan.id else { return nil }
 		let keep: Set<String> = scan.isDeleted ? [] : (scan.rebuiltDocument?.liveFigureAssetIDs ?? [])
-		Task.detached(priority: .utility) {
+		return Task.detached(priority: .utility) {
 			store.prune(scanID: scanID, keeping: keep)
 		}
 	}
@@ -295,14 +299,14 @@ enum FigureAssets {
 		do {
 			ids = Set(try context.fetch(request).compactMap { $0["id"] as? UUID })
 		} catch {
-			print("Rescriva: couldn't list scans for figure cleanup: \(error)")
+			Log.library.error("Couldn't list scans for figure cleanup: \(error)")
 			return
 		}
 		let removed = await Task.detached(priority: .utility) {
 			store.pruneOrphans(keeping: ids)
 		}.value
 		if removed > 0 {
-			print("Rescriva: removed the figures of \(removed) deleted scans")
+			Log.library.notice("Removed the figures of \(removed) deleted scans")
 		}
 	}
 }

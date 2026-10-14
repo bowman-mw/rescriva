@@ -4,8 +4,9 @@
 //
 //  Share Nearby's small encodings and derivations (Docs/Rescriva-Share-Protocol.md §1 and §3.1): the two
 //  unpadded base64 flavours, secrets and session ids, the relay room id, ICE credentials and hello
-//  proofs derived from a secret, the connection code, and document PINs. rescriva-share's assets/codes.js
-//  and crypto.js are the page's side of the same thing, and the test vectors are shared.
+//  proofs derived from a secret, the check number an untrusted page and this device both show,
+//  the connection code, and document PINs. rescriva-share's assets/codes.js and crypto.js are the
+//  page's side of the same thing, and the test vectors are shared.
 //
 
 import CryptoKit
@@ -74,6 +75,25 @@ enum ShareCodes {
 		return base64URL(hmac(secret: secret, text: text))
 	}
 
+	/// The nine-digit check number for a connection with no secret (the same-network room): the
+	/// page shows it on this device's card and this device shows it on the page's row, so a person
+	/// can see they're looking at the same connection before typing a PIN. It's SHA-256 of
+	/// "rescriva-share/check/v1|" + offer fingerprint + "|" + answer fingerprint (both as applied,
+	/// upper-case hex pairs joined by ":"), the first eight bytes as a big-endian number, mod 10⁹,
+	/// zero-padded. Show it with `displayCheckNumber`. It isn't an authentication: a relay in the
+	/// middle sees both fingerprints and can show the same number, and whoever answers an offer
+	/// picks its certificate after seeing the offer's fingerprint, so it could try certificates
+	/// until the number matched one it wanted; nine digits make that a billion tries, which no
+	/// connection's window allows (six would have been a million).
+	static func checkNumber(offerFingerprint: String, answerFingerprint: String) -> String {
+		let text = "rescriva-share/check/v1|" + offerFingerprint + "|" + answerFingerprint
+		let digest = Array(SHA256.hash(data: Data(text.utf8)))
+		var value: UInt64 = 0
+		for byte in digest.prefix(8) { value = value << 8 | UInt64(byte) }
+		let digits = String(value % 1_000_000_000)
+		return String(repeating: "0", count: max(0, 9 - digits.count)) + digits
+	}
+
 	// MARK: Connection code
 
 	/// The code the page types to reach `ipv4:port`, with its check digit and no dashes. Nil when
@@ -93,7 +113,9 @@ enum ShareCodes {
 	}
 
 	/// The address and port in a typed code, or nil when it's mistyped. Dashes, spaces and case
-	/// don't matter, and O, I and L read as 0, 1 and 1.
+	/// don't matter, and O, I and L read as 0, 1 and 1. The page is what reads codes (assets/codes.js);
+	/// the app never does. This is kept for the tests, which decode what `connectionCode` makes to
+	/// check the encoder against the page's rules.
 	static func decodeConnectionCode(_ text: String) -> (ipv4: String, port: UInt16)? {
 		guard text.utf8.count <= 64, let digits = codeDigits(text), digits.count >= 5 else { return nil }
 		let tag = digits[0] >> 3
@@ -157,14 +179,22 @@ enum ShareCodes {
 			let pin = pinText((start + step) % pinSpace)
 			if !used.contains(pin) { return pin }
 		}
-		print("Rescriva: every Share Nearby PIN is in use")
+		Log.share.error("Every Share Nearby PIN is in use")
 		return pinText(start)
 	}
 
-	/// "482913" → "482 913". Anything that isn't six characters comes back as it is.
+	/// "482913" → "482 913", for a PIN. Anything that isn't six characters comes back as it is.
 	static func displayPIN(_ pin: String) -> String {
 		guard pin.count == 6 else { return pin }
 		return String(pin.prefix(3)) + " " + String(pin.suffix(3))
+	}
+
+	/// "424561948" → "424 561 948", for a check number, the way the page shows it. Anything that
+	/// isn't nine characters comes back as it is.
+	static func displayCheckNumber(_ number: String) -> String {
+		guard number.count == 9 else { return number }
+		let digits = Array(number)
+		return String(digits[0..<3]) + " " + String(digits[3..<6]) + " " + String(digits[6..<9])
 	}
 
 	// MARK: Private
@@ -197,7 +227,7 @@ enum ShareCodes {
 		let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
 		if status != errSecSuccess {
 			// SystemRandomNumberGenerator is also cryptographically secure on Apple platforms.
-			print("Rescriva: SecRandomCopyBytes failed (\(status)); using the system generator")
+			Log.share.error("SecRandomCopyBytes failed (\(status)); using the system generator")
 			var generator = SystemRandomNumberGenerator()
 			for index in 0..<count { bytes[index] = generator.next() }
 		}

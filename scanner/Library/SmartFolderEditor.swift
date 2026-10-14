@@ -127,7 +127,7 @@ struct SmartFolderEditorSheet: View {
 		do {
 			count = try context.count(for: request)
 		} catch {
-			print("Rescriva: smart folder preview count failed: \(error)")
+			Log.library.error("Smart folder preview count failed: \(error)")
 			count = 0
 		}
 		return count == 1 ? String(localized: "1 scan matches") : String(localized: "\(count) scans match")

@@ -314,14 +314,17 @@ enum FileImport {
 		UTType(filenameExtension: url.pathExtension)?.conforms(to: .pdf) ?? false
 	}
 
-	/// The images among `urls` that open, each read while its security scope is open.
-	static func images(at urls: [URL]) -> [UIImage] {
-		urls.compactMap { url in
-			let scoped = url.startAccessingSecurityScopedResource()
-			defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-			guard let data = try? Data(contentsOf: url) else { return nil }
-			return UIImage(data: data)
-		}
+	/// The images among `urls` that open, each read while its security scope is open. The files
+	/// are read and decoded off the main thread; the caller only gets the finished images.
+	static func images(at urls: [URL]) async -> [UIImage] {
+		await Task.detached(priority: .userInitiated) {
+			urls.compactMap { url -> UIImage? in
+				let scoped = url.startAccessingSecurityScopedResource()
+				defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+				guard let data = try? Data(contentsOf: url), let image = UIImage(data: data) else { return nil }
+				return image.normalizedUp()
+			}
+		}.value
 	}
 
 	/// Every page in `urls` as an image: each image, and each page of each PDF.
@@ -330,7 +333,7 @@ enum FileImport {
 		var pages: [UIImage] = []
 		for url in urls {
 			guard isPDF(url) else {
-				pages += images(at: [url])
+				pages += await images(at: [url])
 				continue
 			}
 			let scoped = url.startAccessingSecurityScopedResource()
@@ -516,7 +519,7 @@ struct WorkspaceScanRow: View {
 	var body: some View {
 		Button(action: action) {
 			HStack(spacing: 12) {
-				PaperThumbnail(image: scan.capturesArray.first?.thumbnail, width: 34, height: 44)
+				PaperThumbnail(image: scan.coverThumbnail, width: 34, height: 44)
 				VStack(alignment: .leading, spacing: 1) {
 					Text(scan.displayTitle)
 						.font(RescrivaFont.ui(14, weight: .medium))

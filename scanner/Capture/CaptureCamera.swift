@@ -343,7 +343,7 @@ final class CaptureCamera {
 			// The user slid the phone about, so auto-capture waits for this page to leave the frame.
 			pipeline.endSecondLook()
 			#if DEBUG
-			print("Rescriva: second look ended (\(outcome)) with \(stills.count) more photo(s)")
+			Log.capture.debug("Second look ended (\(String(describing: outcome))) with \(stills.count) more photo(s)")
 			#endif
 		}
 		while stills.count < Self.maxExtraStills, wantsRunning, let move = coverage.suggestedMove {
@@ -351,7 +351,7 @@ final class CaptureCamera {
 			let onScreen = (quad ?? lastQuad).map { move.onScreen(for: $0) } ?? move
 			secondLook = SecondLook(direction: onScreen)
 			#if DEBUG
-			print("Rescriva: second look began: \(coverage.pendingCount) glary cells, slide \(onScreen)")
+			Log.capture.debug("Second look began: \(coverage.pendingCount) glary cells, slide \(String(describing: onScreen))")
 			#endif
 			lookGeneration += 1
 			pipeline.beginSecondLook(SecondLookTrigger(coverage: coverage, lastStillQuad: lastQuad), generation: lookGeneration)
@@ -1020,7 +1020,7 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		do {
 			result = try GlareFusion.fuse(frames, context: ciContext, options: options)
 		} catch {
-			print("Rescriva: glare fusion failed, keeping the first photo: \(error)")
+			Log.capture.error("Glare fusion failed, keeping the first photo: \(error)")
 			return nil
 		}
 		#if DEBUG
@@ -1029,9 +1029,8 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 			return "#\(frame.index) \(frame.alignment)\(local), glare \(Int((frame.glareFraction * 100).rounded()))%"
 		}
 		let dropped = result.unrefinedFrames.map { "#\($0.index) \($0.alignment)" }
-		print(String(format: "Rescriva: glare fusion %.0f ms; used %@; dropped %@; glare left %.0f%%",
-					 (CACurrentMediaTime() - started) * 1000, used.joined(separator: ", "),
-					 dropped.isEmpty ? "none" : dropped.joined(separator: ", "), result.residualGlareFraction * 100))
+		let elapsed = (CACurrentMediaTime() - started) * 1000
+		Log.capture.debug("Glare fusion \(elapsed, format: .fixed(precision: 0)) ms; used \(used.joined(separator: ", ")); dropped \(dropped.isEmpty ? "none" : dropped.joined(separator: ", ")); glare left \(result.residualGlareFraction * 100, format: .fixed(precision: 0))%")
 		#endif
 		guard result.frames.count > 1 else { return nil }
 		let bounds = result.page.extent.integral

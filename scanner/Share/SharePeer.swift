@@ -69,19 +69,14 @@ final class SharePeer {
 	var isOpen: Bool { channelIsOpen && !isClosed }
 
 	private static let label = "rescriva"
-	/// The page's text frames are small JSON messages; anything bigger is dropped.
-	private static let maxTextBytes = 64 * 1024
-	/// Relay messages are at most 64 KB, so a real offer is smaller than this.
-	private static let maxOfferBytes = 64 * 1024
-	private static let maxCandidateBytes = 1024
 	private static let maxPendingCandidates = 64
 	private static let maxLocalCandidates = 32
 	/// The page has one m= section, its data channel; `answer(offer:)` refuses any other offer.
 	private static let maxMLineIndex: Int32 = 0
 	/// `waitForRoom()` looks again this often even without a buffer callback, for at most
-	/// `roomChecks` times (five minutes) before giving up on that wait.
+	/// `roomChecks` times (`ShareLimits.stallSeconds`) before giving up on that wait.
 	private static let roomCheckInterval: TimeInterval = 0.5
-	private static let roomChecks = 600
+	private static let roomChecks = Int(ShareLimits.stallSeconds / roomCheckInterval)
 	/// How long `close()` gives a final `bye` to leave before the transport is torn down.
 	private static let closeGrace: TimeInterval = 0.5
 	/// The page's mDNS candidates this side looks up itself (see `ShareNetwork.ipv4(forMDNSName:)`),
@@ -112,6 +107,51 @@ final class SharePeer {
 		makeConnection()
 	}
 
+	#if DEBUG
+	/// What a stub peer was asked to send: text frames as the messages they were, binary frames
+	/// as their byte counts.
+	enum Recorded: Equatable {
+		case message(ShareOutbound)
+		case bytes(Int)
+	}
+
+	/// What `send` and `sendBinary` were given, on a peer made with `init(stubSecret:…)`.
+	private(set) var recordedForTesting: [Recorded] = []
+	private var isStub = false
+
+	/// A peer with no WebRTC behind it, for tests: its channel counts as open from the start, what
+	/// it's asked to send goes into `recordedForTesting`, and `deliverForTesting` hands it events
+	/// as the real callbacks would.
+	init(stubSecret secret: Data?, offerFingerprint: String?, answerFingerprint: String?,
+		 onEvent: @escaping (SharePeer, Event) -> Void) {
+		self.id = UUID()
+		self.secret = secret
+		self.usesBuiltInCertificate = false
+		self.onEvent = onEvent
+		self.offerFingerprint = offerFingerprint
+		self.answerFingerprint = answerFingerprint
+		isStub = true
+		channelIsOpen = true
+	}
+
+	/// Hands `event` to this peer's owner, as if WebRTC had raised it. `closed` ends the peer first.
+	func deliverForTesting(_ event: Event) {
+		guard !isClosed else { return }
+		if case .closed = event {
+			finish()
+			return
+		}
+		onEvent(self, event)
+	}
+
+	/// Records what a stub was asked to send; false once it's closed, like a real send.
+	private func recordForTesting(_ item: Recorded) -> Bool {
+		guard isOpen else { return false }
+		recordedForTesting.append(item)
+		return true
+	}
+	#endif
+
 	// MARK: Setting up
 
 	/// Relay mode: applies the page's offer and returns the answer SDP for the relay.
@@ -121,7 +161,7 @@ final class SharePeer {
 		// has to be the one DTLS checks (ShareSDP.soleFingerprint).
 		guard Self.isPlausibleOffer(sdp), ShareSDP.isDataChannelOnly(sdp),
 			  let pageFingerprint = ShareSDP.soleFingerprint(in: sdp) else {
-			print("Rescriva: Share Nearby got an offer it can't use")
+			Log.share.notice("Share Nearby got an offer it can't use")
 			throw SharePeerError.badOffer
 		}
 		try await apply(sdp, type: .offer, remote: true, on: connection)
@@ -130,7 +170,7 @@ final class SharePeer {
 		let answer = try await makeAnswer(on: connection)
 		try await apply(answer, type: .answer, remote: false, on: connection)
 		guard let appFingerprint = ShareSDP.fingerprint(in: answer) else {
-			print("Rescriva: Share Nearby's answer has no fingerprint")
+			Log.share.error("Share Nearby's answer has no fingerprint")
 			throw SharePeerError.negotiation("no fingerprint")
 		}
 		answerFingerprint = appFingerprint
@@ -138,14 +178,16 @@ final class SharePeer {
 	}
 
 	/// No-relay mode: rebuilt offer, an answer with ICE credentials swapped in from the secret.
-	func connect(to pairing: SharePairingOffer) async throws {
+	/// With `localOnly`, only the code's local-network candidates are dialed.
+	func connect(to pairing: SharePairingOffer, localOnly: Bool = false) async throws {
 		let connection = try begin()
 		if secret != pairing.secret {
-			print("Rescriva: Share Nearby is pairing with a secret that isn't this peer's")
+			Log.share.notice("Share Nearby is pairing with a secret that isn't this peer's")
 		}
-		let addresses = await Self.ipv4Addresses(of: pairing.candidates.prefix(Self.maxLookups).map(\.host))
+		let candidates = localOnly ? pairing.localCandidates : pairing.candidates
+		let addresses = await Self.ipv4Addresses(of: candidates.prefix(Self.maxLookups).map(\.host))
 		guard !isClosed else { throw SharePeerError.closed }
-		let offer = ShareSDP.offer(for: pairing, addresses: addresses)
+		let offer = ShareSDP.offer(for: pairing, addresses: addresses, localOnly: localOnly)
 		try await apply(offer, type: .offer, remote: true, on: connection)
 		offerFingerprint = ShareSDP.fingerprint(in: offer) ?? pairing.fingerprint
 		await addPendingCandidates()
@@ -155,7 +197,7 @@ final class SharePeer {
 		// The page made up the app's answer with the built-in fingerprint; anything else can't connect.
 		guard let appFingerprint = ShareSDP.fingerprint(in: swapped),
 			  appFingerprint.uppercased() == ShareCertificate.fingerprint.uppercased() else {
-			print("Rescriva: Share Nearby's no-relay answer doesn't use the built-in certificate")
+			Log.share.notice("Share Nearby's no-relay answer doesn't use the built-in certificate")
 			throw SharePeerError.wrongCertificate
 		}
 		try await apply(swapped, type: .answer, remote: false, on: connection)
@@ -180,23 +222,31 @@ final class SharePeer {
 	// MARK: Sending
 
 	@discardableResult func send(_ message: ShareOutbound) -> Bool {
-		sendFrame(message.json, isBinary: false)
+		#if DEBUG
+		if isStub { return recordForTesting(.message(message)) }
+		#endif
+		return sendFrame(message.json, isBinary: false)
 	}
 
 	/// One chunk of file bytes, at most `NearbyShareConfig.chunkSize`.
 	@discardableResult func sendBinary(_ data: Data) -> Bool {
 		guard data.count <= NearbyShareConfig.chunkSize else {
-			print("Rescriva: Share Nearby won't send a \(data.count)-byte chunk")
+			Log.share.notice("Share Nearby won't send a \(data.count)-byte chunk")
 			return false
 		}
+		#if DEBUG
+		if isStub { return recordForTesting(.bytes(data.count)) }
+		#endif
 		return sendFrame(data, isBinary: true)
 	}
 
-	/// Returns once the send buffer is under `NearbyShareConfig.highWater`, or the channel closed.
-	/// Also returns if the task is cancelled, or after five minutes with no room.
-	func waitForRoom() async {
+	/// True once the send buffer is under `NearbyShareConfig.highWater`. False when the channel has
+	/// closed, the task is cancelled, or the buffer hasn't drained after `ShareLimits.stallSeconds`,
+	/// which means the page stopped reading.
+	func waitForRoom() async -> Bool {
 		for _ in 0..<Self.roomChecks {
-			guard isFull, !Task.isCancelled else { return }
+			guard isOpen, !Task.isCancelled else { return false }
+			guard isFull else { return true }
 			await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
 				let token = UUID()
 				roomWaiters[token] = continuation
@@ -205,7 +255,8 @@ final class SharePeer {
 				}
 			}
 		}
-		print("Rescriva: Share Nearby's send buffer didn't drain")
+		Log.share.notice("Share Nearby's send buffer didn't drain in \(Int(ShareLimits.stallSeconds)) s")
+		return false
 	}
 
 	/// Closes the data channel and the connection. No events follow, not even `closed`. Idempotent.
@@ -244,7 +295,7 @@ final class SharePeer {
 		guard !isClosed else { return }
 		switch state {
 		case .failed:
-			print("Rescriva: Share Nearby's connection failed")
+			Log.share.error("Share Nearby's connection failed")
 			finish()
 		case .closed:
 			finish()
@@ -266,8 +317,8 @@ final class SharePeer {
 			onEvent(self, .binary(data))
 			return
 		}
-		guard data.count <= Self.maxTextBytes else {
-			print("Rescriva: Share Nearby dropped a \(data.count)-byte message")
+		guard data.count <= ShareLimits.maxMessageBytes else {
+			Log.share.notice("Share Nearby dropped a \(data.count)-byte message")
 			return
 		}
 		onEvent(self, .text(data))
@@ -293,7 +344,7 @@ final class SharePeer {
 		let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
 		guard let connection = ShareWebRTC.factory.peerConnection(with: configuration, constraints: constraints,
 																  delegate: observer) else {
-			print("Rescriva: WebRTC couldn't make a peer connection")
+			Log.share.error("WebRTC couldn't make a peer connection")
 			return
 		}
 		let channelConfiguration = RTCDataChannelConfiguration()
@@ -301,7 +352,7 @@ final class SharePeer {
 		channelConfiguration.channelId = 0
 		channelConfiguration.isOrdered = true
 		guard let channel = connection.dataChannel(forLabel: Self.label, configuration: channelConfiguration) else {
-			print("Rescriva: WebRTC couldn't make the data channel")
+			Log.share.error("WebRTC couldn't make the data channel")
 			connection.close()
 			return
 		}
@@ -330,7 +381,7 @@ final class SharePeer {
 		}
 		guard !isClosed else { throw SharePeerError.closed }
 		if let failure {
-			print("Rescriva: WebRTC refused the \(remote ? "page's" : "app's") description: \(failure)")
+			Log.share.error("WebRTC refused the \(remote ? "page's" : "app's") description: \(failure)")
 			throw SharePeerError.negotiation(failure)
 		}
 	}
@@ -344,7 +395,7 @@ final class SharePeer {
 		case .success(let sdp):
 			return sdp
 		case .failure(let error):
-			print("Rescriva: WebRTC couldn't make an answer: \(error.localizedDescription)")
+			Log.share.error("WebRTC couldn't make an answer: \(error.localizedDescription)")
 			throw error
 		}
 	}
@@ -353,7 +404,7 @@ final class SharePeer {
 	private func take(_ candidate: RTCIceCandidate) async {
 		guard hasRemoteDescription else {
 			guard pendingCandidates.count < Self.maxPendingCandidates else {
-				print("Rescriva: Share Nearby dropped a candidate; too many arrived before the offer")
+				Log.share.notice("Share Nearby dropped a candidate; too many arrived before the offer")
 				return
 			}
 			pendingCandidates.append(candidate)
@@ -406,7 +457,7 @@ final class SharePeer {
 			ShareWebRTC.add(candidate, on: connection, continuation)
 		}
 		if let failure, !isClosed {
-			print("Rescriva: WebRTC didn't take a remote candidate: \(failure)")
+			Log.share.error("WebRTC didn't take a remote candidate: \(failure)")
 		}
 	}
 
@@ -414,7 +465,7 @@ final class SharePeer {
 		guard isOpen, let channel else { return false }
 		let sent = channel.sendData(RTCDataBuffer(data: data, isBinary: isBinary))
 		if !sent {
-			print("Rescriva: Share Nearby couldn't send a \(isBinary ? "binary" : "text") frame")
+			Log.share.error("Share Nearby couldn't send a \(isBinary ? "binary" : "text") frame")
 		}
 		return sent
 	}
@@ -469,7 +520,7 @@ final class SharePeer {
 	/// The offer's text: bounded, SDP-shaped, with no NULs.
 	private static func isPlausibleOffer(_ sdp: String) -> Bool {
 		let bytes = sdp.utf8
-		guard !bytes.isEmpty, bytes.count <= maxOfferBytes, sdp.hasPrefix("v=0") else { return false }
+		guard !bytes.isEmpty, bytes.count <= ShareLimits.maxSDPBytes, sdp.hasPrefix("v=0") else { return false }
 		return !bytes.contains(0)
 	}
 
@@ -482,13 +533,13 @@ final class SharePeer {
 		}
 		guard !text.isEmpty else { return nil }
 		let printable = text.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value < 0x7F }
-		guard printable, text.utf8.count <= maxCandidateBytes, text.hasPrefix("candidate:"),
+		guard printable, text.utf8.count <= ShareLimits.maxCandidateBytes, text.hasPrefix("candidate:"),
 			  (0...maxMLineIndex).contains(sdpMLineIndex) else {
-			print("Rescriva: Share Nearby ignored a malformed candidate")
+			Log.share.notice("Share Nearby ignored a malformed candidate")
 			return nil
 		}
 		if let sdpMid, !isToken(sdpMid) {
-			print("Rescriva: Share Nearby ignored a candidate with a malformed mid")
+			Log.share.notice("Share Nearby ignored a candidate with a malformed mid")
 			return nil
 		}
 		return RTCIceCandidate(sdp: text, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
@@ -513,7 +564,7 @@ final class SharePeer {
 private enum ShareWebRTC {
 	@MainActor static let factory: RTCPeerConnectionFactory = {
 		if !RTCInitializeSSL() {
-			print("Rescriva: WebRTC couldn't set up SSL")
+			Log.share.error("WebRTC couldn't set up SSL")
 		}
 		keepAwayFromAudio()
 		return RTCPeerConnectionFactory()

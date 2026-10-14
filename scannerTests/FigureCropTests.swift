@@ -248,18 +248,19 @@ final class FigureCropTests: XCTestCase {
 		addTeardownBlock { try? FileManager.default.removeItem(at: docxURL.deletingLastPathComponent()) }
 		let picture = try XCTUnwrap(store.data(for: assetID, scanID: try XCTUnwrap(scan.id)), "cut from the page and stored")
 		let info = try XCTUnwrap(RescrivaImageInfo(data: picture))
-		let docx = try Data(contentsOf: docxURL)
-		XCTAssertNotNil(docx.range(of: picture), "the picture is in the Word file")
-		XCTAssertNotNil(docx.range(of: Data("word/media/image1.jpeg".utf8)))
-		let extent = try XCTUnwrap(attributes(of: "wp:extent", in: docx))
+		let docxEntries = try ZipTestReader.entries(try Data(contentsOf: docxURL))
+		XCTAssertEqual(docxEntries.first { $0.name == "word/media/image1.jpeg" }?.data, picture, "the picture is in the Word file")
+		let documentXML = String(decoding: docxEntries.first { $0.name == "word/document.xml" }?.data ?? Data(), as: UTF8.self)
+		let extent = try XCTUnwrap(attributes(of: "wp:extent", in: documentXML))
 		XCTAssertLessThanOrEqual(extent.cx, OOXML.emu(inches: 6.0), "no wider than the text")
 		XCTAssertEqual(Double(extent.cx) / Double(extent.cy), info.aspect, accuracy: 0.01, "aspect kept")
 
 		let pptxURL = try await ExportService.makeFile(for: scan, format: .pptx, includeNotes: false, figures: store)
 		addTeardownBlock { try? FileManager.default.removeItem(at: pptxURL.deletingLastPathComponent()) }
-		let pptx = try Data(contentsOf: pptxURL)
-		XCTAssertNotNil(pptx.range(of: picture), "the picture is in the PowerPoint file")
-		let placed = try XCTUnwrap(pictureFrame(in: pptx))
+		let pptxEntries = try ZipTestReader.entries(try Data(contentsOf: pptxURL))
+		XCTAssertEqual(pptxEntries.first { $0.name == "ppt/media/image1.jpeg" }?.data, picture, "the picture is in the PowerPoint file")
+		let slideXML = String(decoding: pptxEntries.first { $0.name == "ppt/slides/slide1.xml" }?.data ?? Data(), as: UTF8.self)
+		let placed = try XCTUnwrap(pictureFrame(in: slideXML))
 		// A portrait page on a 16:9 slide: fitted to the slide's height and centred.
 		let frameWidth = 6_858_000.0 * 612 / 792
 		let frame = CGRect(x: (12_192_000 - frameWidth) / 2, y: 0, width: frameWidth, height: 6_858_000)
@@ -388,9 +389,8 @@ final class FigureCropTests: XCTestCase {
 		return nil
 	}
 
-	/// The `cx` and `cy` of the first `<element …>` in a STORED (uncompressed) package.
-	private func attributes(of element: String, in archive: Data) -> (cx: Int, cy: Int)? {
-		let text = String(decoding: archive, as: UTF8.self)
+	/// The `cx` and `cy` of the first `<element …>` in a part's XML (read back with `ZipTestReader`).
+	private func attributes(of element: String, in text: String) -> (cx: Int, cy: Int)? {
 		guard let start = text.range(of: "<\(element) cx=\"") else { return nil }
 		let rest = text[start.upperBound...]
 		let numbers = rest.prefix(60).split(whereSeparator: { !$0.isNumber }).prefix(2).compactMap { Int($0) }
@@ -398,9 +398,8 @@ final class FigureCropTests: XCTestCase {
 		return (numbers[0], numbers[1])
 	}
 
-	/// The first picture's frame on its slide, in EMU.
-	private func pictureFrame(in archive: Data) -> CGRect? {
-		let text = String(decoding: archive, as: UTF8.self)
+	/// The first picture's frame in a slide's XML, in EMU.
+	private func pictureFrame(in text: String) -> CGRect? {
 		guard let picture = text.range(of: "<p:pic>"), let offset = text.range(of: "<a:off x=\"", range: picture.upperBound..<text.endIndex) else { return nil }
 		let numbers = text[offset.upperBound...].prefix(120).split(whereSeparator: { !$0.isNumber }).prefix(4).compactMap { Double($0) }
 		guard numbers.count == 4 else { return nil }

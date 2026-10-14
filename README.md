@@ -11,9 +11,9 @@ Rescriva scans pages and whiteboards on iPhone, iPad and Mac and turns them into
 - **Looks** — Color, Gray, a true black and white (Sauvola's local threshold, after Leptonica) and Ink for whiteboards and handwriting (the whitepaper filter from OSS Document Scanner, sized to the page's strokes). The preview is drawn by the same code as the export.
 - **Rebuild** — Vision's document reader (iOS 26) plus layout heuristics build one intermediate document (`scanner/Rebuild/RescrivaDocument.swift`) that every exporter reads; pages with columns read down each column in turn (a recursive XY-cut); Apple Intelligence re-ranks uncertain words on capable iPhones.
 - **Review & fix** — uncertain words and arrows are flagged for one-tap fixes; bold/italic/underline, heading and notes edit the document before export.
-- **Export** — Word, PowerPoint, searchable PDF and plain text, written by Rescriva's own OOXML writer.
+- **Export** — Word, PowerPoint, searchable PDF, Markdown (with Mermaid diagrams, and a "Copy for AI" button) and plain text, written by Rescriva's own OOXML writer.
 - **PDFs** — open existing PDFs to read, search, fill in forms, mark up (with Apple Pencil, plus a note margin), reorder pages and compare two versions.
-- **Library** — folders, tags, smart folders and Recently Deleted, synced through iCloud, with Spotlight and Shortcuts.
+- **Library** — folders, tags, smart folders and Recently Deleted, synced through iCloud, with two Shortcuts actions ("Open Rescriva" and "Scan Document"). Each scan is one Spotlight item on the device (its title and its scanned text), so scans are searchable system-wide; scans in Recently Deleted are left out, and a result for a scan deleted since opens nothing but a note.
 - **iPad, Mac and Safari** — a workspace layout on iPad and Mac (Mac Catalyst), and a Safari extension that sends web pages and PDFs to the app.
 
 Requires iOS 17 (rebuilding needs iOS 26). For a sample library in the Simulator, launch with `-seedSampleLibrary YES`; `-deviceTier smart|basic|pdf` previews each device tier.

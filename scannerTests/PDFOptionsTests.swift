@@ -7,7 +7,8 @@
 //  their encoding (JPEG, or one bit per pixel for black and white), the text
 //  layer, notes and Annotate marks following the image's rect (and their
 //  page, after pages move), pages drawn from their stored data, and password
-//  protection, down to a whole export from an in-memory scan.
+//  protection, down to a whole export from an in-memory scan — and, with the
+//  same in-memory scan, the Markdown export and "Copy for AI".
 //
 
 import CoreData
@@ -315,6 +316,50 @@ final class PDFOptionsTests: XCTestCase {
 		let size = try XCTUnwrap(document.page(at: 0)).bounds(for: .mediaBox).size
 		XCTAssertEqual(size.width, 595.28, accuracy: 0.01)
 		XCTAssertEqual(size.height, 841.89, accuracy: 0.01)
+	}
+
+	// MARK: Markdown
+
+	/// The `.md` export writes the rebuilt document as Markdown with a Mermaid diagram and the
+	/// notes, and "Copy for AI" gets the very same text.
+	@MainActor
+	func testExportingMarkdownWritesTheRebuiltDocumentAndCopyForAIMatches() async throws {
+		let context = try makeContext()
+		let scan = try XCTUnwrap(NSEntityDescription.insertNewObject(forEntityName: "Scan", into: context) as? Scan)
+		scan.id = UUID()
+		scan.title = "Spring fair"
+		scan.output = .docx
+		let capture = try XCTUnwrap(NSEntityDescription.insertNewObject(forEntityName: "ScanCapture", into: context) as? ScanCapture)
+		let captureID = UUID()
+		capture.id = captureID
+		capture.order = 0
+		capture.createImage(fullSizedImage: try page(width: 600, height: 800))
+		scan.addToCaptures(capture)
+		let ink = RGBColor(hex: 0x1D2233)
+		let diagram = Diagram(nodes: [
+			.init(id: "a", label: "Stalls", shape: .rectangle, box: NormalizedBox(x: 0.05, y: 0.2, width: 0.3, height: 0.3), stroke: ink),
+			.init(id: "b", label: "Raffle", shape: .ellipse, box: NormalizedBox(x: 0.6, y: 0.2, width: 0.3, height: 0.3), stroke: ink),
+		], edges: [.init(id: "1", from: "a", to: "b")])
+		scan.rebuiltDocument = RescrivaDocument(title: "Spring fair", pages: [RescrivaPage(blocks: [
+			RescrivaBlock(content: .heading(level: 1, runs: [RescrivaRun(text: "Spring fair")])),
+			RescrivaBlock(content: .list(style: .checkbox, items: [ListItem(runs: [RescrivaRun(text: "Book the hall")], checked: true)])),
+			RescrivaBlock(content: .diagram(diagram)),
+		], notes: [RescrivaNote(text: "Bring the banner.", created: Date(timeIntervalSince1970: 0))])], sourceCaptureIDs: [captureID])
+		try context.save()
+
+		let url = try await ExportService.makeFile(for: scan, format: .md, includeNotes: true)
+		addTeardownBlock { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+		XCTAssertEqual(url.lastPathComponent, "Spring fair.md")
+		let text = try String(contentsOf: url, encoding: .utf8)
+		XCTAssertTrue(text.hasPrefix("# Spring fair\n\n- [x] Book the hall\n\n```mermaid\nflowchart TD\n"))
+		XCTAssertTrue(text.contains("    n1 --> n2\n```"))
+		XCTAssertTrue(text.hasSuffix("## Notes\n\n- Page 1: Bring the banner.\n"))
+
+		let copied = await ExportService.markdown(for: scan, includeNotes: true)
+		XCTAssertEqual(copied, text, "Copy for AI puts the same text on the pasteboard")
+		let quiet = await ExportService.markdown(for: scan, includeNotes: false)
+		XCTAssertFalse(quiet.contains("## Notes"))
+		XCTAssertTrue(quiet.hasPrefix("# Spring fair\n"))
 	}
 
 	// MARK: Helpers

@@ -156,7 +156,7 @@ private struct ShareDataScanner: UIViewControllerRepresentable {
 		do {
 			try scanner.startScanning()
 		} catch {
-			print("Rescriva: the code scanner didn't start: \(error)")
+			Log.share.error("The code scanner didn't start: \(error)")
 		}
 	}
 

@@ -1,71 +1,23 @@
 //
 //  TimelineProvider.swift
-//  ScannerWidgetExtension
+//  Rescriva widget
 //
-//  Created by Slaven Radic on 2024-09-01.
+//  A timeline of one entry that never needs refreshing: the launcher looks the same whatever
+//  the app holds, so nothing is fetched here.
 //
-
 
 import WidgetKit
-import CoreData
 
-struct Provider: TimelineProvider {
-	
-	var viewContext : NSManagedObjectContext
-
-	init(context : NSManagedObjectContext) {
-		self.viewContext = context
-	}
-	
-	func placeholder(in context: Context) -> ScanArrayEntry {
-		createEntry()
+struct ScanLauncherProvider: TimelineProvider {
+	func placeholder(in context: Context) -> ScanLauncherEntry {
+		ScanLauncherEntry(date: Date())
 	}
 
-	func getSnapshot(in context: Context, completion: @escaping (ScanArrayEntry) -> ()) {
-		let entry = createEntry()
-		completion(entry)
+	func getSnapshot(in context: Context, completion: @escaping (ScanLauncherEntry) -> Void) {
+		completion(ScanLauncherEntry(date: Date()))
 	}
 
-	func getTimeline(in context: Context, completion: @escaping (Timeline<ScanArrayEntry>) -> ()) {
-		
-		// The view context is main-queue bound; WidgetKit calls this off the main thread.
-		viewContext.perform {
-			do {
-				try viewContext.setQueryGenerationFrom(.current)
-			} catch {
-				// Without a pinned generation the fetch still works; it may just see a newer snapshot.
-				print("Rescriva widget: couldn't pin the query generation: \(error)")
-			}
-			viewContext.refreshAllObjects()
-
-			let request = NSFetchRequest<Scan>(entityName: "Scan")
-			// Scans in Recently Deleted stay out of the widget.
-			request.predicate = NSPredicate(format: "deletedAt == nil")
-			request.sortDescriptors = [NSSortDescriptor(keyPath: \Scan.order, ascending: true)]
-			let scans = (try? viewContext.fetch(request)) ?? []
-
-			let timeline = Timeline(entries: [createEntry(scans)], policy: .atEnd)
-			completion(timeline)
-		}
-	}
-	
-	func createEntry(_ scans: [Scan] = []) -> ScanArrayEntry {
-		
-		var entries: [ScanEntry] = []
-		if scans.count > 0 {
-			for scan in scans {
-				let entry = ScanEntry(title: scan.title)
-				entries.append(entry)
-				if entries.count > 5 {
-					break
-				}
-			}
-		} else {
-			entries.append(ScanEntry(title: ""))
-		}
-		return ScanArrayEntry(
-			date: Date(),
-			entries: entries
-		)
+	func getTimeline(in context: Context, completion: @escaping (Timeline<ScanLauncherEntry>) -> Void) {
+		completion(Timeline(entries: [ScanLauncherEntry(date: Date())], policy: .never))
 	}
 }

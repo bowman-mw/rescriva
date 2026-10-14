@@ -17,9 +17,14 @@ final class NearbySharePending {
 
 	/// The longest link kept: a pairing link with eight candidates is well under this.
 	static let maxLinkLength = 4_096
+	/// How long a link waits for a Share Nearby screen. The screen isn't opened for a link (any
+	/// website can make one), so one the person doesn't act on soon is forgotten rather than
+	/// popping up as a pairing prompt whenever they next share something.
+	static let maxAge: TimeInterval = 120
 
 	/// The whole link, as it arrived. Untrusted: `SharePairingOffer(link:)` checks it.
 	var link: String?
+	@ObservationIgnored private var receivedAt: Date?
 
 	/// True when `url` is a Share Nearby link (openscanner://share…), which is then kept in `link`
 	/// for the screen. A link too long to be a pairing code is dropped, but still counts as handled.
@@ -27,17 +32,26 @@ final class NearbySharePending {
 		guard url.scheme?.lowercased() == "openscanner", url.host()?.lowercased() == "share" else { return false }
 		let text = url.absoluteString
 		guard text.utf8.count <= Self.maxLinkLength else {
-			print("Rescriva: ignored a Share Nearby link of \(text.utf8.count) bytes")
+			Log.share.notice("Ignored a Share Nearby link of \(text.utf8.count) bytes")
 			return true
 		}
 		link = text
+		receivedAt = .now
 		return true
 	}
 
-	/// Hands over the waiting link once, clearing it.
+	/// Hands over the waiting link once, clearing it; nil when there's none, or it has waited
+	/// longer than `maxAge`.
 	func take() -> String? {
 		let waiting = link
+		let arrived = receivedAt
 		link = nil
+		receivedAt = nil
+		guard let waiting, let arrived else { return nil }
+		guard Date.now.timeIntervalSince(arrived) <= Self.maxAge else {
+			Log.share.notice("Dropped a Share Nearby link that waited too long for the screen")
+			return nil
+		}
 		return waiting
 	}
 
@@ -54,7 +68,7 @@ final class NearbySharePending {
 		do {
 			items += try context.fetch(request).map { NearbyShareItem.scan($0) }
 		} catch {
-			print("Rescriva: couldn't fetch scans for the Share Nearby demo: \(error)")
+			Log.share.error("Couldn't fetch scans for the Share Nearby demo: \(error)")
 		}
 		return items
 	}

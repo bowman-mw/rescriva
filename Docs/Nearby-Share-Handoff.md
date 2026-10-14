@@ -52,7 +52,7 @@ don't push there). It's cut from `main` at e9234ee. Read this file first, then
 |---|---|
 | How devices exchange the connection "hello" | **Our own relay (a Cloudflare Worker) with a no-relay backup** (QR pairing that works offline) |
 | What the site shows before a PIN | **Document names are visible**; the PIN is needed to download |
-| PIN lifetime | **Until the Share screen closes**: new PINs every time it opens. 5 wrong tries replace that document's PIN and start a cooldown |
+| PIN lifetime | **Until the Share screen closes**: new PINs every time it opens. 5 wrong tries replace that document's PIN and start a cooldown (since the 2026-10-13 audit fix the tries are counted per connection: 5 from one page refuse that page for 30 s; 15 across pages, or three refused pages, replace the PIN; see `Docs/Nearby-Share-App-Design.md`) |
 | Hosting | **New public repo `bowman-mw/rescriva-share`, served at `share.rescriva.com`** (the user adds the DNS record) |
 
 ## 2. Why it's built this way
@@ -116,7 +116,7 @@ don't push there). It's cut from `main` at e9234ee. Read this file first, then
 ## 4. App-side plan
 
 New folder `scanner/Share/`. Match the house style: tabs, `///` prose doc comments,
-`print("Rescriva: …")`, `@MainActor @Observable`, and the design system (`RescrivaFont`,
+`Log.share.error("…")` (os.Logger, `scanner/Rescriva/Log.swift`), `@MainActor @Observable`, and the design system (`RescrivaFont`,
 `Color.cream/.parchment/.bark/.slate/.moss/.lichen/.terracotta`, `PrimaryButton`, `SheetHeader`,
 `GrainBackground`).
 
@@ -129,7 +129,7 @@ New folder `scanner/Share/`. Match the house style: tabs, `///` prose doc commen
 | `ShareMessages.swift` | Codable data channel messages (§4 of the protocol). |
 | `RelayClient.swift` | `URLSessionWebSocketTask`: join `auto` and private rooms, ping every 25 s, reconnect with backoff, `signal(to:data:)`. |
 | `PeerLink.swift` | Wraps `RTCPeerConnection` and a negotiated data channel (`isNegotiated = true`, `channelId = 0`, label `rescriva`). Two modes: **relay answerer** (the page offers; the app answers and trickles candidates) and **no-relay** (built-in certificate, rebuilt offer, ufrag/pwd swap). Hops delegate callbacks to the main actor. Chunked send with `bufferedAmount` backpressure (`dataChannel(_:didChangeBufferedAmount:)`). Use `candidateNetworkPolicy = .lowCost` (drops cellular) and no ICE servers. |
-| `NearbyShareSession.swift` | `@MainActor @Observable`. Shared items with their PINs and prepared files, peers, unlock state per peer, the PIN rules (5 wrong → new PIN, then a 30 s cooldown that doubles), incoming file offers that wait for Accept/Decline, transfers, the session id, and the session key for the app's QR link. `start()` / `stop()`. `stop()` sends `docs: []` + `bye`, then closes the peer connections and the relay sockets. |
+| `NearbyShareSession.swift` | `@MainActor @Observable`. Shared items with their PINs and prepared files, peers, unlock state per peer, the PIN rules (`NearbySharePINLock`: 5 wrong from one connection → that connection waits 30 s; 15 across connections, or three refused ones → new PIN and a cooldown for everyone of 30 s that doubles, capped at 32 minutes), incoming file offers that wait for Accept/Decline, transfers, the session id, and the session key for the app's QR link. `start()` / `stop()`. `stop()` sends `docs: []` + `bye`, then closes the peer connections and the relay sockets. |
 | `NearbyShareView.swift` | The screen: the shared documents with big PINs (`482 913`), Add documents, a QR of `siteURL#k=<base64url key>` ("Scan with a phone camera to open these files, no PIN needed"; prominent on Mac, smaller on iPhone), a Copy link button, **Scan a computer's code** (iPhone/iPad), a **paste-a-pairing-link** field (Mac, and for testing in the simulator), connected devices, Accept/Decline prompts, progress, and the fallback connection code ("Type this on the computer: 80JB-N1HG"), shown when no-relay pairing hasn't opened after 4 s. |
 | `ShareDocumentPicker.swift` | A sheet that picks scans (Core Data `Scan`) and PDFs (`PDFLibrary.shared.items`). |
 | `CodeScannerView.swift` | `VisionKit.DataScannerViewController` for QR codes, iOS only (`#if !targetEnvironment(macCatalyst)`, check `isSupported`/`isAvailable`). |
@@ -158,8 +158,10 @@ showing.
   - a "Share Nearby" button in `ExportSheet` next to Share (`scanner/Views/ExportSheet.swift`);
   - the PDF viewer's share action (`PDFDocumentView.shareFile`, line ~628).
 - Add `openscanner://share?p=…` to `ContentView.open(_:)` (`scanner/ContentView.swift:64`),
-  next to `Inbox.handle`. Push the Share screen and pair with that payload. Scanning the page's QR
-  with the iPhone's Camera app then opens Rescriva straight into pairing.
+  next to `Inbox.handle`. Pair with that payload on the Share screen. (As built after the audit's
+  L2: the link waits in `NearbySharePending` for up to 120 s and a toast offers to open the
+  screen; the screen is not pushed for a link, since any website can make one. Scanning the page's
+  QR with the iPhone's Camera app opens Rescriva, then "Open", then the pairing confirmation.)
 
 **Project file** (`openscanner.xcodeproj/project.pbxproj`, objectVersion 56, **no synchronized
 folders**, so every new file needs a `PBXFileReference`, a `PBXBuildFile`, group membership and a
@@ -240,7 +242,7 @@ To do: check it at phone width (the iPhone opening the Mac's QR link).
   `http://127.0.0.1:8770/?relay=ws://127.0.0.1:8787/ws`, and run the app in the simulator with
   the launch arguments in §4. The simulator shares the Mac's network.
   - Relay path: the device appears and its documents are listed. PIN unlock → download. Wrong
-    PIN ×5 → new PIN and cooldown. Upload → Accept → it shows up in the library.
+    PIN ×5 → that page waits 30 s; ×15 (or three pages refused) → new PIN and cooldown. Upload → Accept → it shows up in the library.
   - Link path: open `…/#k=<key>` from the app's QR → no PIN needed.
   - No-relay path: `?relay=off` → paste the page's `openscanner://share?p=…` link into the app's
     paste field (no camera in the simulator) → connected. Then try the typed-code fallback.
@@ -270,10 +272,14 @@ README with the deploy steps.
     gets a 400. A missing one means `computer`.
   - Names are clipped to 64 characters, with control and bidi characters stripped. Messages over
     65,536 bytes are dropped silently.
-  - Only `/health` sends CORS headers, so the page can check whether the relay is reachable.
-  - The relay doesn't check that signals go between `web` and `app`. That would be easy hardening.
+  - `/health` is gone (removed 2026-10-13; nothing used it): `GET /` answers "Rescriva Share relay".
+  - Signals are only delivered between a `web` and an `app` peer (since 2026-10-13); same-role
+    signals are dropped. New since then too: 20 new connections a minute per address (429 over
+    that), four peers per address in a pairing room, `workers_dev = false`. PROTOCOL.md §2 has them.
 - **Shared public IPs** (carrier NAT, offices) put strangers in one `auto` room. That's why PINs exist,
-  and a busy network could hit the 32-peer cap.
+  and a busy network could hit the 32-peer cap. Since 2026-10-13 the app warns when more than one
+  unknown page is in the room, and both ends show a check number to compare before a PIN is typed
+  (audit H1, M4).
 
 ## 9. Risks and open questions
 
@@ -314,7 +320,7 @@ The user wants a cloud session to make these changes. That session's notes:
   - Add a test for each bug fixed. That needs a Mac; a Linux cloud session has no Xcode.
 - **House style:**
   - "Power of 10"-style rules: short functions, every return value checked, no recursion,
-    bounded loops, and failures logged with `print("Rescriva: …")`.
+    bounded loops, and failures logged with `Log.share.error("…")` (os.Logger, `scanner/Rescriva/Log.swift`).
   - Comment density and naming match the surrounding code.
   - Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - **Device-only checks:** four items can't be confirmed in the simulator. They're listed under "Not

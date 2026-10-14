@@ -56,9 +56,10 @@ struct InboxManifest: Codable, Equatable {
 		}
 	}
 
-	/// http or https, with a host.
+	/// https, with a host. Plain http is refused: App Transport Security (only local networking
+	/// is allowed in Info.plist) would refuse to load it anyway.
 	static func isWebAddress(_ url: URL) -> Bool {
-		guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
+		guard url.scheme?.lowercased() == "https" else { return false }
 		return url.host() != nil
 	}
 

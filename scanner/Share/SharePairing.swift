@@ -28,6 +28,22 @@ struct SharePairingOffer: Equatable {
 	let mid: String
 	let candidates: [Candidate]
 
+	/// True when every candidate is a local-network address (`ShareNetwork.isLocalNetworkHost`):
+	/// private or link-local IPv4, link-local or unique-local IPv6, or an mDNS name. A code with a
+	/// public candidate (or none at all) points at a page that isn't only on this network, which a
+	/// link opened from a website could do; the screen asks harder before pairing with it. Every
+	/// candidate, not just one, because a code can name a decoy private address next to the real
+	/// public one.
+	var isWithinPrivateNetwork: Bool {
+		!candidates.isEmpty && candidates.allSatisfy { ShareNetwork.isLocalNetworkHost($0.host) }
+	}
+
+	/// The candidates on a local network, in order: what a pairing that must stay on this network
+	/// (`NearbyShareSession.pair(with:localOnly:)`) dials.
+	var localCandidates: [Candidate] {
+		candidates.filter { ShareNetwork.isLocalNetworkHost($0.host) }
+	}
+
 	/// Reads the binary payload; nil for any other version, or anything out of shape.
 	init?(payload: Data) {
 		guard payload.count <= Self.maxPayload else { return nil }
@@ -155,7 +171,7 @@ private struct PayloadReader {
 		}
 		var text = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
 		guard inet_ntop(AF_INET6, &storage, &text, socklen_t(text.count)) != nil else {
-			print("Rescriva: couldn't write an IPv6 pairing candidate as text")
+			Log.share.error("Couldn't write an IPv6 pairing candidate as text")
 			return nil
 		}
 		return String(cString: text)

@@ -68,8 +68,8 @@
 		"description": "A file over the size limit."
 	},
 	"error_not_web": {
-		"message": "Rescriva can only open web addresses.",
-		"description": "The tab's address isn't http or https."
+		"message": "Rescriva can only open secure (https) web addresses.",
+		"description": "The link to send isn't https, so Rescriva couldn't download it."
 	},
 	"error_download": {
 		"message": "The PDF couldn't be downloaded.",

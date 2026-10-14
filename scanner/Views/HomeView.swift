@@ -282,13 +282,16 @@ enum PhotoImport {
 	}
 
 	/// A new scan of `images` (photos, or images dropped or picked from files), or nil for none.
+	/// The images are only decoded off the main thread: turning one upright redraws it, so that
+	/// happens on a background task too, and the Core Data writes come back here.
 	@MainActor
 	static func scan(from images: [UIImage], in context: NSManagedObjectContext) async -> Scan? {
 		var pages: [CapturedPage] = []
 		let removeShadows = UserDefaults.standard.bool(forKey: RescrivaPreference.removeShadows)
 		let keepsOriginal = UserDefaults.standard.bool(forKey: RescrivaPreference.keepOriginals)
 		for image in images {
-			pages.append(await ImportCleanup.prepare(image.normalizedUp(), removeShadows: removeShadows, keepsOriginal: keepsOriginal))
+			let upright = await Task.detached(priority: .userInitiated) { image.normalizedUp() }.value
+			pages.append(await ImportCleanup.prepare(upright, removeShadows: removeShadows, keepsOriginal: keepsOriginal))
 		}
 		guard !pages.isEmpty else { return nil }
 		let day = Date().formatted(.dateTime.month(.abbreviated).day())
@@ -396,7 +399,7 @@ extension PDFImport {
 				try FileManager.default.copyItem(at: url, to: staged)
 				return staged
 			} catch {
-				print("Rescriva: couldn't copy the original PDF: \(error)")
+				Log.library.error("Couldn't copy the original PDF: \(error)")
 				return nil
 			}
 		}.value
@@ -412,7 +415,7 @@ extension PDFImport {
 			try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 			try FileManager.default.moveItem(at: staged, to: folder.appendingPathComponent(fileName))
 		} catch {
-			print("Rescriva: couldn't keep the original PDF: \(error)")
+			Log.library.error("Couldn't keep the original PDF: \(error)")
 		}
 	}
 
@@ -423,7 +426,7 @@ extension PDFImport {
 		do {
 			try FileManager.default.removeItem(at: folder)
 		} catch {
-			print("Rescriva: couldn't remove an original PDF: \(error)")
+			Log.library.error("Couldn't remove an original PDF: \(error)")
 		}
 	}
 
@@ -452,7 +455,7 @@ extension PDFImport {
 				try FileManager.default.removeItem(at: folder)
 				removed += 1
 			} catch {
-				print("Rescriva: couldn't remove an original PDF: \(error)")
+				Log.library.error("Couldn't remove an original PDF: \(error)")
 			}
 		}
 		return removed
@@ -480,7 +483,7 @@ extension PDFImport {
 		do {
 			ids = Set(try context.fetch(request).compactMap { $0["id"] as? UUID })
 		} catch {
-			print("Rescriva: couldn't list scans to prune original PDFs: \(error)")
+			Log.library.error("Couldn't list scans to prune original PDFs: \(error)")
 			return
 		}
 		let cutoff = Date()
@@ -502,7 +505,7 @@ extension PDFImport {
 			do {
 				try FileManager.default.removeItem(at: folder)
 			} catch {
-				print("Rescriva: couldn't remove an orphaned original PDF: \(error)")
+				Log.library.error("Couldn't remove an orphaned original PDF: \(error)")
 			}
 		}
 	}

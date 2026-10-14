@@ -89,14 +89,36 @@ extension Scan {
 		return title
 	}
 
-	/// The rebuilt document, decoded from `rebuiltData`.
+	/// What `rebuiltData` holds: the document, or why there's none to read. Decoded once per stored
+	/// value (`RebuiltDocumentCache`), so the readers in view bodies don't each decode it again.
+	var rebuiltDocumentState: RebuiltDocumentState {
+		guard let rebuiltData else { return .missing }
+		return RebuiltDocumentCache.state(of: rebuiltData, for: objectID)
+	}
+
+	/// The rebuilt document, decoded from `rebuiltData`; nil when there's none this build can read
+	/// (`rebuiltDocumentState` says why). Setting it writes it, and nil clears it, except over a
+	/// document a newer Rescriva wrote, which is kept for that version whatever is assigned: a
+	/// document this build made (a fresh rebuild, a Review edit of one) would replace work done
+	/// there, and come back through CloudKit to undo it.
 	var rebuiltDocument: RescrivaDocument? {
-		get {
-			guard let rebuiltData else { return nil }
-			return try? JSONDecoder.rescriva.decode(RescrivaDocument.self, from: rebuiltData)
-		}
+		get { rebuiltDocumentState.document }
 		set {
-			rebuiltData = newValue.flatMap { try? JSONEncoder.rescriva.encode($0) }
+			if case .needsNewerApp(let version) = rebuiltDocumentState {
+				Log.library.notice("Keeping a document written by a newer Rescriva (schema \(version)) rather than \(newValue == nil ? "clearing" : "replacing") it")
+				return
+			}
+			guard let newValue else {
+				rebuiltData = nil
+				return
+			}
+			do {
+				let data = try JSONEncoder.rescriva.encode(newValue)
+				RebuiltDocumentCache.remember(.document(newValue), for: data, of: objectID)
+				rebuiltData = data
+			} catch {
+				Log.library.error("Couldn't encode the rebuilt document, keeping the stored one: \(error)")
+			}
 		}
 	}
 
@@ -233,7 +255,7 @@ extension Scan {
 		do {
 			try store.keep(original, for: id)
 		} catch {
-			print("Rescriva: couldn't keep a page's original: \(error)")
+			Log.library.error("Couldn't keep a page's original: \(error)")
 		}
 	}
 
@@ -276,6 +298,46 @@ extension JSONEncoder {
 extension JSONDecoder {
 	static var rescriva: JSONDecoder {
 		JSONDecoder()
+	}
+}
+
+/// The decoded `rebuiltData` of recently read scans, one entry per scan, so `Scan.rebuiltDocument`
+/// decodes its JSON once rather than on every read. An entry holds the bytes it was decoded from
+/// and is used only while the scan still stores those bytes, so a rebuild, a Review edit or a
+/// merge from another device is seen on the next read without anyone having to invalidate it.
+enum RebuiltDocumentCache {
+	private final class Entry {
+		let data: Data
+		let state: RebuiltDocumentState
+
+		init(data: Data, state: RebuiltDocumentState) {
+			self.data = data
+			self.state = state
+		}
+	}
+
+	/// Bounded, and emptied under memory pressure; a missing entry only costs a decode. NSCache is
+	/// thread-safe, which is what `nonisolated(unsafe)` says here.
+	nonisolated(unsafe) private static let entries: NSCache<NSManagedObjectID, Entry> = {
+		let cache = NSCache<NSManagedObjectID, Entry>()
+		cache.countLimit = 32
+		return cache
+	}()
+
+	/// What `data`, the scan `id`'s stored document, holds; decoded now unless the scan's last read
+	/// was of these same bytes.
+	static func state(of data: Data, for id: NSManagedObjectID) -> RebuiltDocumentState {
+		if let entry = entries.object(forKey: id), entry.data == data {
+			return entry.state
+		}
+		let state = RescrivaDocument.decodeStored(data)
+		entries.setObject(Entry(data: data, state: state), forKey: id)
+		return state
+	}
+
+	/// Keeps `state` as what `data` decodes to, for a document just encoded and stored on scan `id`.
+	static func remember(_ state: RebuiltDocumentState, for data: Data, of id: NSManagedObjectID) {
+		entries.setObject(Entry(data: data, state: state), forKey: id)
 	}
 }
 

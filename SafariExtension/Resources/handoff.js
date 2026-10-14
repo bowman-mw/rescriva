@@ -21,11 +21,25 @@ export function t(key) {
 	return browser.i18n.getMessage(key) || key;
 }
 
-/** The address when it's http or https, else undefined. */
+/** The address when it's http or https (a page the popup can work on), else undefined. */
 export function webAddress(url) {
 	try {
 		const parsed = new URL(url);
 		return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The address when it's https, else undefined. Rescriva only records and downloads secure
+ * addresses (App Transport Security would refuse plain http anyway), so a page's http address
+ * is left off its hand-off and an http link can't be sent at all.
+ */
+export function secureAddress(url) {
+	try {
+		const parsed = new URL(url);
+		return parsed.protocol === "https:" ? parsed.href : undefined;
 	} catch {
 		return undefined;
 	}
@@ -55,7 +69,7 @@ export async function sendFile(kind, blob, { title, sourceURL }, onProgress = ()
 	if (blob.size > MAX_BYTES) {
 		throw new Error(t("error_too_large"));
 	}
-	const { id } = await native({ action: "begin", kind, title: title || "", sourceURL: webAddress(sourceURL) });
+	const { id } = await native({ action: "begin", kind, title: title || "", sourceURL: secureAddress(sourceURL) });
 	try {
 		const pieces = Math.max(1, Math.ceil(blob.size / PIECE_BYTES));
 		for (let index = 0; index < pieces; index += 1) {
@@ -72,7 +86,7 @@ export async function sendFile(kind, blob, { title, sourceURL }, onProgress = ()
 
 /** Sends only the address; Rescriva downloads it (a PDF opens as a PDF, a page is saved as one). */
 export async function sendLink(url, title) {
-	const sourceURL = webAddress(url);
+	const sourceURL = secureAddress(url);
 	if (!sourceURL) {
 		throw new Error(t("error_not_web"));
 	}

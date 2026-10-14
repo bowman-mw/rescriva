@@ -52,7 +52,7 @@ enum ShareDevice {
 	private static func macHostName() -> String? {
 		var buffer = [CChar](repeating: 0, count: 256)
 		guard gethostname(&buffer, buffer.count - 1) == 0 else {
-			print("Rescriva: gethostname failed (\(errno))")
+			Log.share.error("gethostname failed (\(errno))")
 			return nil
 		}
 		var host = String(cString: buffer)

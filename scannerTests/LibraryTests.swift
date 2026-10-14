@@ -5,8 +5,10 @@
 //  The library on an in-memory store: the folder tree and moves that would
 //  loop, deleting a folder into Recently Deleted, tags, the scopes' counts,
 //  smart folder rules and their stored JSON, purging after 30 days, the
-//  gallery's date sections, and where a new scan is filed. Also opening the library: a store
-//  that can't be opened falls back to a temporary one and says so.
+//  gallery's date sections, and where a new scan is filed. Also the grid's cheap reads of a
+//  scan's first thumbnail and page count, the data detector on a line, requests from outside
+//  the screens (`AppRequests`) and the scan a Spotlight result opens, and opening the library:
+//  a store that can't be opened falls back to a temporary one and says so.
 //
 
 import CoreData
@@ -44,6 +46,18 @@ final class LibraryTests: XCTestCase {
 		scan.output = output
 		scan.pageSource = source
 		return scan
+	}
+
+	// MARK: Export names
+
+	func testExportFileNamesComeFromTheOneSanitizer() throws {
+		let context = try makeContext()
+		XCTAssertEqual(ExportService.fileName(for: scan("Q3: plan / budget?", in: context), format: .docx), "Q3 plan budget.docx")
+		XCTAssertEqual(ExportService.fileName(for: scan("../Lab notes", in: context), format: .pptx), "Lab notes.pptx")
+		XCTAssertEqual(ExportService.fileName(for: scan(" ... ", in: context), format: .pdf), "Scan.pdf", "nothing safe left falls back to Scan")
+		let long = ExportService.fileName(for: scan(String(repeating: "é", count: 300), in: context), format: .md)
+		XCTAssertLessThanOrEqual(long.utf8.count, String.maxFileNameBytes + ".md".utf8.count)
+		XCTAssertTrue(long.hasSuffix(".md"))
 	}
 
 	// MARK: Folders
@@ -258,6 +272,119 @@ final class LibraryTests: XCTestCase {
 		XCTAssertTrue(ContentView.fillsWideScreen(.camera(.document, appendingTo: nil)))
 		XCTAssertFalse(ContentView.fillsWideScreen(.settings))
 		XCTAssertFalse(ContentView.fillsWideScreen(.pdfFiles))
+	}
+
+	// MARK: The grid's reads
+
+	/// A page with `order`, a thumbnail and (standing in for the page image) some bytes to fault in.
+	private func page(order: Int32, thumbnail: String?, in context: NSManagedObjectContext) -> ScanCapture {
+		let page = ScanCapture(context: context)
+		page.id = UUID()
+		page.timestamp = Date()
+		page.order = order
+		page.thumbnailData = thumbnail.map { Data($0.utf8) }
+		page.imageData = Data("a whole page image".utf8)
+		return page
+	}
+
+	func testTheGridReadsTheFirstThumbnailWithoutFaultingPagesIn() throws {
+		let context = try makeContext()
+		let scan = scan("Pages", in: context)
+		XCTAssertNil(scan.coverThumbnailData, "nothing to show yet")
+		XCTAssertEqual(scan.pageCount, 0)
+
+		let second = page(order: 1, thumbnail: "second", in: context)
+		let first = page(order: 0, thumbnail: "first", in: context)
+		let third = page(order: 2, thumbnail: "third", in: context)
+		scan.addToCaptures(second)
+		scan.addToCaptures(first)
+		scan.addToCaptures(third)
+		XCTAssertEqual(scan.coverThumbnailData, Data("first".utf8), "before a save, read from the pages themselves")
+		try context.save()
+
+		for page in [first, second, third] { context.refresh(page, mergeChanges: false) }
+		XCTAssertEqual(scan.coverThumbnailData, Data("first".utf8), "the first page by order, as capturesArray sorts")
+		XCTAssertEqual(scan.pageCount, 3)
+		XCTAssertTrue(first.isFault && second.isFault && third.isFault, "neither read pulled a page's row (and its image) in")
+
+		first.thumbnailData = nil
+		try context.save()
+		XCTAssertEqual(scan.coverThumbnailData, Data("second".utf8), "the first page that has a thumbnail")
+	}
+
+	// MARK: The data detector
+
+	func testDetectedItemsKeepTheirCharactersAfterEmojiAndCJKText() {
+		// Emoji take two UTF-16 units and one Character, so counting Characters put every later
+		// match off by one per emoji; Range(_:in:) doesn't.
+		let text = "📞 電話 +1 (415) 555-2671 ✉️ 連絡先 mail@example.com 🌐 https://example.com/docs ありがとう"
+		XCTAssertEqual(ScanRecognizedItem.detect(.phoneNumber, in: text)?.filter(\.isNumber), "14155552671")
+		XCTAssertEqual(ScanRecognizedItem.detect(.link, in: text, email: true), "mail@example.com")
+		XCTAssertEqual(ScanRecognizedItem.detect(.link, in: text), "https://example.com/docs")
+		XCTAssertNil(ScanRecognizedItem.detect(.address, in: text))
+		XCTAssertNil(ScanRecognizedItem.detect(.phoneNumber, in: nil))
+		XCTAssertNil(ScanRecognizedItem.detect(.link, in: "nothing to find here"))
+	}
+
+	func testALineOffersWhatItsTextHolds() throws {
+		let context = try makeContext()
+		let line = ScanRecognizedItem(context: context)
+		line.transcript = "Call 📱 (415) 555-2671 or write to hello@example.com, see www.example.com"
+		XCTAssertEqual(line.phoneNumber?.filter(\.isNumber), "4155552671")
+		XCTAssertEqual(line.emailAddress, "hello@example.com")
+		XCTAssertEqual(line.urlAddress, "www.example.com", "an address isn't offered as a web link too")
+		XCTAssertNil(line.mailingAddress)
+		line.transcript = nil
+		XCTAssertNil(line.phoneNumber)
+	}
+
+	// MARK: Requests from outside
+
+	func testRequestsFromOutsideWaitUntilTheWindowTakesThem() {
+		let requests = AppRequests()
+		XCTAssertTrue(requests.takeAll().isEmpty)
+		requests.add(.startScan)
+		requests.add(.shareNearby)
+		XCTAssertEqual(requests.pending, [.startScan, .shareNearby], "kept until a window looks")
+		XCTAssertEqual(requests.takeAll(), [.startScan, .shareNearby], "handed over in the order they came")
+		XCTAssertTrue(requests.pending.isEmpty, "and only once")
+	}
+
+	func testSpotlightResultsOpenOnlyScansStillInTheLibrary() throws {
+		let context = try makeContext()
+		let live = scan("Live", in: context)
+		let page = ScanCapture(context: context)
+		page.id = UUID()
+		let line = ScanRecognizedItem(context: context)
+		line.transcript = "hello"
+		page.addToRecognizedItems(line)
+		live.addToCaptures(page)
+		let trashed = scan("Trashed", in: context)
+		let purged = scan("Purged", in: context)
+		try context.save()
+
+		func resolve(_ object: NSManagedObject) -> Scan? {
+			let identifier = object.objectID.uriRepresentation().absoluteString
+			guard let id = PersistenceController.objectID(forSpotlightIdentifier: identifier, in: context) else { return nil }
+			return PersistenceController.liveScan(for: id, in: context)
+		}
+		XCTAssertEqual(resolve(live), live)
+		XCTAssertEqual(resolve(line), live, "an entry from the old index, one per line, opens the line's scan")
+		XCTAssertNil(resolve(page), "a page isn't a scan")
+
+		Library.moveToRecentlyDeleted([trashed], in: context)
+		XCTAssertNil(resolve(trashed), "Recently Deleted scans open nothing")
+		Library.recover([trashed], in: context)
+		XCTAssertEqual(resolve(trashed), trashed)
+
+		let purgedID = purged.objectID
+		context.delete(purged)
+		try context.save()
+		XCTAssertNil(PersistenceController.liveScan(for: purgedID, in: context), "a purged scan is never faulted in")
+
+		XCTAssertNil(PersistenceController.objectID(forSpotlightIdentifier: "not a uri", in: context))
+		XCTAssertNil(PersistenceController.objectID(forSpotlightIdentifier: "x-coredata://0000-0000/Scan/p1", in: context),
+					 "another store's URI")
 	}
 
 	// MARK: Opening the library

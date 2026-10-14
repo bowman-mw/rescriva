@@ -2,15 +2,18 @@
 //  NearbyShareSession+Files.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  The files behind a Share Nearby session. What's shared is copied into its own folder first,
-//  so a page always downloads a fixed file:
+//  The files behind a Share Nearby session, in three types rather than an extension of the session
+//  (the file keeps its name because renaming it means touching the project file): NearbyShareFiles
+//  makes, imports and sweeps them, NearbyShareChunkFile reads or writes one a chunk at a time off
+//  the main actor, and NearbyShareUpload is one file arriving from a page. What's shared is copied
+//  into its own folder first, so a page always downloads a fixed file:
 //
 //      tmp/NearbyShare/<session>/<document id>/<name>   deleted when the session stops
 //      tmp/NearbyShareReceived/<uuid>/<name>             one upload, deleted once it's imported
 //
 //  Received files live outside the session's folder, so an import that finishes after the
-//  session stops (the app went to the background) still has its file. A session folder left
-//  behind when the app was killed mid-share goes when the next run's first session starts.
+//  session stops (the app went to the background) still has its file. Folders left behind in
+//  either place when the app was killed mid-share go when the next run's first session starts.
 //
 
 import CoreData
@@ -54,13 +57,20 @@ enum NearbyShareFiles {
 		sessionsFolder.appendingPathComponent(session, isDirectory: true)
 	}
 
+	/// tmp/NearbyShareReceived/, which holds a folder for each upload.
+	nonisolated static var receivedFolderRoot: URL {
+		FileManager.default.temporaryDirectory.appendingPathComponent("NearbyShareReceived", isDirectory: true)
+	}
+
 	/// The folder for a session that's starting. The first session in this process also deletes
-	/// every other folder in tmp/NearbyShare/: none of them are this process's, so they're what
+	/// every other folder in tmp/NearbyShare/ and every folder in tmp/NearbyShareReceived/: none
+	/// of them are this process's (nothing is received before a session starts), so they're what
 	/// earlier runs left when the app was killed mid-share.
 	static func startingSessionFolder(_ session: String) -> URL {
 		if !sweptLeftovers {
 			sweptLeftovers = true
-			removeInBackground(leftoverFolders(in: sessionsFolder, keeping: [session]))
+			removeInBackground(leftoverFolders(in: sessionsFolder, keeping: [session])
+				+ leftoverFolders(in: receivedFolderRoot, keeping: []))
 		}
 		return sessionFolder(session)
 	}
@@ -82,30 +92,20 @@ enum NearbyShareFiles {
 		guard !folders.isEmpty else { return }
 		Task.detached(priority: .utility) {
 			for folder in folders {
-				do {
-					try FileManager.default.removeItem(at: folder)
-				} catch {
-					print("Rescriva: Share Nearby couldn't delete a leftover folder: \(error)")
-				}
+				FileManager.default.removeIfPresent(folder, log: Log.share)
 			}
 		}
 	}
 
 	/// A fresh folder for one upload.
 	static func receivedFolder() -> URL {
-		FileManager.default.temporaryDirectory
-			.appendingPathComponent("NearbyShareReceived", isDirectory: true)
-			.appendingPathComponent(UUID().uuidString, isDirectory: true)
+		receivedFolderRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
 	}
 
-	/// Deletes `url` if it's there.
-	static func remove(_ url: URL?) {
-		guard let url, FileManager.default.fileExists(atPath: url.path) else { return }
-		do {
-			try FileManager.default.removeItem(at: url)
-		} catch {
-			print("Rescriva: Share Nearby couldn't delete \(url.lastPathComponent): \(error)")
-		}
+	/// Deletes `url` if it's there. Runs on any thread.
+	nonisolated static func remove(_ url: URL?) {
+		guard let url else { return }
+		FileManager.default.removeIfPresent(url, log: Log.share)
 	}
 
 	/// The folder `ExportService.makeFile` made for `url` (tmp/Exports/<uuid>/), or nil when `url`
@@ -207,7 +207,7 @@ enum NearbyShareFiles {
 		return NearbySharePreparedFile(url: url, name: url.lastPathComponent, size: size, type: mimeType(of: url))
 	}
 
-	static func size(of url: URL) -> Int64? {
+	nonisolated static func size(of url: URL) -> Int64? {
 		guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
 			  let size = attributes[.size] as? NSNumber else { return nil }
 		return size.int64Value
@@ -228,7 +228,7 @@ enum NearbyShareFiles {
 				_ = try await library.importPDF(at: url, title: NearbyShareInput.title(fromFileName: name))
 				return true
 			} catch {
-				print("Rescriva: Share Nearby couldn't import a received PDF: \(error)")
+				Log.share.error("Share Nearby couldn't import a received PDF: \(error)")
 				return false
 			}
 		}
@@ -237,7 +237,7 @@ enum NearbyShareFiles {
 			NearbyShareFiles.image(at: url, maxSide: maxSide)
 		}.value
 		guard let image = decoded else {
-			print("Rescriva: Share Nearby received an image that won't open")
+			Log.share.notice("Share Nearby received an image that won't open")
 			return false
 		}
 		return await PhotoImport.scan(from: [image], in: context) != nil
@@ -270,6 +270,95 @@ enum NearbyShareFiles {
 	}
 }
 
+/// A file read or written a chunk at a time on its own queue, so the main actor never waits on
+/// the disk between chunks. The handle is touched only on that queue; what the main actor sees is
+/// whether a write has failed. Safe to share across threads for that reason.
+final class NearbyShareChunkFile: @unchecked Sendable {
+	private let queue = DispatchQueue(label: "com.rescriva.share.chunkfile", qos: .userInitiated)
+	private let handle: FileHandle
+	private let lock = NSLock()
+	private var failure: Error?
+	private var isClosed = false
+
+	/// The file at `url`, to be read with `read(upTo:)`.
+	init(readingFrom url: URL) throws {
+		handle = try FileHandle(forReadingFrom: url)
+	}
+
+	/// The file at `url`, to be appended to with `append(_:)`.
+	init(writingTo url: URL) throws {
+		handle = try FileHandle(forWritingTo: url)
+	}
+
+	/// True once a queued write has failed; later writes are refused.
+	var hasFailed: Bool {
+		lock.lock()
+		defer { lock.unlock() }
+		return failure != nil
+	}
+
+	/// The next `count` bytes, read on the queue. Nil at the end of the file or when the read fails.
+	func read(upTo count: Int) async -> Data? {
+		guard count > 0 else { return nil }
+		return await withCheckedContinuation { continuation in
+			queue.async {
+				guard !self.isClosed else { return continuation.resume(returning: nil) }
+				do {
+					let data = try self.handle.read(upToCount: count)
+					continuation.resume(returning: data.flatMap { $0.isEmpty ? nil : $0 })
+				} catch {
+					Log.share.error("Share Nearby couldn't read a shared file: \(error)")
+					continuation.resume(returning: nil)
+				}
+			}
+		}
+	}
+
+	/// Queues `data` to be written after everything queued before it. False when an earlier write
+	/// failed, so the caller stops without queueing more.
+	func append(_ data: Data) -> Bool {
+		guard !hasFailed else { return false }
+		queue.async {
+			guard !self.isClosed, !self.hasFailed else { return }
+			do {
+				try self.handle.write(contentsOf: data)
+			} catch {
+				Log.share.error("Share Nearby couldn't write an upload: \(error)")
+				self.lock.lock()
+				self.failure = error
+				self.lock.unlock()
+			}
+		}
+		return true
+	}
+
+	/// Waits for every queued write, then closes the file. False when a write or the close failed.
+	func finish() -> Bool {
+		queue.sync { () -> Bool in
+			guard !isClosed else { return false }
+			isClosed = true
+			do {
+				try handle.close()
+			} catch {
+				Log.share.error("Share Nearby couldn't finish a file: \(error)")
+				return false
+			}
+			return !hasFailed
+		}
+	}
+
+	/// Closes the file once the queue is drained, then deletes `folder` when given. Returns at once.
+	func discard(deleting folder: URL? = nil) {
+		queue.async {
+			if !self.isClosed {
+				self.isClosed = true
+				try? self.handle.close()
+			}
+			NearbyShareFiles.remove(folder)
+		}
+	}
+}
+
 /// One upload a page offered: waiting for Accept or Decline, then written chunk by chunk.
 @MainActor
 final class NearbyShareUpload {
@@ -282,9 +371,11 @@ final class NearbyShareUpload {
 	var transferID: UUID?
 	private(set) var received: Int64 = 0
 	private(set) var url: URL?
-	private var handle: FileHandle?
+	/// When the last chunk arrived (or the file was opened), for the stall timer.
+	private(set) var lastChunkAt: Date?
+	private var file: NearbyShareChunkFile?
 
-	var isReceiving: Bool { handle != nil }
+	var isReceiving: Bool { file != nil }
 
 	init(offerID: String, xfer: String, name: String, size: Int64, type: String) {
 		self.offerID = offerID
@@ -294,53 +385,51 @@ final class NearbyShareUpload {
 		self.type = type
 	}
 
+	/// True when no chunk has come for `limit` seconds, as of `now`.
+	func isStalled(at now: Date, limit: TimeInterval) -> Bool {
+		guard let lastChunkAt else { return false }
+		return now.timeIntervalSince(lastChunkAt) >= limit
+	}
+
 	/// Makes the file the bytes go into. False if it can't.
-	func open() -> Bool {
-		guard handle == nil else { return true }
+	func open(at now: Date = .now) -> Bool {
+		guard file == nil else { return true }
 		let folder = NearbyShareFiles.receivedFolder()
-		let file = folder.appendingPathComponent(name)
+		let path = folder.appendingPathComponent(name)
 		do {
 			try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-			guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
+			guard FileManager.default.createFile(atPath: path.path, contents: nil) else {
 				NearbyShareFiles.remove(folder)
 				return false
 			}
-			handle = try FileHandle(forWritingTo: file)
-			url = file
+			file = try NearbyShareChunkFile(writingTo: path)
+			url = path
+			lastChunkAt = now
 			return true
 		} catch {
-			print("Rescriva: Share Nearby couldn't make a file for an upload: \(error)")
+			Log.share.error("Share Nearby couldn't make a file for an upload: \(error)")
 			NearbyShareFiles.remove(folder)
 			return false
 		}
 	}
 
-	/// Appends a chunk. False when it would run past the size the page offered, or won't write.
-	func write(_ data: Data) -> Bool {
-		guard let handle, received + Int64(data.count) <= size else { return false }
-		do {
-			try handle.write(contentsOf: data)
-		} catch {
-			print("Rescriva: Share Nearby couldn't write an upload: \(error)")
-			return false
-		}
+	/// Queues a chunk to be written. False when it would run past the size the page offered, or an
+	/// earlier chunk didn't write.
+	func write(_ data: Data, at now: Date = .now) -> Bool {
+		guard let file, received + Int64(data.count) <= size, file.append(data) else { return false }
 		received += Int64(data.count)
+		lastChunkAt = now
 		return true
 	}
 
-	/// Closes the file and returns it when every byte arrived. Otherwise it's deleted, and nil.
+	/// Closes the file and returns it when every byte arrived and was written. Otherwise it's
+	/// deleted, and nil.
 	func finish() -> URL? {
-		guard let handle, let url else { return nil }
-		self.handle = nil
-		do {
-			try handle.close()
-		} catch {
-			print("Rescriva: Share Nearby couldn't finish an upload: \(error)")
-			discard()
-			return nil
-		}
-		guard received == size else {
-			discard()
+		guard let file, let url else { return nil }
+		self.file = nil
+		guard file.finish(), received == size else {
+			NearbyShareFiles.remove(url.deletingLastPathComponent())
+			self.url = nil
 			return nil
 		}
 		return url
@@ -348,11 +437,13 @@ final class NearbyShareUpload {
 
 	/// Stops writing and deletes what arrived.
 	func discard() {
-		if let handle {
-			try? handle.close()
+		let folder = url?.deletingLastPathComponent()
+		if let file {
+			file.discard(deleting: folder)
+		} else {
+			NearbyShareFiles.remove(folder)
 		}
-		handle = nil
-		NearbyShareFiles.remove(url?.deletingLastPathComponent())
+		file = nil
 		url = nil
 	}
 }

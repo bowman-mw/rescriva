@@ -5,6 +5,8 @@
 //  Created by Slaven Radic on 2024-09-01.
 //  Rescriva: the Library is the root; every other screen floats in above it. On a wide screen the
 //  Library is the workspace (WorkspaceView), and screens laid out for a phone stand in a column.
+//  Requests from outside the screens (Siri, the widget, Spotlight, openscanner:// links) come in
+//  through one queue, `AppRequests`, drained here as soon as the window is up.
 //
 
 import SwiftUI
@@ -14,8 +16,7 @@ import UIKit
 struct ContentView: View {
 	@Environment(\.managedObjectContext) private var viewContext
 	@State private var router = RescrivaRouter()
-	@ObservedObject private var appState = AppState.shared
-	@ObservedObject private var navigationManager = NavigationManager.shared
+	private let requests = AppRequests.shared
 	/// The library on this device couldn't be opened, so the app is on a temporary one
 	/// (`PersistenceController.loadFailure`): an alert at launch, then a banner over the Library.
 	var libraryIsTemporary = false
@@ -33,28 +34,12 @@ struct ContentView: View {
 		// The app follows the system's appearance; the camera is always in the dark.
 		.background(WindowAppearance(style: router.isCameraVisible ? .dark : .unspecified))
 		.inboxImports(router: router)
-		.onChange(of: appState.openScan) { _, scan in
-			// Spotlight result or widget link.
-			guard let scan else { return }
-			router.popToRoot()
-			router.push(.preview(scan))
-			appState.openScan = nil
-		}
 		.onOpenURL { url in open(url) }
-		.onChange(of: appState.viewState) { _, state in
-			// "Scan Now" / "Rescriva settings" from a URL or shortcut. A Mac has no document camera.
-			guard state != .Home else { return }
-			appState.viewState = .Home
-			guard state != .Page || !ProcessInfo.processInfo.isMacCatalystApp else { return }
-			router.popToRoot()
-			router.push(state == .Page ? .camera(.document, appendingTo: nil) : .settings)
-		}
-		.onChange(of: navigationManager.requestedClassicScan) { _, requested in
-			guard requested else { return }
-			navigationManager.requestedClassicScan = false
-			guard !ProcessInfo.processInfo.isMacCatalystApp else { return }
-			router.popToRoot()
-			router.push(.camera(.document, appendingTo: nil))
+		// `initial` takes whatever arrived before this window existed (a cold launch from Siri or
+		// a Spotlight result). With several windows, the first to look takes the lot.
+		.onChange(of: requests.pending, initial: true) { _, pending in
+			guard !pending.isEmpty else { return }
+			for request in requests.takeAll() { handle(request) }
 		}
 		.alert("Your library couldn't be opened", isPresented: $showsTemporaryLibraryAlert) {
 			Button("OK", role: .cancel) {}
@@ -78,18 +63,41 @@ struct ContentView: View {
 		}
 	}
 
+	/// Carries out a request from outside the screens (`AppRequests`).
+	private func handle(_ request: AppRequest) {
+		switch request {
+		case .openScan(let objectID):
+			// A Spotlight result. Its scan may have gone since the index was made (deleted here or
+			// on another device, or moved to Recently Deleted); then it opens nothing but a note.
+			guard let scan = PersistenceController.liveScan(for: objectID, in: viewContext) else {
+				router.showToast(String(localized: "That scan isn't in your library any more."))
+				return
+			}
+			router.popToRoot()
+			router.push(.preview(scan))
+		case .startScan:
+			// A Mac has no document camera.
+			guard !ProcessInfo.processInfo.isMacCatalystApp else { return }
+			router.popToRoot()
+			router.push(.camera(.document, appendingTo: nil))
+		case .shareNearby:
+			showShareNearby()
+		}
+	}
+
 	/// A file handed to Rescriva (Open With on a Mac, "Open in Rescriva" from Files) opens inside the
 	/// app: a PDF as a PDF, an image as a new scan. An openscanner://scan link starts a scan;
-	/// openscanner://inbox brings in what Rescriva's Safari extension sent (Inbox);
-	/// openscanner://share pairs Share Nearby with the web page that showed it.
+	/// openscanner://inbox brings in what Rescriva's Safari extension sent (Inbox, which handles
+	/// it itself); openscanner://share pairs Share Nearby with the web page that showed it. Links
+	/// go through `AppRequests` like every other request from outside.
 	private func open(_ url: URL) {
 		guard url.isFileURL else {
 			if Inbox.handle(url) { return }
 			if NearbySharePending.shared.receive(url) {
-				showShareNearby()
+				requests.add(.shareNearby)
 				return
 			}
-			if url.host() == "scan" { appState.viewState = .Page }
+			if url.host()?.lowercased() == "scan" { requests.add(.startScan) }
 			return
 		}
 		Task {
@@ -104,16 +112,23 @@ struct ContentView: View {
 		}
 	}
 
-	/// Brings Share Nearby to the front for a pairing link: the one already on the stack (closing
-	/// the screens above it), or a new one. Never a second one, which would share alongside the
-	/// first while that one, hidden, took the link.
+	/// Brings Share Nearby to the front for a pairing link when it's already on the stack (closing
+	/// the screens above it). Never a second one, which would share alongside the first while that
+	/// one, hidden, took the link. When no Share screen is open, none is opened for the link: any
+	/// website can open one (the audit's L2), so the link waits in `NearbySharePending` (for
+	/// `NearbySharePending.maxAge`) and a toast offers to open the screen, where the pairing is
+	/// still confirmed before anything connects.
 	private func showShareNearby() {
 		let index = router.stack.lastIndex { entry in
 			if case .shareNearby = entry.route { return true }
 			return false
 		}
 		guard let index else {
-			router.push(.shareNearby([]))
+			let router = router
+			router.showToast(String(localized: "A computer wants to pair with Share Nearby."),
+							 actionLabel: String(localized: "Open")) {
+				router.push(.shareNearby([]))
+			}
 			return
 		}
 		for _ in (index + 1)..<router.stack.count { router.pop() }

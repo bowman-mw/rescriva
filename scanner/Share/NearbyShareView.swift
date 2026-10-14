@@ -6,10 +6,12 @@
 //  share.rescriva.com. Each document has its own PIN, set large so it reads
 //  across a desk; a phone that scans this screen's QR code (or a computer
 //  paired with the page's code) needs none. Requests to send files here wait
-//  for Accept, and transfers show their progress. Sharing runs only while this
-//  screen is the one showing and the app is in front: closing it, covering it
-//  with another screen or leaving the app ends the sharing, and coming back
-//  starts again with new PINs.
+//  for Accept, and transfers show their progress. A page found through the relay
+//  on the same network proves nothing, so its row shows a six-digit check number
+//  the page shows too, and the screen warns when more than one such page is
+//  about. Sharing runs only while this screen is the one showing and the app is
+//  in front: closing it, covering it with another screen or leaving the app ends
+//  the sharing, and coming back starts again with new PINs.
 //
 
 import SwiftUI
@@ -81,11 +83,24 @@ struct NearbyShareView: View {
 		.sheet(isPresented: $scanning) {
 			ShareCodeScanner { pair(link: $0) }
 		}
-		.alert("Pair with this computer?", isPresented: confirmingBinding, presenting: confirmingPairing) { offer in
-			Button("Pair") { session?.pair(with: offer) }
-			Button("Cancel", role: .cancel) {}
-		} message: { _ in
-			Text("Only pair with a page you opened yourself at \(Self.siteName). A paired computer can download everything you share here without PINs.")
+		.alert(pairingAlertTitle, isPresented: confirmingBinding, presenting: confirmingPairing) { offer in
+			if offer.isWithinPrivateNetwork {
+				// The link came from outside the app; whoever made it holds its secret. Local only,
+				// so it can't reach past this network however it was made.
+				Button("Pair") { session?.pair(with: offer, localOnly: true) }
+				Button("Cancel", role: .cancel) {}
+			} else {
+				// Cancel is the default: a link from a website can name a computer anywhere.
+				Button("Cancel", role: .cancel) {}
+					.keyboardShortcut(.defaultAction)
+				Button("Pair anyway", role: .destructive) { session?.pair(with: offer) }
+			}
+		} message: { offer in
+			if offer.isWithinPrivateNetwork {
+				Text("Only pair with a page you opened yourself at \(Self.siteName). A paired computer can download everything you share here without PINs.")
+			} else {
+				Text("This link points to a computer outside your network. Pair only if you expect that. A paired computer can download everything you share here without PINs.")
+			}
 		}
 		.onAppear { appeared() }
 		.onDisappear { disappeared() }
@@ -186,6 +201,14 @@ struct NearbyShareView: View {
 		})
 	}
 
+	/// Plainer for a code that names a computer on this network; a warning for one that doesn't.
+	private var pairingAlertTitle: Text {
+		guard let confirmingPairing, !confirmingPairing.isWithinPrivateNetwork else {
+			return Text("Pair with this computer?")
+		}
+		return Text("Pair with a computer outside your network?")
+	}
+
 	/// Pairs with a page code the user scanned or pasted here.
 	private func pair(link: String) {
 		guard let session, let offer = offer(from: link) else { return }
@@ -277,6 +300,13 @@ struct NearbyShareView: View {
 
 	@ViewBuilder
 	private func sections(_ session: NearbyShareSession) -> some View {
+		if session.untrustedPageCount > 1 {
+			BannerView(text: String(localized: "More than one computer on this network can see what you're sharing. Check the number on each one."),
+					   tone: .warning)
+				.padding(.horizontal, 16)
+				.padding(.top, 12)
+				.transition(.settle)
+		}
 		// Requests to send come first: the page is waiting on them.
 		if !session.incoming.isEmpty {
 			sectionLabel("Waiting for you")
@@ -326,6 +356,16 @@ struct NearbyShareView: View {
 			}
 			ForEach(session.documents) { document in
 				documentRow(document)
+				rule
+			}
+			if !session.documents.isEmpty {
+				Text("A PIN only lets the page that types it download that file. On a page that isn't paired, check its number under Connected first.")
+					.font(RescrivaFont.ui(12))
+					.foregroundStyle(.graphite)
+					.fixedSize(horizontal: false, vertical: true)
+					.frame(maxWidth: .infinity, alignment: .leading)
+					.padding(.horizontal, 16)
+					.padding(.vertical, 10)
 				rule
 			}
 			Button { picking = true } label: {
@@ -630,11 +670,14 @@ struct NearbyShareView: View {
 		.padding(.horizontal, 16)
 	}
 
+	/// A paired page says so. One that proved nothing shows the check number the page shows on
+	/// this device's card, so the two can be matched before a PIN is typed on it.
 	private func deviceRow(_ device: NearbyShareSession.Device) -> some View {
-		HStack(spacing: 12) {
+		HStack(alignment: .top, spacing: 12) {
 			Glyph(Self.symbol(forDeviceKind: device.kind), size: 18)
 				.foregroundStyle(.ink)
 				.frame(width: 26)
+				.padding(.top, 1)
 				.accessibilityHidden(true)
 			VStack(alignment: .leading, spacing: 2) {
 				Text(device.name)
@@ -644,12 +687,29 @@ struct NearbyShareView: View {
 				Text(device.trusted ? String(localized: "Paired") : String(localized: "PIN for each file"))
 					.font(RescrivaFont.ui(12))
 					.foregroundStyle(.graphite)
+				if !device.trusted, let number = device.checkNumber {
+					checkNumberBlock(number)
+				}
 			}
 			Spacer(minLength: 0)
 		}
 		.padding(.vertical, 12)
 		.padding(.horizontal, 16)
 		.accessibilityElement(children: .combine)
+	}
+
+	private func checkNumberBlock(_ number: String) -> some View {
+		VStack(alignment: .leading, spacing: 4) {
+			Text(verbatim: ShareCodes.displayCheckNumber(number))
+				.font(.system(.title3, design: .monospaced, weight: .semibold))
+				.foregroundStyle(.carbon)
+				.accessibilityLabel(Text("Check number \(Self.spelledOut(number))"))
+			Text("Compare with the number on the page's card before you type a PIN there. Matching numbers mean the card and this row are the same connection.")
+				.font(RescrivaFont.ui(12))
+				.foregroundStyle(.graphite)
+				.fixedSize(horizontal: false, vertical: true)
+		}
+		.padding(.top, 6)
 	}
 
 	// MARK: Waiting for you

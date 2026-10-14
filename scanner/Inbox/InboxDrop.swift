@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import os
 
 enum InboxDropError: LocalizedError, Equatable {
 	/// The App Group container isn't there (the build isn't signed with the app group).
@@ -28,20 +29,23 @@ enum InboxDropError: LocalizedError, Equatable {
 		case .tooLarge: return String(localized: "That file is too large to send to Rescriva.")
 		case .empty: return String(localized: "Nothing arrived to send to Rescriva.")
 		case .notAPDF: return String(localized: "That file isn't a PDF.")
-		case .notAWebAddress: return String(localized: "Rescriva can only open web addresses.")
+		case .notAWebAddress: return String(localized: "Rescriva can only open secure (https) web addresses.")
 		}
 	}
 }
 
 /// Writes hand-offs into one Inbox folder.
 struct InboxDrop {
+	/// This file is shared with the Safari extension, so it logs through its own Logger rather than `Log`.
+	private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Rescriva", category: "inbox")
 	/// The App Group the app and its extensions share (scanner.entitlements).
 	static let appGroup = "group.MBO.Scanner"
 	static let folderName = "Inbox"
-	/// The most one hand-off may hold.
+	/// The most one hand-off may hold, whether it arrives in pieces or the app downloads it.
 	static let maxBytes: Int64 = 150 * 1024 * 1024
-	/// Longest title kept in a file name.
-	static let maxNameLength = 80
+	/// Longest title kept in a file name, in UTF-8 bytes: the file system allows 255 and an emoji
+	/// takes four or more, so counting characters would let a name grow past it.
+	static let maxNameBytes = 80
 
 	let root: URL
 
@@ -105,7 +109,7 @@ struct InboxDrop {
 		do {
 			try FileManager.default.removeItem(at: folder)
 		} catch {
-			print("Rescriva: couldn't remove a cancelled hand-off: \(error)")
+			Self.log.error("Couldn't remove a cancelled hand-off: \(error)")
 		}
 	}
 
@@ -145,15 +149,29 @@ struct InboxDrop {
 		"\(cleanTitle(title, kind: kind)).\(kind == .webPage ? "html" : "pdf")"
 	}
 
-	/// The title without characters a file name can't hold, trimmed to `maxNameLength`.
+	/// The title without characters a file name can't hold, cut to `maxNameBytes` of UTF-8.
 	static func cleanTitle(_ title: String, kind: InboxManifest.Kind) -> String {
 		let banned = CharacterSet(charactersIn: "/\\:?%*|\"<>").union(.controlCharacters).union(.newlines)
 		let words = title.components(separatedBy: banned).joined(separator: " ").split(whereSeparator: \.isWhitespace)
-		var name = String(words.joined(separator: " ").prefix(maxNameLength))
+		var name = truncated(words.joined(separator: " "), toUTF8Bytes: maxNameBytes)
 		name = String(name.drop { $0 == "." || $0 == " " }).trimmingCharacters(in: .whitespaces)
 		if name.lowercased().hasSuffix(".pdf") { name = String(name.dropLast(4)) }
 		guard name.isEmpty else { return name }
 		return kind == .webPage ? String(localized: "Web page") : String(localized: "Document")
+	}
+
+	/// `text` cut to at most `maxBytes` of UTF-8, at a character boundary: a character that
+	/// wouldn't fit whole (an emoji flag is eight bytes) is left off rather than cut through.
+	static func truncated(_ text: String, toUTF8Bytes maxBytes: Int) -> String {
+		var end = text.startIndex
+		var bytes = 0
+		for index in text.indices {
+			let next = text.index(after: index)
+			bytes += text[index..<next].utf8.count
+			guard bytes <= maxBytes else { break }
+			end = next
+		}
+		return String(text[..<end])
 	}
 
 	// MARK: Files
@@ -177,7 +195,7 @@ struct InboxDrop {
 		do {
 			try handle.close()
 		} catch {
-			print("Rescriva: couldn't close a hand-off file: \(error)")
+			Self.log.error("Couldn't close a hand-off file: \(error)")
 		}
 	}
 
@@ -185,7 +203,7 @@ struct InboxDrop {
 	static func startsLikePDF(_ url: URL) throws -> Bool {
 		let handle = try FileHandle(forReadingFrom: url)
 		defer {
-			do { try handle.close() } catch { print("Rescriva: couldn't close a PDF being checked: \(error)") }
+			do { try handle.close() } catch { log.error("Couldn't close a PDF being checked: \(error)") }
 		}
 		let head = try handle.read(upToCount: 1024) ?? Data()
 		return head.range(of: Data("%PDF-".utf8)) != nil

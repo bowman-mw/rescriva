@@ -180,7 +180,8 @@ final class StyleDetectorTests: XCTestCase {
 	func testTheRebuilderStylesTypedPagesFromTheStoredJPEGAndLeavesWhiteboardsAlone() async throws {
 		let page = try StyledPage(markup: Sample.styled, family: .sans)
 		let data = try XCTUnwrap(UIImage(cgImage: page.image).jpegData(compressionQuality: 0.75))
-		let snapshot = Rebuilder.PageSnapshot(imageData: data, lines: page.lines, aspect: page.size.width / page.size.height)
+		let snapshot = await Rebuilder.PageSnapshot(imageData: data, lines: page.lines, aspect: page.size.width / page.size.height).decodingImage()
+		XCTAssertNotNil(snapshot.image, "the stored JPEG decodes once for every pass")
 		let blocks = Rebuilder.heuristicBlocks(page.lines)
 		let typed = RescrivaPage(source: .typed, blocks: blocks)
 		let whiteboard = RescrivaPage(source: .whiteboard, blocks: blocks)

@@ -68,7 +68,7 @@ struct InboxStore {
 		do {
 			try FileManager.default.removeItem(at: folder)
 		} catch {
-			print("Rescriva: couldn't remove an Inbox folder: \(error)")
+			Log.inbox.error("Couldn't remove an Inbox folder: \(error)")
 		}
 	}
 
@@ -86,7 +86,8 @@ struct InboxStore {
 		}
 	}
 
-	/// The hand-off in `folder`, when its manifest reads, makes sense, and its file is there.
+	/// The hand-off in `folder`, when its manifest reads, makes sense, its file is there, and a
+	/// PDF still looks like one.
 	private func item(in folder: URL) -> Item? {
 		let url = folder.appendingPathComponent(InboxManifest.fileName)
 		guard let data = try? Data(contentsOf: url), let manifest = try? InboxManifest.decode(data), manifest.isValid else {
@@ -95,8 +96,21 @@ struct InboxStore {
 		let item = Item(folder: folder, manifest: manifest)
 		if let file = item.fileURL {
 			guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+			if manifest.kind == .pdf, !looksLikePDF(file) { return nil }
 		}
 		return item
+	}
+
+	/// The magic-byte check the extension made at commit, made again here: on a Mac any process
+	/// can write the App Group folder, so what's there now isn't necessarily what was committed.
+	/// A file that can't be read fails the check too; the import removes it and says so.
+	private func looksLikePDF(_ file: URL) -> Bool {
+		do {
+			return try InboxDrop.startsLikePDF(file)
+		} catch {
+			Log.inbox.error("Couldn't read an Inbox file to check it: \(error)")
+			return false
+		}
 	}
 
 	private func hasManifest(_ folder: URL) -> Bool {

@@ -1,18 +1,14 @@
 //
 //  TimelineEntry.swift
-//  ScannerWidgetExtension
+//  Rescriva widget
 //
-//  Created by Slaven Radic on 2024-09-01.
+//  The launcher's one timeline entry. It shows nothing that changes, so the entry carries only
+//  the date WidgetKit asks for.
 //
 
 import Foundation
 import WidgetKit
 
-struct ScanArrayEntry: TimelineEntry {
+struct ScanLauncherEntry: TimelineEntry {
 	let date: Date
-	let entries: [ScanEntry]
-}
-
-struct ScanEntry {
-	let title: String?
 }

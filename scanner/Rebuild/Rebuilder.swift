@@ -20,6 +20,7 @@
 
 import Foundation
 import CoreData
+import ImageIO
 import UIKit
 import Vision
 
@@ -72,19 +73,20 @@ struct RebuildProgress: Equatable, Sendable {
 	}
 }
 
-/// Builds and caches the rebuilt document for a scan.
+/// Builds and caches the rebuilt document for a scan. The rebuild itself (`build`) works from a
+/// value copy of the scan (`ScanSnapshot`) and never touches Core Data; `document(for:)` and
+/// `refreshStalePages(of:)` are the thin wrappers that read the scan's pages and write its
+/// document back.
 @MainActor
 struct Rebuilder {
 	let tier: DeviceTier
-
-	/// Upper bound on 150 ms waits for in-flight text recognition (~30 s).
-	static let maxReadingWaits = 200
 
 	/// Returns the scan's document, rebuilding only what changed since the last rebuild: nothing
 	/// when its pages are the same; just the pages re-made since (`refreshStalePages`), so every
 	/// other page keeps its Review work; or the whole document when pages were added, removed or
 	/// moved. `progress` is called as each stage starts and, in the counted stages, as each page or
-	/// word is done.
+	/// word is done. A document a newer Rescriva wrote (`Scan.rebuiltDocumentState`) is left as it
+	/// is: the document returned is built afresh and never cached over it (`mayCache`).
 	func document(for scan: Scan, progress: @escaping @MainActor (RebuildProgress) -> Void) async -> RescrivaDocument {
 		let captureIDs = scan.capturesArray.compactMap(\.id)
 		if let existing = scan.rebuiltDocument, existing.sourceCaptureIDs == captureIDs {
@@ -104,44 +106,58 @@ struct Rebuilder {
 	/// Rebuilds every page and caches the document, unless the scan changed meanwhile (`mayCache`)
 	/// or the rebuild was cancelled, which leaves pages unbuilt.
 	private func rebuildWhole(_ scan: Scan, progress: @escaping @MainActor (RebuildProgress) -> Void) async -> RescrivaDocument {
-		let captureIDs = scan.capturesArray.compactMap(\.id)
 		let startingData = scan.rebuiltData
 		await recognizeMissingText(in: scan.capturesArray, progress: progress)
-		let pages = scan.capturesArray.map(Self.snapshot(of:))
-
-		progress(RebuildProgress(stage: .structure, total: pages.count))
-		let built = await buildPages(pages, source: scan.pageSource ?? .typed, output: scan.output) { done in
-			progress(RebuildProgress(stage: .structure, done: done, total: pages.count))
-		}
-		let document = await finishing(RescrivaDocument(title: scan.displayTitle, pages: built, sourceCaptureIDs: captureIDs),
-									   pages: pages, progress: progress)
+		let snapshot = Self.snapshot(of: scan, pages: scan.capturesArray)
+		let document = await build(snapshot, progress: progress)
 
 		// A page re-made while this ran (PageReprocessor) holds new pixels under the same capture id:
 		// caching this document, built from the old ones, would hand it back for good. And a document
 		// written meanwhile for these pages (a re-made page spliced in, Review edits) must not be lost.
-		guard !Task.isCancelled, Self.mayCache(pages, captureIDs: captureIDs, startedWith: startingData, of: scan) else { return document }
+		guard !Task.isCancelled, Self.mayCache(snapshot.pages, captureIDs: snapshot.captureIDs, startedWith: startingData, of: scan)
+		else { return document }
+		Self.store(document, on: scan)
+		return document
+	}
+
+	/// Builds the document for `snapshot`, touching nothing but the snapshot: each page through its
+	/// passes (`buildPages`), then the steps over the whole (`finishing`). Once cancelled, the pages
+	/// left come back empty, one per snapshot page. The main actor is for the spelling checker,
+	/// Apple Intelligence and `progress`; the passes run off it.
+	func build(_ snapshot: ScanSnapshot, progress: @escaping @MainActor (RebuildProgress) -> Void = { _ in }) async -> RescrivaDocument {
+		progress(RebuildProgress(stage: .structure, total: snapshot.pages.count))
+		let built = await buildPages(snapshot.pages, source: snapshot.source, output: snapshot.output) { done in
+			progress(RebuildProgress(stage: .structure, done: done, total: snapshot.pages.count))
+		}
+		return await finishing(RescrivaDocument(title: snapshot.title, pages: built, sourceCaptureIDs: snapshot.captureIDs),
+							   pages: snapshot.pages, progress: progress)
+	}
+
+	/// Writes `document` back as the scan's and lets go of the figure pictures only the old one used.
+	private static func store(_ document: RescrivaDocument, on scan: Scan) {
 		scan.rebuiltDocument = document
 		scan.lastUpdate = Date()
 		scan.managedObjectContext?.saveQuietly()
-		// The old document's figure pictures went with it.
 		FigureAssets.prune(scan)
-		return document
 	}
 
 	/// The steps each page goes through, a page at a time so a long document shows steady progress
 	/// (`pageDone`, with how many are built): read for structure, then (Smart tier) diagrams and
 	/// equations, then pictures (and reading order again with them), then type styles, then
-	/// colours. Diagrams are numbered as figures from 1 within `pages`. Once cancelled, the pages
-	/// left come back empty: one page per snapshot, never cached (`rebuildWhole`).
+	/// colours. Each page's pixels are decoded once, here, for every pass (`PageSnapshot.image`)
+	/// and let go before the next page's. Diagrams are numbered as figures from 1 within `pages`.
+	/// Once cancelled, the pages left come back empty: one page per snapshot, never cached
+	/// (`rebuildWhole`).
 	private func buildPages(_ pages: [PageSnapshot], source: PageSource, output: OutputKind,
 							pageDone: @MainActor (Int) -> Void = { _ in }) async -> [RescrivaPage] {
 		var built: [RescrivaPage] = []
 		var diagramsSoFar = 0
-		for page in pages {
+		for stored in pages {
 			guard !Task.isCancelled else {
 				built.append(RescrivaPage(source: source))
 				continue
 			}
+			let page = await stored.decodingImage()
 			var single = [await Self.buildPage(page, source: source, output: output)]
 			if tier == .smart {
 				single = await Self.detectDiagrams(in: single, pages: [page], numberingAfter: diagramsSoFar)
@@ -202,18 +218,14 @@ struct Rebuilder {
 	private func refreshPage(_ captureID: UUID, of scan: Scan, progress: @escaping @MainActor (RebuildProgress) -> Void) async {
 		guard let capture = scan.capturesArray.first(where: { $0.id == captureID }),
 			  !RecognitionTracker.shared.isReading(capture) else { return }
-		let page = Self.snapshot(of: capture)
-		progress(RebuildProgress(stage: .structure))
-		let built = await buildPages([page], source: scan.pageSource ?? .typed, output: scan.output)
-		let single = await finishing(RescrivaDocument(title: scan.displayTitle, pages: built), pages: [page], progress: progress)
-		guard !Task.isCancelled, let rebuilt = single.pages.first, Self.isCurrent(page, captureID: captureID, of: scan),
+		let snapshot = Self.snapshot(of: scan, pages: [capture])
+		let single = await build(snapshot, progress: progress)
+		guard !Task.isCancelled, let page = snapshot.pages.first, let rebuilt = single.pages.first,
+			  Self.isCurrent(page, captureID: captureID, of: scan),
 			  let document = scan.rebuiltDocument,
 			  let spliced = PageSplice.splicing(rebuilt, for: captureID, into: document,
 												captureIDs: scan.capturesArray.compactMap(\.id)) else { return }
-		scan.rebuiltDocument = spliced
-		scan.lastUpdate = Date()
-		scan.managedObjectContext?.saveQuietly()
-		FigureAssets.prune(scan)
+		Self.store(spliced, on: scan)
 	}
 
 	/// `document` with each page's OCR text fingerprinted (`TextLayerReconciler.digest`), so the
@@ -246,16 +258,18 @@ struct Rebuilder {
 	}
 
 	/// True when a whole rebuild of `pages`, begun while the scan held `startingData`, may cache its
-	/// document: the pages are still the scan's (`isCurrent`), and no document for these pages was
-	/// written since it began (a re-made page spliced in, Review edits, another rebuild), which
-	/// caching would overwrite.
+	/// document: the pages are still the scan's (`isCurrent`), the scan's document isn't one only a
+	/// newer Rescriva can read (kept for it), and no document for these pages was written since the
+	/// rebuild began (a re-made page spliced in, Review edits, another rebuild), which caching
+	/// would overwrite.
 	static func mayCache(_ pages: [PageSnapshot], captureIDs: [UUID], startedWith startingData: Data?, of scan: Scan) -> Bool {
-		guard isCurrent(pages, captureIDs: captureIDs, of: scan) else { return false }
+		guard isCurrent(pages, captureIDs: captureIDs, of: scan), !scan.rebuiltDocumentState.needsNewerApp else { return false }
 		return scan.rebuiltData == startingData || scan.rebuiltDocument?.sourceCaptureIDs != captureIDs
 	}
 
 	/// Runs OCR on `captures` that don't have text yet (and aren't already being read), counting
-	/// them off in `progress`, then waits for those being read elsewhere.
+	/// them off in `progress`, then waits for each one being read elsewhere to be done
+	/// (`RecognitionTracker.waitUntilRead`; a cancelled rebuild stops waiting).
 	private func recognizeMissingText(in captures: [ScanCapture], progress: @MainActor (RebuildProgress) -> Void) async {
 		let unread = captures.filter { $0.recognizedItemsArray.isEmpty }
 		progress(RebuildProgress(stage: .reading, total: unread.count))
@@ -264,14 +278,52 @@ struct Rebuilder {
 			await PageOCR.process(capture, image: image)
 			progress(RebuildProgress(stage: .reading, done: index + 1, total: unread.count))
 		}
-		// Pages already being read elsewhere: wait for them, at most ~30 s.
-		for _ in 0..<Self.maxReadingWaits where captures.contains(where: { RecognitionTracker.shared.isReading($0) }) {
-			do {
-				try await Task.sleep(for: .milliseconds(150))
-			} catch {
-				return
-			}
+		for capture in captures where !Task.isCancelled {
+			await RecognitionTracker.shared.waitUntilRead(capture)
 		}
+	}
+
+	// MARK: Snapshots
+
+	/// What a rebuild needs from a scan, copied off Core Data: `build` works from this alone.
+	struct ScanSnapshot: Sendable {
+		var title: String
+		var source: PageSource
+		var output: OutputKind
+		/// The captures the pages were copied from, in order (`RescrivaDocument.sourceCaptureIDs`).
+		var captureIDs: [UUID]
+		var pages: [PageSnapshot]
+	}
+
+	/// What the rebuild needs from one page, copied off Core Data, plus its pixels once decoded.
+	struct PageSnapshot: Sendable {
+		var imageData: Data?
+		var lines: [RecognizedLine]
+		var aspect: Double
+		/// The page decoded from `imageData` by `decodingImage`, the one decode a rebuild makes of
+		/// it; nil until then, and for data that doesn't decode.
+		var image: CGImage? = nil
+
+		/// The snapshot with its page decoded, off the main actor, for every pass to read.
+		nonisolated func decodingImage() async -> PageSnapshot {
+			guard image == nil, let imageData else { return self }
+			var decoded = self
+			decoded.image = Rebuilder.decodedPage(imageData)
+			return decoded
+		}
+
+		/// The page for a pass to read: the one decoded for the rebuild, or, for a snapshot made by
+		/// hand (as tests do), decoded now.
+		var decodedImage: CGImage? {
+			image ?? imageData.flatMap(Rebuilder.decodedPage)
+		}
+	}
+
+	/// What the rebuild needs from the scan and the pages `captures` (its own, in order), copied
+	/// off Core Data.
+	static func snapshot(of scan: Scan, pages captures: [ScanCapture]) -> ScanSnapshot {
+		ScanSnapshot(title: scan.displayTitle, source: scan.pageSource ?? .typed, output: scan.output,
+					 captureIDs: captures.compactMap(\.id), pages: captures.map(snapshot(of:)))
 	}
 
 	/// What the rebuild needs from one capture, copied off Core Data.
@@ -280,21 +332,28 @@ struct Rebuilder {
 					 aspect: Double(capture.thumbnail?.aspectRatio ?? 0.75))
 	}
 
-	/// What the rebuild needs from one page, copied off Core Data.
-	struct PageSnapshot: Sendable {
-		var imageData: Data?
-		var lines: [RecognizedLine]
-		var aspect: Double
+	/// The page's pixels as stored, decoded now rather than on first draw, so the one decode is
+	/// shared: Vision reads it and each detector draws it to its own working size. No EXIF turn, so
+	/// the pixels line up with the boxes Vision read off the same unturned image.
+	nonisolated static func decodedPage(_ data: Data) -> CGImage? {
+		guard !data.isEmpty, let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+		let options: [CFString: Any] = [kCGImageSourceShouldCacheImmediately: true]
+		return CGImageSourceCreateImageAtIndex(source, 0, options as CFDictionary)
 	}
 
-	/// Builds one page: Vision's document reader when available, heuristics otherwise.
+	/// Builds one page: Vision's document reader when available, heuristics otherwise (and when
+	/// the reader fails, which is logged).
 	nonisolated static func buildPage(_ page: PageSnapshot, source: PageSource, output: OutputKind) async -> RescrivaPage {
 		let size: PageSize = page.aspect > 1
 			? PageSize(width: 960, height: 960 / page.aspect)
 			: PageSize(width: 612, height: 612 / max(page.aspect, 0.2))
 		var blocks: [RescrivaBlock] = []
-		if #available(iOS 26.0, *), let data = page.imageData, let image = UIImage(data: data)?.cgImage {
-			blocks = (try? await documentBlocks(image)) ?? []
+		if #available(iOS 26.0, *), let image = page.decodedImage {
+			do {
+				blocks = try await documentBlocks(image)
+			} catch {
+				Log.rebuild.error("Vision's document reader failed on a page, so its layout comes from the heuristics: \(error)")
+			}
 		}
 		if blocks.isEmpty {
 			blocks = heuristicBlocks(page.lines, aspect: page.aspect)
@@ -311,8 +370,8 @@ struct Rebuilder {
 	nonisolated static func detectFigures(in built: [RescrivaPage], pages: [PageSnapshot]) async -> [RescrivaPage] {
 		var result = built
 		for index in result.indices where result[index].source != .whiteboard {
-			guard let snapshot = pages[safe: index], let data = snapshot.imageData else { continue }
-			let found = FigureDetector.detect(data, lines: snapshot.lines, excluding: FigureDetector.exclusions(in: result[index].blocks))
+			guard let snapshot = pages[safe: index], let image = snapshot.decodedImage else { continue }
+			let found = FigureDetector.detect(in: image, lines: snapshot.lines, excluding: FigureDetector.exclusions(in: result[index].blocks))
 			guard !found.isEmpty else { continue }
 			result[index].blocks = FigurePlacement.placing(found, into: result[index].blocks, lines: snapshot.lines)
 		}
@@ -353,9 +412,9 @@ struct Rebuilder {
 	nonisolated static func detectStyles(in built: [RescrivaPage], pages: [PageSnapshot]) async -> [RescrivaPage] {
 		var result = built
 		for index in result.indices where result[index].source == .typed {
-			guard let snapshot = pages[safe: index], let data = snapshot.imageData else { continue }
+			guard let snapshot = pages[safe: index], let image = snapshot.decodedImage else { continue }
 			let roles = StyleDetector.roles(for: snapshot.lines, blocks: result[index].blocks)
-			let found = StyleDetector.detect(data, lines: snapshot.lines, roles: roles)
+			let found = StyleDetector.detect(image, lines: snapshot.lines, roles: roles)
 			guard !found.isEmpty else { continue }
 			result[index] = StyleDetector.applying(found, lines: snapshot.lines, to: result[index])
 		}
@@ -370,8 +429,8 @@ struct Rebuilder {
 	nonisolated static func sampleColors(in built: [RescrivaPage], pages: [PageSnapshot]) async -> [RescrivaPage] {
 		var result = built
 		for index in result.indices {
-			guard let data = pages[safe: index]?.imageData,
-				  let colors = PageColorSampler.sample(data, blocks: result[index].blocks, source: result[index].source)
+			guard let image = pages[safe: index]?.decodedImage,
+				  let colors = PageColorSampler.sample(image, blocks: result[index].blocks, source: result[index].source)
 			else { continue }
 			result[index] = PageColorSampler.applying(colors, to: result[index])
 		}
@@ -387,8 +446,7 @@ struct Rebuilder {
 		var result = built
 		var figureNumber = earlier
 		for index in result.indices {
-			guard let snapshot = pages[safe: index], let data = snapshot.imageData,
-				  let image = UIImage(data: data)?.cgImage,
+			guard let snapshot = pages[safe: index], let image = snapshot.decodedImage,
 				  let found = DiagramDetector.detect(in: image, lines: snapshot.lines)
 			else { continue }
 			figureNumber += 1

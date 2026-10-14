@@ -139,9 +139,11 @@ struct ScanTile: View {
 			.shadow(color: Color.shade.opacity(0.06), radius: 10, x: 0, y: 6)
 	}
 
+	/// The first page's thumbnail, read on its own (`coverThumbnail`): faulting the page in would
+	/// load its full image for every card in the grid.
 	@ViewBuilder
 	private var pageImage: some View {
-		if let image = scan.capturesArray.first?.thumbnail {
+		if let image = scan.coverThumbnail {
 			if scan.output == .pptx {
 				Image(uiImage: image).resizable().scaledToFit().padding(6)
 			} else {
@@ -197,7 +199,7 @@ struct ScanTile: View {
 
 	@ViewBuilder
 	private var pageCount: some View {
-		let count = scan.capturesArray.count
+		let count = scan.pageCount
 		if count > 1 {
 			Text("\(count)")
 				.font(RescrivaFont.ui(10, weight: .medium))

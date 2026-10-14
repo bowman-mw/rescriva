@@ -1,64 +1,60 @@
 //
 //  WidgetView.swift
-//  ScannerWidgetExtension
+//  Rescriva widget
 //
-//  Created by Slaven Radic on 2024-09-01.
+//  The launcher's face: the viewfinder in Rescriva's accent (indigo ink, this target's
+//  AccentColor) on paper (its WidgetBackground), captioned "Scan" in a serif like the app's
+//  New York headings. On the lock screen it's the viewfinder alone, in the system's colour.
 //
 
 import SwiftUI
 import WidgetKit
 
 struct ScannerWidgetEntryView: View {
-	
-	@Environment(\.widgetFamily) var widgetFamily
+	@Environment(\.widgetFamily) private var widgetFamily
 
-	var entry: Provider.Entry
-	var viewState: ViewState
-	
+	let entry: ScanLauncherEntry
+
 	var body: some View {
 		content
 			.containerBackground(for: .widget) {
 				background
 			}
 	}
-	
+
 	@ViewBuilder
 	private var content: some View {
 		switch widgetFamily {
 		case .systemSmall:
-			// Small home screen widget
-			buttonText(scaleBy: 2.5)
+			launcher(scaleBy: 2.5)
 		case .accessoryCircular:
-			// Small circular lock screen widget
-			buttonText()
+			launcher()
 		default:
 			EmptyView()
 		}
 	}
-	
+
 	@ViewBuilder
 	private var background: some View {
 		if widgetFamily == .systemSmall {
-			DefaultBackgroundGradient
+			Color("WidgetBackground")
 		} else {
 			Color.clear
 		}
 	}
-	
-	/// Rescriva's look: the viewfinder in indigo ink on paper (chalk on the
-	/// chalkboard), with the caption set in New York.
-	func buttonText(scaleBy: Double = 1) -> some View {
-		ZStack {
-			Text(caption)
-				.font(.system(size: caption.count > 4 ? 10 * scaleBy : 15 * scaleBy, weight: .semibold, design: .serif))
-			Image(systemName: "viewfinder")
-				.font(.system(size: 42 * scaleBy, weight: .light))
-				.foregroundStyle(widgetFamily == .systemSmall ? Color.accent : Color.primary)
-		}
+
+	private var caption: String {
+		String(localized: "Scan")
 	}
 
-	var caption: String {
-		"Scan"
+	/// The caption inside the viewfinder; a longer translation is set smaller to stay inside.
+	private func launcher(scaleBy scale: Double = 1) -> some View {
+		ZStack {
+			Text(caption)
+				.font(.system(size: (caption.count > 4 ? 10 : 15) * scale, weight: .semibold, design: .serif))
+			Image(systemName: "viewfinder")
+				.font(.system(size: 42 * scale, weight: .light))
+				.foregroundStyle(widgetFamily == .systemSmall ? Color.accentColor : Color.primary)
+		}
 	}
-	
 }

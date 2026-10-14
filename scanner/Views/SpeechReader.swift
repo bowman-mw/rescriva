@@ -113,7 +113,7 @@ final class SpeechReader {
 			try session.setActive(true)
 			holdsAudio = true
 		} catch {
-			print("Rescriva: couldn't set up audio for speech: \(error)")
+			Log.app.error("Couldn't set up audio for speech: \(error)")
 		}
 	}
 
@@ -124,7 +124,7 @@ final class SpeechReader {
 		do {
 			try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
 		} catch {
-			print("Rescriva: couldn't release audio after speech: \(error)")
+			Log.app.error("Couldn't release audio after speech: \(error)")
 		}
 	}
 }

@@ -1,30 +1,18 @@
 //
 //  DataExtensions.swift
-//  Open Scanner
+//  Open Scanner → Rescriva
 //
 //  Created by Slaven Radic on 2024-09-01.
+//  Rescriva: what the app reads from a scan's pages and lines — pages and lines in order, text
+//  previews and search, page images and thumbnails, what the data detector finds in a line — and
+//  the library grid's reads that leave page rows (each holding a full page image) in the store.
 //
 
 import Foundation
 import CoreData
 import UIKit
-import PDFKit
 
 extension Scan {
-	
-	public func createDefaults(isLive: Bool = false) {
-		// Init
-		id = UUID()
-		let now = Date()
-		timestamp = now
-		title = "Scan from " + now.formatted()
-		order = Int32(AppState.shared.lastScanIndex)
-		self.isLive = isLive
-		// latitude/longitude stay in the model for CloudKit but are no longer written: the app never
-		// asked for location, and reading CLLocationManager.location on the main thread waited on
-		// locationd (Xcode's hang-risk report at AppState.swift).
-		
-	}
 	
 	public var capturesArray: [ScanCapture] {
 	  let set = captures as? Set<ScanCapture> ?? []
@@ -32,44 +20,84 @@ extension Scan {
 		$0.order < $1.order
 	  }
 	}
-	
-	public var reversedCaptures: [ScanCapture] {
-		(captures?.allObjects as? [ScanCapture] ?? [])
-			.sorted(by: { $0.order > $1.order })
+
+	/// The first page's thumbnail (the first by `order`, as `capturesArray` sorts, that has one),
+	/// for the library grid and sidebar. Read and decoded once per change to the scan
+	/// (`CoverThumbnailCache`): a tile's body runs again on every change to its scan and as the
+	/// grid scrolls, and `coverThumbnailData` is a store fetch each time.
+	var coverThumbnail: UIImage? {
+		CoverThumbnailCache.image(for: self)
 	}
-	
-	public var totalRecognizedItems: Int {
-		var result = 0
-		for capture in capturesArray {
-			result += capture.recognizedItems?.count ?? 0
+
+	/// The thumbnail bytes of the first page with a thumbnail, read straight from the store with
+	/// nothing else of the page: a page's row holds its full image, so faulting pages in for their
+	/// thumbnails (`capturesArray.first?.thumbnail`) pulled whole pages into memory for every card
+	/// in the grid. A scan not yet saved has no rows to read; its pages are looked at directly.
+	var coverThumbnailData: Data? {
+		guard let context = managedObjectContext, !objectID.isTemporaryID else {
+			return capturesArray.first { $0.thumbnailData != nil }?.thumbnailData
 		}
-		return result
-	}
-	
-	public var firstThumbnail: UIImage? {
-		
-		for capture in capturesArray {
-			if let data = capture.thumbnailData {
-				if let image = UIImage(data: data) {
-					return image
-				}
-			}
+		let request = NSFetchRequest<NSDictionary>(entityName: "ScanCapture")
+		request.predicate = NSPredicate(format: "parent == %@ AND thumbnailData != nil", self)
+		request.sortDescriptors = [NSSortDescriptor(key: "order", ascending: true),
+								   NSSortDescriptor(key: "timestamp", ascending: true)]
+		request.resultType = .dictionaryResultType
+		request.propertiesToFetch = ["thumbnailData"]
+		request.fetchLimit = 1
+		do {
+			return try context.fetch(request).first?["thumbnailData"] as? Data
+		} catch {
+			Log.library.error("Couldn't read a scan's first thumbnail: \(error)")
+			return nil
 		}
-		return nil
 	}
-	
-	public var lastThumbnail: UIImage? {
-		
-		for capture in capturesArray.reversed() {
-			if let data = capture.thumbnailData {
-				if let image = UIImage(data: data) {
-					return image
-				}
-			}
+
+	/// How many pages the scan has. Counting the relationship fetches the pages' ids, not their rows.
+	var pageCount: Int {
+		captures?.count ?? 0
+	}
+}
+
+/// The decoded covers of recently shown scans, by object id, each good while the scan's
+/// `lastUpdate` is what it was when the cover was read: every change to a scan's pages (added,
+/// re-made, moved, removed, read) moves `lastUpdate`. Bounded, and emptied under memory pressure,
+/// which only costs a read. A scan with no cover yet isn't cached, so its first thumbnail shows
+/// as soon as it exists.
+enum CoverThumbnailCache {
+	private final class Entry {
+		let lastUpdate: Date?
+		let image: UIImage
+
+		init(lastUpdate: Date?, image: UIImage) {
+			self.lastUpdate = lastUpdate
+			self.image = image
 		}
-		return nil
 	}
-	
+
+	/// NSCache is thread-safe, which is what `nonisolated(unsafe)` says here.
+	nonisolated(unsafe) private static let entries: NSCache<NSManagedObjectID, Entry> = {
+		let cache = NSCache<NSManagedObjectID, Entry>()
+		cache.countLimit = 400
+		return cache
+	}()
+
+	static func image(for scan: Scan) -> UIImage? {
+		let id = scan.objectID
+		guard !id.isTemporaryID else { return decode(scan) }
+		if let entry = entries.object(forKey: id), entry.lastUpdate == scan.lastUpdate {
+			return entry.image
+		}
+		guard let image = decode(scan) else { return nil }
+		entries.setObject(Entry(lastUpdate: scan.lastUpdate, image: image), forKey: id)
+		return image
+	}
+
+	private static func decode(_ scan: Scan) -> UIImage? {
+		scan.coverThumbnailData.flatMap { UIImage(data: $0) }
+	}
+}
+
+extension Scan {
 	public var textPreview: String {
 		var result = ""
 		for capture in capturesArray {
@@ -102,88 +130,6 @@ extension Scan {
 		}
 		return false
 		
-	}
-	
-	public func pdfDocument(addWatermark: Bool = false) -> PDFDocument {
-		let flatPdf = PDFDocument()
-		
-		// Add all pages to the document
-		for capture in reversedCaptures {
-			if let image = prepareImageForExport(capture.image) {
-				if let newPage = PDFPage(image: image) {
-					flatPdf.insert(newPage, at: 0)
-				}
-			}
-		}
-		
-		return flatPdf
-	}
-	
-	private func prepareImageForExport(_ image: UIImage?, addWatermark: Bool = false) -> UIImage? {
-		guard let image = image else { return nil }
-
-		// Return the original image
-		return image
-	}
-	
-	public func pdfDocumentFile(addWatermark: Bool = false) -> URL? {
-
-		// Save file
-		let filename = ((title ?? "Document") + ".pdf").sanitized().whitespaceCondensed()
-		let url = FileManager
-			.default
-			.temporaryDirectory
-			.appendingPathComponent(filename)
-
-		let didWrite = pdfDocument().write(to: url)
-		
-		return didWrite ? url : nil
-	}
-	
-	func firstPageImage() -> UIImage? {
-		guard let url = pdfDocumentFile(), let document = CGPDFDocument(url as CFURL) else { return nil }
-		guard let page = document.page(at: 1) else { return nil }
-
-		let pageRect = page.getBoxRect(.mediaBox)
-		let renderer = UIGraphicsImageRenderer(size: pageRect.size)
-		let img = renderer.image { ctx in
-			UIColor.white.set()
-			ctx.fill(pageRect)
-
-			ctx.cgContext.translateBy(x: 0.0, y: pageRect.size.height)
-			ctx.cgContext.scaleBy(x: 1.0, y: -1.0)
-
-			ctx.cgContext.drawPDFPage(page)
-		}
-
-		return img
-	}
-	
-	public var textDocument: URL? {
-		var str = ""
-		
-		// Add all pages to the document
-		for capture in capturesArray {
-			for item in capture.recognizedItemsArray {
-				str += (item.transcript ?? "") + "\n"
-			}
-		}
-
-		// Save file
-		let filename = ((title ?? "Document") + ".text").sanitized().whitespaceCondensed()
-		let url = FileManager
-			.default
-			.temporaryDirectory
-			.appendingPathComponent(filename)
-
-		do {
-			try str.write(to: url, atomically: true, encoding: String.Encoding.utf8)
-			return url
-		} catch {
-			// Failed
-		}
-		
-		return nil
 	}
 }
 
@@ -266,175 +212,50 @@ extension ScanCapture {
 		}
 		return false
 	}
-	
-	public var titleSuggestion: String {
-		var title = parent?.title ?? "Scanned text"
-		if let firstItem = recognizedItemsArray.first {
-			title = firstItem.transcript?.sanitized().whitespaceCondensed() ?? title
-		}
-		return title
-	}
-	
-	public var textDocument: URL? {
-		var str = ""
-		
-		// Add all page text
-		for item in recognizedItemsArray {
-			if let text = item.transcript {
-				str = str + text + "\n"
-			}
-		}
-
-		// Save file
-		let filename = (titleSuggestion + ".text").sanitized().whitespaceCondensed()
-		let url = FileManager
-			.default
-			.temporaryDirectory
-			.appendingPathComponent(filename)
-
-		do {
-			try str.write(to: url, atomically: true, encoding: String.Encoding.utf8)
-			return url
-		} catch {
-			// Failed
-		}
-		
-		return nil
-	}
-
 }
 
 extension ScanRecognizedItem {
 	
-	public var titleSuggestion: String {
-		var title = parent?.titleSuggestion ?? "Scanned text"
-		title = transcript?.sanitized().whitespaceCondensed() ?? title
-		return title
-	}
-	
-	public var textUrl: URL? {
-
-		guard let str = transcript else { return nil }
-
-		// Save file
-		let filename = titleSuggestion + ".text"
-		let url = FileManager
-			.default
-			.temporaryDirectory
-			.appendingPathComponent(filename)
-
-		do {
-			try str.write(to: url, atomically: true, encoding: String.Encoding.utf8)
-			return url
-		} catch {
-			// Failed
-		}
-		
-		return nil
-	}
-	
 	var mailingAddress: String? {
-		
-		if let result = dataDetector(transcript, checkingType: .address) {
-			return result
-		}
-		return nil
+		Self.detect(.address, in: transcript)
 	}
 	
 	var phoneNumber: String? {
-		
-		if let result = dataDetector(transcript, checkingType: .phoneNumber) {
-			return result
-		}
-		return nil
+		Self.detect(.phoneNumber, in: transcript)
 	}
 	
 	var urlAddress: String? {
-		
-		if let result = dataDetector(transcript, checkingType: .link) {
-			return result
-		}
-		return nil
+		Self.detect(.link, in: transcript)
 	}
 	
 	var emailAddress: String? {
-		
-		if let result = dataDetector(transcript, checkingType: .link, isEmail: true) {
-			return result
-		}
-		return nil
+		Self.detect(.link, in: transcript, email: true)
 	}
-	
 
-	func dataDetector(_ text: String?, checkingType: NSTextCheckingResult.CheckingType, isEmail: Bool = false) -> String? {
-
-		guard let text = text else { return nil }
-		
+	/// One detector for every line: it's immutable once made (an `NSRegularExpression`), so it can
+	/// be shared. Nil only if the type mask were invalid, which a constant can't be.
+	private static let detector: NSDataDetector? = {
 		do {
-			// Create an NSDataDetector to parse the text, searching for various fields of interest.
-			let detector = try NSDataDetector(types: NSTextCheckingAllTypes)
-			let matches = detector.matches(in: text, options: .init(), range: NSRange(location: 0, length: text.count))
-			for match in matches {
-				let matchStartIdx = text.index(text.startIndex, offsetBy: match.range.location)
-				let matchEndIdx = text.index(text.startIndex, offsetBy: match.range.location + match.range.length)
-				let matchedString = String(text[matchStartIdx..<matchEndIdx])
-				
-				if match.resultType == checkingType {
-					
-					if isEmail && checkingType == .link {
-						if matchedString.contains("@") {
-							return matchedString
-						}
-					}
-					else if !isEmail && checkingType == .link {
-						if !matchedString.contains("@") {
-							return matchedString
-						}
-					}
-					else {
-						return matchedString
-					}
-				}
-				
-			}
+			return try NSDataDetector(types: NSTextCheckingAllTypes)
 		} catch {
-			print(error)
+			Log.app.error("Couldn't make the data detector: \(error)")
+			return nil
+		}
+	}()
+
+	/// The first thing of `checkingType` the data detector finds in `text`, as the exact characters
+	/// it matched. The detector works in UTF-16 units, so its range is converted back with
+	/// `Range(_:in:)`; counting Characters instead shifted a match that came after emoji or CJK
+	/// text. For `.link`, `email` asks for an address (one with "@") or for a web link (without).
+	static func detect(_ checkingType: NSTextCheckingResult.CheckingType, in text: String?, email: Bool = false) -> String? {
+		guard let text, let detector else { return nil }
+		let whole = NSRange(location: 0, length: text.utf16.count)
+		for match in detector.matches(in: text, options: [], range: whole) where match.resultType == checkingType {
+			guard let range = Range(match.range, in: text) else { continue }
+			let matched = String(text[range])
+			if checkingType == .link, matched.contains("@") != email { continue }
+			return matched
 		}
 		return nil
-	}
-	
-	
-}
-
-struct CreateOperation<Object: NSManagedObject>: Identifiable {
-	let id = UUID()
-	let childContext: NSManagedObjectContext
-	let childObject: Object
-	
-	init(with parentContext: NSManagedObjectContext) {
-		let childContext = NSManagedObjectContext(concurrencyType: .mainQueueConcurrencyType)
-		childContext.parent = parentContext
-		let childObject = Object(context: childContext)
-		
-		self.childContext = childContext
-		self.childObject = childObject
-	}
-}
-
-struct UpdateOperation<Object: NSManagedObject>: Identifiable {
-	let id = UUID()
-	let childContext: NSManagedObjectContext
-	let childObject: Object
-	
-	init?(
-		withExistingObject object: Object,
-		in parentContext: NSManagedObjectContext
-	) {
-		let childContext = NSManagedObjectContext(concurrencyType: .mainQueueConcurrencyType)
-		childContext.parent = parentContext
-		guard let childObject = try? childContext.existingObject(with: object.objectID) as? Object else { return nil }
-		
-		self.childContext = childContext
-		self.childObject = childObject
 	}
 }

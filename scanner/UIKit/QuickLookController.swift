@@ -133,7 +133,7 @@ struct QuickLookController: UIViewControllerRepresentable {
 				try QuickLookCopy.prepareDirectory()
 				try data.write(to: url)
 			} catch {
-				print("Error loading image")
+				Log.library.error("Couldn't load the image for Quick Look")
 			}
 			
 			let previewItem = ScanPreview(url: url, title: "Scan")
@@ -151,7 +151,7 @@ struct QuickLookController: UIViewControllerRepresentable {
 					PageReprocessor.storeEdited(imageData, on: capture)
 				}
 			} catch {
-				print("Error loading modified image")
+				Log.library.error("Couldn't load the image Quick Look edited")
 			}
 		}
 		
@@ -196,7 +196,7 @@ enum QuickLookCopy {
 			do {
 				try FileManager.default.removeItem(at: copy)
 			} catch {
-				print("Rescriva: couldn't remove a Quick Look copy: \(error)")
+				Log.library.error("Couldn't remove a Quick Look copy: \(error)")
 			}
 		}
 	}
@@ -211,7 +211,7 @@ enum QuickLookCopy {
 			do {
 				urls = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])
 			} catch {
-				print("Rescriva: couldn't list Quick Look copies: \(error)")
+				Log.library.error("Couldn't list Quick Look copies: \(error)")
 				continue
 			}
 			for url in urls where isCopy(url) && modified(url) < cutoff {
@@ -219,7 +219,7 @@ enum QuickLookCopy {
 					try FileManager.default.removeItem(at: url)
 					removed += 1
 				} catch {
-					print("Rescriva: couldn't remove a Quick Look copy: \(error)")
+					Log.library.error("Couldn't remove a Quick Look copy: \(error)")
 				}
 			}
 		}
@@ -234,7 +234,7 @@ enum QuickLookCopy {
 		Task.detached(priority: .utility) {
 			let removed = sweep(folders, before: launch)
 			if removed > 0 {
-				print("Rescriva: removed \(removed) Quick Look copies left from an earlier run")
+				Log.library.notice("Removed \(removed) Quick Look copies left from an earlier run")
 			}
 		}
 	}

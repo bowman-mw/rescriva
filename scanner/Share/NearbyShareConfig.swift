@@ -21,7 +21,7 @@ enum NearbyShareConfig {
 		let text = override.trimmingCharacters(in: .whitespacesAndNewlines)
 		if text.lowercased() == "off" { return nil }
 		guard let url = checkedURL(text, schemes: ["ws", "wss"]) else {
-			print("Rescriva: ignoring shareRelayURL \"\(text)\", which isn't a ws:// or wss:// address")
+			Log.share.notice("Ignoring shareRelayURL \"\(text)\", which isn't a ws:// or wss:// address")
 			return standard
 		}
 		return url
@@ -33,7 +33,7 @@ enum NearbyShareConfig {
 		guard let override = UserDefaults.standard.string(forKey: "shareSiteURL") else { return standard }
 		let text = override.trimmingCharacters(in: .whitespacesAndNewlines)
 		guard let url = checkedURL(text, schemes: ["http", "https"]) else {
-			print("Rescriva: ignoring shareSiteURL \"\(text)\", which isn't an http:// or https:// address")
+			Log.share.notice("Ignoring shareSiteURL \"\(text)\", which isn't an http:// or https:// address")
 			return standard
 		}
 		return url

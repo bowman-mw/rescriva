@@ -47,6 +47,9 @@ final class NearbyShareSession {
 		var name: String
 		var kind: String
 		var trusted: Bool
+		/// Six digits the page shows on this device's card too, for a page that proved no secret
+		/// (`ShareCodes.checkNumber`); nil for a trusted one.
+		var checkNumber: String?
 	}
 
 	struct IncomingOffer: Identifiable {
@@ -81,17 +84,20 @@ final class NearbyShareSession {
 	private(set) var isRunning = false
 	/// share.rescriva.com/#k=…, for the QR code; nil until started.
 	private(set) var openLink: URL?
+	/// How many pages that have proved no secret can see what's shared: pages in the same-network
+	/// relay room, plus any connected from it that have since left the relay. Above one, the
+	/// screen warns that strangers may be looking.
+	private(set) var untrustedPageCount = 0
 	/// Something received and saved: for a toast.
 	var onSaved: ((String) -> Void)?
+	/// A transfer with no bytes for this long is given up on (`ShareLimits.stallSeconds`; tests
+	/// shorten it).
+	var stallSeconds: TimeInterval = ShareLimits.stallSeconds
 
 	// MARK: Limits
 
 	private static let maxLinks = 48
-	private static let maxDocuments = 200
 	private static let maxTransfersKept = 100
-	private static let maxSDPBytes = 64 * 1024
-	private static let maxCandidateBytes = 1024
-	private static let maxRelayPeerID = 64
 	private static let maxDownloadsPerRun = 256
 	private static let progressStep: Int64 = 256 * 1024
 	/// A relay connection that hasn't opened by now isn't going to (peer.js gives up at 25 s).
@@ -103,7 +109,8 @@ final class NearbyShareSession {
 	private static let pairingRoomLinger: Duration = .seconds(2)
 	private static let codeRetry: Duration = .seconds(2)
 	private static let codeRetries = 2
-	private static let deviceKinds: Set<String> = ["phone", "tablet", "computer", "iphone", "ipad", "mac"]
+	/// The relay's same-network room, where pages prove nothing.
+	private static let autoRoom = "auto"
 
 	// MARK: State behind the scenes
 
@@ -120,6 +127,8 @@ final class NearbyShareSession {
 		let id = UUID()
 		let secret: Data
 		let room: String
+		/// Stays on this network: no relay room, and only the code's local candidates are dialed.
+		let localOnly: Bool
 		var direct: UUID?
 	}
 
@@ -137,18 +146,20 @@ final class NearbyShareSession {
 	@ObservationIgnored private var usedPINs: Set<String> = []
 	@ObservationIgnored private var links: [UUID: NearbyShareLink] = [:]
 	@ObservationIgnored private var relays: [String: RelayRoom] = [:]
+	/// The web pages the relay says are in the same-network room, by relay peer id.
+	@ObservationIgnored private var autoRoomPages: Set<String> = []
 	@ObservationIgnored private var attempt: PairingAttempt?
 	/// The connection a pairing made, while `pairing` is `.connected`.
 	@ObservationIgnored private var paired: UUID?
 	/// A pairing asked for before start().
-	@ObservationIgnored private var pendingOffer: SharePairingOffer?
+	@ObservationIgnored private var pendingOffer: (offer: SharePairingOffer, localOnly: Bool)?
 	/// Ends a connection code that's been showing for `NearbyShareConfig.codeLifetime`.
 	@ObservationIgnored private var codeExpiry: Task<Void, Never>?
 
 	init(items: [NearbyShareItem], library: PDFLibrary, context: NSManagedObjectContext) {
 		self.library = library
 		self.context = context
-		self.sources = Self.unique(items, limit: Self.maxDocuments)
+		self.sources = Self.unique(items, limit: ShareLimits.maxDocuments)
 	}
 
 	/// With `PDFLibrary.shared`. (A default argument can't name it: it belongs to the main actor.)
@@ -172,9 +183,9 @@ final class NearbyShareSession {
 		transfers = []
 		for item in sources { addDocument(for: item) }
 		joinRelays(key: key)
-		if let offer = pendingOffer {
+		if let pending = pendingOffer {
 			pendingOffer = nil
-			pair(with: offer)
+			pair(with: pending.offer, localOnly: pending.localOnly)
 		}
 	}
 
@@ -186,6 +197,7 @@ final class NearbyShareSession {
 		sayGoodbye()
 		for room in relays.values { room.relay.stop() }
 		relays = [:]
+		autoRoomPages = []
 		attempt = nil
 		cancelCodeExpiry()
 		paired = nil
@@ -207,6 +219,7 @@ final class NearbyShareSession {
 		relayState = .off
 		pairing = .idle
 		openLink = nil
+		untrustedPageCount = 0
 	}
 
 	/// Every page hears that sharing ended; the connections close a moment later.
@@ -225,9 +238,9 @@ final class NearbyShareSession {
 	// MARK: Documents
 
 	func add(_ items: [NearbyShareItem]) {
-		for item in Self.unique(items, limit: Self.maxDocuments) where !sources.contains(item) {
-			guard sources.count < Self.maxDocuments else {
-				print("Rescriva: Share Nearby shares at most \(Self.maxDocuments) documents")
+		for item in Self.unique(items, limit: ShareLimits.maxDocuments) where !sources.contains(item) {
+			guard sources.count < ShareLimits.maxDocuments else {
+				Log.share.notice("Share Nearby shares at most \(ShareLimits.maxDocuments) documents")
 				return
 			}
 			sources.append(item)
@@ -254,7 +267,7 @@ final class NearbyShareSession {
 		documents.append(SharedDocument(id: id, source: item, name: name, size: 0, pin: newPIN(), state: .preparing))
 		locks[id] = NearbySharePINLock()
 		guard let folder else {
-			print("Rescriva: Share Nearby has no folder for its files")
+			Log.share.error("Share Nearby has no folder for its files")
 			return
 		}
 		let generation = generation
@@ -286,7 +299,7 @@ final class NearbyShareSession {
 			documents[index].state = .ready
 			broadcastDocs()
 		case .failure(let error):
-			print("Rescriva: Share Nearby couldn't prepare “\(documents[index].name)”: \(error)")
+			Log.share.error("Share Nearby couldn't prepare “\(self.documents[index].name, privacy: .private)”: \(error)")
 			documents[index].state = .failed(NearbyShareFiles.problem(error))
 		}
 	}
@@ -338,7 +351,7 @@ final class NearbyShareSession {
 			relayState = .off
 			return
 		}
-		joinRelay(url, room: "auto", secret: nil)
+		joinRelay(url, room: Self.autoRoom, secret: nil)
 		joinRelay(url, room: ShareCodes.roomID(secret: key), secret: key)
 	}
 
@@ -366,9 +379,19 @@ final class NearbyShareSession {
 			updateRelayState()
 			// After the relay has finished with this event, since failing a pairing leaves its room.
 			schedule(after: .zero) { [weak self] in self?.recheckRelayPairing() }
-		case .peers, .join:
-			break // Pages make the offers.
+		case .peers(let present):
+			// Pages make the offers; the list only says how many strangers are about.
+			guard room == Self.autoRoom else { return }
+			autoRoomPages = Set(present.filter { $0.role == "web" }.map(\.id))
+			updateUntrustedPageCount()
+		case .join(let peer):
+			guard room == Self.autoRoom, peer.role == "web" else { return }
+			autoRoomPages.insert(peer.id)
+			updateUntrustedPageCount()
 		case .leave(let peerID):
+			if room == Self.autoRoom, autoRoomPages.remove(peerID) != nil {
+				updateUntrustedPageCount()
+			}
 			relayPeerLeft(peerID, room: room)
 		case .signal(let from, let signal):
 			relaySignal(signal, from: from, room: room)
@@ -393,11 +416,22 @@ final class NearbyShareSession {
 		case .offer(let sdp):
 			answer(sdp, from: peerID, room: room)
 		case .answer:
-			print("Rescriva: Share Nearby ignored an answer from the relay; pages make the offers")
+			Log.share.notice("Share Nearby ignored an answer from the relay; pages make the offers")
 		case .candidate(let line, let mid, let index):
-			guard line.utf8.count <= Self.maxCandidateBytes, let link = link(relayPeer: peerID, room: room) else { return }
+			guard line.utf8.count <= ShareLimits.maxCandidateBytes, let link = link(relayPeer: peerID, room: room) else { return }
 			link.addRemoteCandidate(line, sdpMid: mid, sdpMLineIndex: index)
 		}
+	}
+
+	/// Counts the pages that proved nothing: those the relay lists in the same-network room, and
+	/// any connected from it that the relay no longer lists (an open connection outlives the relay).
+	private func updateUntrustedPageCount() {
+		var count = autoRoomPages.count
+		for link in links.values where link.ready && !link.trusted {
+			if case .relay(_, let peerID) = link.origin, autoRoomPages.contains(peerID) { continue }
+			count += 1
+		}
+		untrustedPageCount = count
 	}
 
 	/// An open connection carries on without the relay; the page says bye when it's done.
@@ -413,7 +447,7 @@ final class NearbyShareSession {
 
 	/// A page in `room` offered a connection: answer it through the relay.
 	private func answer(_ sdp: String, from peerID: String, room: String) {
-		guard sdp.utf8.count <= Self.maxSDPBytes, (1...Self.maxRelayPeerID).contains(peerID.utf8.count),
+		guard sdp.utf8.count <= ShareLimits.maxSDPBytes, (1...ShareLimits.maxToken).contains(peerID.utf8.count),
 			  let entry = relays[room] else { return }
 		if let old = link(relayPeer: peerID, room: room) { drop(old) } // The page started over.
 		let origin = NearbyShareLink.Origin.relay(room: room, peerID: peerID)
@@ -424,7 +458,7 @@ final class NearbyShareSession {
 				let answer = try await link.peer.answer(offer: sdp)
 				self?.answered(link, with: answer, generation: generation)
 			} catch {
-				print("Rescriva: Share Nearby couldn't answer a page's offer: \(error)")
+				Log.share.error("Share Nearby couldn't answer a page's offer: \(error)")
 				self?.drop(link)
 			}
 		}
@@ -445,7 +479,7 @@ final class NearbyShareSession {
 
 	private func makeLink(secret: Data?, origin: NearbyShareLink.Origin, builtInCertificate: Bool) -> NearbyShareLink? {
 		guard links.count < Self.maxLinks else {
-			print("Rescriva: Share Nearby is at its limit of \(Self.maxLinks) connections")
+			Log.share.notice("Share Nearby is at its limit of \(Self.maxLinks) connections")
 			return nil
 		}
 		let peer = SharePeer(secret: secret, builtInCertificate: builtInCertificate) { [weak self] peer, event in
@@ -455,6 +489,28 @@ final class NearbyShareSession {
 		links[link.id] = link
 		return link
 	}
+
+	#if DEBUG
+	/// A connection for tests, over a stub peer (`SharePeer.init(stubSecret:…)`) that this session
+	/// owns like any other: deliver events to `link.peer` and read what it recorded. Nil at the
+	/// connection limit.
+	func connectStubForTesting(secret: Data?, origin: NearbyShareLink.Origin,
+							   offerFingerprint: String?, answerFingerprint: String?) -> NearbyShareLink? {
+		guard links.count < Self.maxLinks else { return nil }
+		let peer = SharePeer(stubSecret: secret, offerFingerprint: offerFingerprint,
+							 answerFingerprint: answerFingerprint) { [weak self] peer, event in
+			self?.peerEvent(event, from: peer)
+		}
+		let link = NearbyShareLink(peer: peer, origin: origin)
+		links[link.id] = link
+		return link
+	}
+
+	/// Whether the session still holds `link`, for tests.
+	func holdsForTesting(_ link: NearbyShareLink) -> Bool {
+		links[link.id] === link
+	}
+	#endif
 
 	private func peerEvent(_ event: SharePeer.Event, from peer: SharePeer) {
 		guard let link = links[peer.id] else { return }
@@ -493,6 +549,7 @@ final class NearbyShareSession {
 			forgetUpload(upload, problem: String(localized: "The connection closed."))
 		}
 		devices.removeAll { $0.id == link.id }
+		updateUntrustedPageCount()
 		pairingLinkClosed(link)
 	}
 
@@ -520,14 +577,14 @@ final class NearbyShareSession {
 	private func opened(_ link: NearbyShareLink) {
 		let proof = link.ownProof()
 		guard link.peer.secret == nil || proof != nil else {
-			print("Rescriva: Share Nearby had no fingerprints to prove itself with, so it closed the connection")
+			Log.share.error("Share Nearby had no fingerprints to prove itself with, so it closed the connection")
 			drop(link, sayBye: true)
 			return
 		}
 		link.peer.send(.hello(name: ShareDevice.name, device: ShareDevice.kind, session: sessionID, proof: proof))
 		schedule(after: Self.helloTimeout) { [weak self] in
 			guard !link.ready, !link.isClosed else { return }
-			print("Rescriva: Share Nearby closed a connection whose page never said hello")
+			Log.share.notice("Share Nearby closed a connection whose page never said hello")
 			self?.drop(link, sayBye: true)
 		}
 	}
@@ -566,17 +623,19 @@ final class NearbyShareSession {
 		}
 		link.ready = true
 		link.trusted = link.peer.secret != nil
-		let clipped = String(name.prefix(64))
+		let clipped = String(name.prefix(ShareLimits.maxDeviceName))
 		let named = clipped.isEmpty ? String(localized: "Web browser") : clipped
 		link.name = NearbyShareInput.deviceLabel(named, taken: Set(devices.map(\.name)))
-		link.kind = Self.deviceKinds.contains(device) ? device : "computer"
-		devices.append(Device(id: link.id, name: link.name, kind: link.kind, trusted: link.trusted))
+		link.kind = ShareLimits.relayDevices.contains(device) ? device : "computer"
+		devices.append(Device(id: link.id, name: link.name, kind: link.kind, trusted: link.trusted,
+							  checkNumber: link.trusted ? nil : link.checkNumber))
+		updateUntrustedPageCount()
 		sendDocs(to: link)
 		if isPairing(link) { pairingConnected(link) }
 	}
 
 	private func badProof(_ link: NearbyShareLink) {
-		print("Rescriva: Share Nearby closed a connection whose proof didn't match")
+		Log.share.notice("Share Nearby closed a connection whose proof didn't match")
 		let wasPairing = isPairing(link)
 		drop(link, sayBye: true)
 		guard wasPairing else { return }
@@ -586,7 +645,8 @@ final class NearbyShareSession {
 
 	// MARK: PINs
 
-	/// Five wrong tries on a document, from any pages, replace its PIN and start a cooldown.
+	/// Wrong tries are counted per page (NearbySharePINLock): five from one page refuse that page
+	/// for a while; only many across pages replace the PIN and refuse everyone.
 	private func unlock(_ id: String, pin: String, for link: NearbyShareLink) {
 		guard let index = readyIndex(of: id) else {
 			deny(id, "gone", to: link)
@@ -598,7 +658,7 @@ final class NearbyShareSession {
 		}
 		let now = Date.now
 		var lock = locks[id] ?? NearbySharePINLock()
-		if let wait = lock.secondsLeft(at: now) {
+		if let wait = lock.secondsLeft(for: link.id, at: now) {
 			link.peer.send(.denied(id: id, reason: "cooldown", retryIn: wait, left: nil))
 			return
 		}
@@ -607,7 +667,7 @@ final class NearbyShareSession {
 			confirmUnlock(id, for: link)
 			return
 		}
-		let outcome = lock.recordWrong(at: now)
+		let outcome = lock.recordWrong(from: link.id, at: now)
 		locks[id] = lock
 		if outcome.replacesPIN { documents[index].pin = newPIN() }
 		link.peer.send(.denied(id: id, reason: "wrong", retryIn: outcome.retryIn, left: outcome.left))
@@ -635,7 +695,7 @@ final class NearbyShareSession {
 			return
 		}
 		guard link.queue.count < NearbyShareLink.maxQueue else {
-			print("Rescriva: Share Nearby ignored a download past a page's queue limit")
+			Log.share.notice("Share Nearby ignored a download past a page's queue limit")
 			return
 		}
 		link.queue.append(id)
@@ -687,24 +747,27 @@ final class NearbyShareSession {
 	}
 
 	/// Sends the first `size` bytes of `url`, keeping the channel's buffer under its high-water
-	/// mark. Nil when every byte went; otherwise what stopped it.
+	/// mark; the reads happen off the main actor. Nil when every byte went; otherwise what
+	/// stopped it: the connection, a cancel, the page no longer reading, or the file.
 	private func stream(_ url: URL, size: Int64, xfer: String, over link: NearbyShareLink, transfer: UUID) async -> String? {
 		let unreadable = String(localized: "Rescriva couldn't read the file.")
-		let handle: FileHandle
+		let file: NearbyShareChunkFile
 		do {
-			handle = try FileHandle(forReadingFrom: url)
+			file = try NearbyShareChunkFile(readingFrom: url)
 		} catch {
-			print("Rescriva: Share Nearby couldn't open a shared file: \(error)")
+			Log.share.error("Share Nearby couldn't open a shared file: \(error)")
 			return unreadable
 		}
-		defer { try? handle.close() }
+		defer { file.discard() }
 		let chunk = Int64(NearbyShareConfig.chunkSize)
 		var sent: Int64 = 0
 		for _ in 0...(size / chunk + 1) {
 			if sent >= size { return nil }
-			await link.peer.waitForRoom()
+			let hasRoom = await link.peer.waitForRoom()
 			if let problem = interruption(of: link, xfer: xfer) { return problem }
-			guard let data = try? handle.read(upToCount: Int(min(chunk, size - sent))), !data.isEmpty else { return unreadable }
+			guard hasRoom else { return String(localized: "The other device stopped receiving.") }
+			guard let data = await file.read(upTo: Int(min(chunk, size - sent))) else { return unreadable }
+			if let problem = interruption(of: link, xfer: xfer) { return problem }
 			guard link.peer.sendBinary(data) else { return String(localized: "The connection closed.") }
 			sent += Int64(data.count)
 			showProgress(transfer, done: sent)
@@ -771,6 +834,23 @@ final class NearbyShareSession {
 		upload.transferID = transfer.id
 		addTransfer(transfer)
 		link.peer.send(.accept(xfer: upload.xfer))
+		watchUpload(upload, on: link, after: .seconds(stallSeconds))
+	}
+
+	/// Gives up on `upload` once no chunk has come for `stallSeconds`: a page whose upload failed
+	/// may never say so, and the slot would stay taken until the connection closed. Looks again
+	/// when the last chunk is still fresh.
+	private func watchUpload(_ upload: NearbyShareUpload, on link: NearbyShareLink, after delay: Duration) {
+		schedule(after: delay) { [weak self] in
+			guard let self, link.upload === upload, upload.isReceiving, let last = upload.lastChunkAt else { return }
+			let quiet = Date.now.timeIntervalSince(last)
+			guard quiet >= self.stallSeconds else {
+				self.watchUpload(upload, on: link, after: .seconds(self.stallSeconds - quiet))
+				return
+			}
+			Log.share.notice("Share Nearby gave up on an upload that stopped arriving")
+			self.failUpload(on: link, problem: String(localized: "The other device stopped sending."), reply: .cancel(xfer: upload.xfer))
+		}
 	}
 
 	func decline(_ offer: IncomingOffer) {
@@ -838,7 +918,8 @@ final class NearbyShareSession {
 		if let id = upload.transferID { updateTransfer(id, state: .failed(problem)) }
 	}
 
-	/// The page cancelled a download it asked for, or an upload it offered.
+	/// The page cancelled a download it asked for, or an upload it offered or is sending: the
+	/// upload's slot is freed and what arrived is deleted.
 	private func cancelled(_ xfer: String, on link: NearbyShareLink) {
 		if link.outgoing == xfer { link.cancelledOutgoing = xfer }
 		if link.upload?.xfer == xfer {
@@ -871,10 +952,15 @@ final class NearbyShareSession {
 	// MARK: Pairing
 
 	/// No-relay pairing with a scanned or pasted page code. Also joins roomId(secret) when there's a
-	/// relay; whichever opens first wins.
-	func pair(with offer: SharePairingOffer) {
+	/// relay; whichever opens first wins. With `localOnly` (a code that arrived as a link from
+	/// outside the app and named only local addresses) the relay room is never joined and only the
+	/// code's local candidates are dialed, so the pairing can't end up at a computer outside this
+	/// network: whoever made that link holds its secret, and could otherwise offer through the
+	/// relay room from anywhere, or slip a public address in beside a decoy local one. If the
+	/// direct path doesn't open, the connection code still does.
+	func pair(with offer: SharePairingOffer, localOnly: Bool = false) {
 		guard isRunning else {
-			pendingOffer = offer
+			pendingOffer = (offer, localOnly)
 			return
 		}
 		cancelCodeExpiry()
@@ -886,15 +972,15 @@ final class NearbyShareSession {
 		}
 		paired = nil
 		let room = ShareCodes.roomID(secret: offer.secret)
-		attempt = PairingAttempt(secret: offer.secret, room: room)
+		attempt = PairingAttempt(secret: offer.secret, room: room, localOnly: localOnly)
 		pairing = .connecting
-		startDirect(offer)
+		startDirect(offer, localOnly: localOnly)
 		guard attempt != nil else { return }
-		if let url = NearbyShareConfig.relayURL { joinRelay(url, room: room, secret: offer.secret) }
+		if !localOnly, let url = NearbyShareConfig.relayURL { joinRelay(url, room: room, secret: offer.secret) }
 		scheduleCode(for: offer.secret, triesLeft: Self.codeRetries, after: NearbyShareConfig.codeDelay)
 	}
 
-	private func startDirect(_ offer: SharePairingOffer) {
+	private func startDirect(_ offer: SharePairingOffer, localOnly: Bool) {
 		guard let link = makeLink(secret: offer.secret, origin: .direct, builtInCertificate: true) else {
 			attempt = nil
 			pairing = .failed(String(localized: "Too many connections are open. Close one and try again."))
@@ -903,9 +989,9 @@ final class NearbyShareSession {
 		attempt?.direct = link.id
 		Task { [weak self] in
 			do {
-				try await link.peer.connect(to: offer)
+				try await link.peer.connect(to: offer, localOnly: localOnly)
 			} catch {
-				print("Rescriva: Share Nearby couldn't start the connection to the computer: \(error)")
+				Log.share.error("Share Nearby couldn't start the connection to the computer: \(error)")
 				self?.drop(link)
 			}
 		}
@@ -940,7 +1026,7 @@ final class NearbyShareSession {
 			try? await Task.sleep(for: NearbyShareConfig.codeLifetime)
 			guard !Task.isCancelled, let self, let attempt = self.attempt, attempt.id == attemptID,
 				  self.pairing == .showCode(code) else { return }
-			print("Rescriva: Share Nearby's connection code expired before the computer connected")
+			Log.share.notice("Share Nearby's connection code expired before the computer connected")
 			self.pairingFailed(String(localized: "The computer didn't connect in time, so that code has expired. Scan the computer's code again."))
 		}
 	}
@@ -1016,7 +1102,7 @@ final class NearbyShareSession {
 		schedule(after: Self.connectTimeout) { [weak self] in
 			guard let self, let attempt = self.attempt, attempt.id == id, attempt.direct == nil,
 				  self.pairing == .connecting else { return }
-			print("Rescriva: Share Nearby's pairing never came through the relay")
+			Log.share.notice("Share Nearby's pairing never came through the relay")
 			self.pairingFailed()
 		}
 	}

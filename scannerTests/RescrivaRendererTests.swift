@@ -3,15 +3,91 @@
 //  Rescriva (fork of Open Scanner)
 //
 //  Unit tests for the export renderers: the ZIP writer, the shared OOXML
-//  helpers, LaTeX → OMML, Word, PowerPoint, plain text and Markdown.
+//  helpers, LaTeX → OMML, the equation pictures, Word, PowerPoint, plain
+//  text and Markdown.
 //
 
+import Compression
 import XCTest
 @testable import scanner
 
+/// Reads a ZIP that `ZipArchive` wrote (STORED or DEFLATE entries, no data
+/// descriptors) back into ordered entries, inflating with Apple's decoder and
+/// checking every CRC. Shared by the renderer tests and any test that looks
+/// inside an exported package.
+enum ZipTestReader {
+	struct Entry {
+		let name: String
+		let data: Data
+		let method: Int
+		let compressedSize: Int
+	}
+
+	static func entries(_ archive: Data, file: StaticString = #filePath, line: UInt = #line) throws -> [Entry] {
+		let bytes = [UInt8](archive)
+		func u16(_ at: Int) -> Int { Int(bytes[at]) | Int(bytes[at + 1]) << 8 }
+		func u32(_ at: Int) -> Int { u16(at) | u16(at + 2) << 16 }
+		let end = bytes.count - 22
+		XCTAssertGreaterThanOrEqual(end, 0, file: file, line: line)
+		XCTAssertEqual(u32(end), 0x0605_4B50, "end-of-central-directory signature", file: file, line: line)
+		let count = u16(end + 10)
+		var cursor = u32(end + 16)
+		var result: [Entry] = []
+		for _ in 0..<count {
+			XCTAssertEqual(u32(cursor), 0x0201_4B50, "central directory signature", file: file, line: line)
+			let flags = u16(cursor + 8)
+			let method = u16(cursor + 10)
+			let crc = UInt32(u32(cursor + 16))
+			let compressedSize = u32(cursor + 20)
+			let size = u32(cursor + 24)
+			let nameLength = u16(cursor + 28)
+			let extraLength = u16(cursor + 30)
+			let commentLength = u16(cursor + 32)
+			let offset = u32(cursor + 42)
+			let name = String(decoding: bytes[(cursor + 46)..<(cursor + 46 + nameLength)], as: UTF8.self)
+			XCTAssertEqual(flags & 0x0008, 0, "\(name) must not use a data descriptor", file: file, line: line)
+			XCTAssertEqual(u32(offset), 0x0403_4B50, "local header signature for \(name)", file: file, line: line)
+			XCTAssertEqual(u16(offset + 4), 20, "\(name) version needed", file: file, line: line)
+			XCTAssertEqual(u16(offset + 8), method, "\(name) method agrees between headers", file: file, line: line)
+			XCTAssertEqual(u32(offset + 18), compressedSize, "\(name) compressed size agrees", file: file, line: line)
+			XCTAssertEqual(u32(offset + 22), size, "\(name) size agrees", file: file, line: line)
+			let start = offset + 30 + u16(offset + 26) + u16(offset + 28)
+			let payload = Data(bytes[start..<(start + compressedSize)])
+			let data: Data
+			switch method {
+			case 0:
+				data = payload
+			case 8:
+				data = inflate(payload, size: size) ?? Data()
+				XCTAssertEqual(data.count, size, "\(name) inflates to its size", file: file, line: line)
+			default:
+				XCTFail("\(name) uses method \(method)", file: file, line: line)
+				data = Data()
+			}
+			XCTAssertEqual(ZipArchive.crc32(data), crc, "CRC for \(name)", file: file, line: line)
+			result.append(Entry(name: name, data: data, method: method, compressedSize: compressedSize))
+			cursor += 46 + nameLength + extraLength + commentLength
+		}
+		return result
+	}
+
+	/// Raw DEFLATE → bytes, with Apple's decoder, independent of the writer.
+	static func inflate(_ payload: Data, size: Int) -> Data? {
+		guard size > 0 else { return Data() }
+		var output = Data(count: size)
+		let written = payload.withUnsafeBytes { source -> Int in
+			guard let sourceBase = source.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+			return output.withUnsafeMutableBytes { destination -> Int in
+				guard let destinationBase = destination.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+				return compression_decode_buffer(destinationBase, size, sourceBase, source.count, nil, COMPRESSION_ZLIB)
+			}
+		}
+		return written == size ? output : nil
+	}
+}
+
 /// Exercises every renderer against small IR documents and inspects the
-/// packages they produce (the ZIP writer only stores, so the tests read the
-/// archives back with a tiny STORED-only reader).
+/// packages they produce, read back with `ZipTestReader`.
 final class RescrivaRendererTests: XCTestCase {
 
 	// MARK: Fixtures
@@ -81,35 +157,18 @@ final class RescrivaRendererTests: XCTestCase {
 
 	// MARK: Archive reading
 
-	/// Reads a STORED-only ZIP (what `ZipArchive` writes) into ordered entries,
-	/// checking every CRC.
-	private func entries(_ archive: Data) throws -> [(name: String, data: Data)] {
-		let bytes = [UInt8](archive)
-		func u16(_ at: Int) -> Int { Int(bytes[at]) | Int(bytes[at + 1]) << 8 }
-		func u32(_ at: Int) -> Int { u16(at) | u16(at + 2) << 16 }
-		let end = bytes.count - 22
-		XCTAssertGreaterThanOrEqual(end, 0)
-		XCTAssertEqual(u32(end), 0x0605_4B50, "end-of-central-directory signature")
-		let count = u16(end + 10)
-		var cursor = u32(end + 16)
-		var result: [(name: String, data: Data)] = []
-		for _ in 0..<count {
-			XCTAssertEqual(u32(cursor), 0x0201_4B50, "central directory signature")
-			let crc = UInt32(u32(cursor + 16))
-			let size = u32(cursor + 20)
-			let nameLength = u16(cursor + 28)
-			let extraLength = u16(cursor + 30)
-			let commentLength = u16(cursor + 32)
-			let offset = u32(cursor + 42)
-			let name = String(decoding: bytes[(cursor + 46)..<(cursor + 46 + nameLength)], as: UTF8.self)
-			XCTAssertEqual(u32(offset), 0x0403_4B50, "local header signature for \(name)")
-			let start = offset + 30 + u16(offset + 26) + u16(offset + 28)
-			let data = Data(bytes[start..<(start + size)])
-			XCTAssertEqual(ZipArchive.crc32(data), crc, "CRC for \(name)")
-			result.append((name, data))
-			cursor += 46 + nameLength + extraLength + commentLength
+	/// The archive's entries in order, inflated and CRC-checked.
+	private func entries(_ archive: Data, file: StaticString = #filePath, line: UInt = #line) throws -> [ZipTestReader.Entry] {
+		try ZipTestReader.entries(archive, file: file, line: line)
+	}
+
+	/// Capture groups of every match of `pattern` in `text`.
+	private func matches(_ pattern: String, in text: String) throws -> [[String]] {
+		let regex = try NSRegularExpression(pattern: pattern)
+		let whole = NSRange(text.startIndex..., in: text)
+		return regex.matches(in: text, range: whole).map { match in
+			(1..<match.numberOfRanges).compactMap { Range(match.range(at: $0), in: text).map { String(text[$0]) } }
 		}
-		return result
 	}
 
 	private func parts(_ archive: Data) throws -> [String: String] {
@@ -149,6 +208,48 @@ final class RescrivaRendererTests: XCTestCase {
 		try archive.add("x.xml", text: "<x/>")
 		XCTAssertThrowsError(try archive.add("x.xml", text: "<y/>"))
 		XCTAssertThrowsError(try archive.add("/abs.xml", text: "<y/>"))
+	}
+
+	func testDeflateRoundTripsAndNeverGrowsAnEntry() throws {
+		let xml = String(repeating: "<w:p><w:r><w:t xml:space=\"preserve\">Minutes of the meeting.</w:t></w:r></w:p>", count: 200)
+		let deflated = try XCTUnwrap(ZipArchive.deflate(Data(xml.utf8)))
+		XCTAssertLessThan(deflated.count, xml.utf8.count / 10, "repetitive XML shrinks by far more than ten times")
+		XCTAssertEqual(ZipTestReader.inflate(deflated, size: xml.utf8.count), Data(xml.utf8), "Apple's decoder reads the raw stream back")
+		XCTAssertEqual(ZipArchive.inflate(deflated, size: xml.utf8.count), Data(xml.utf8))
+		XCTAssertNil(ZipArchive.deflate(Data("abc".utf8)), "three bytes can't shrink")
+		XCTAssertNil(ZipArchive.deflate(Data()), "nothing to compress")
+		XCTAssertNil(ZipArchive.inflate(Data([0xFF, 0xFF, 0xFF]), size: 10), "garbage doesn't inflate")
+	}
+
+	func testZipDeflatesWhatShrinksAndStoresTheRest() throws {
+		let xml = String(repeating: "<w:p><w:r><w:t>Agenda item</w:t></w:r></w:p>", count: 100)
+		var archive = ZipArchive(modified: Date(timeIntervalSince1970: 1_700_000_000))
+		try archive.add(ZipArchive.contentTypesPath, text: "<Types/>")
+		try archive.add("word/document.xml", text: xml)
+		// A JPEG's entropy-coded body is as good as random: deflating it only adds a block header.
+		var state: UInt32 = 0x9E37_79B9
+		let noise = Data((0..<256).map { _ -> UInt8 in
+			state ^= state << 13; state ^= state >> 17; state ^= state << 5
+			return UInt8(truncatingIfNeeded: state)
+		})
+		try archive.add("word/media/image1.jpeg", data: noise)
+		try archive.add("tiny.txt", text: "abc")
+		XCTAssertEqual(archive.method(for: "word/document.xml"), .deflate)
+		XCTAssertEqual(archive.method(for: "word/media/image1.jpeg"), .stored, "noise can't shrink")
+		XCTAssertEqual(archive.method(for: "tiny.txt"), .stored)
+		XCTAssertNil(archive.method(for: "missing.xml"))
+
+		let data = try archive.archiveData()
+		XCTAssertLessThan(data.count, xml.utf8.count / 2, "the package is far smaller than its biggest part")
+		let read = try entries(data)
+		XCTAssertEqual(read.map(\.name), ["[Content_Types].xml", "word/document.xml", "word/media/image1.jpeg", "tiny.txt"])
+		XCTAssertEqual(read.map(\.method), [0, 8, 0, 0])
+		XCTAssertEqual(read[1].data, Data(xml.utf8), "the deflated part reads back whole")
+		XCTAssertLessThan(read[1].compressedSize, xml.utf8.count / 10)
+		XCTAssertEqual(read[2].data, noise)
+		XCTAssertEqual(read[2].compressedSize, noise.count)
+		XCTAssertEqual(read[3].data, Data("abc".utf8))
+		XCTAssertEqual(read[3].compressedSize, 3)
 	}
 
 	func testDOSTimestampEncoding() {
@@ -244,6 +345,104 @@ final class RescrivaRendererTests: XCTestCase {
 		XCTAssertNil(LaTeXToOMML.convert(String(repeating: "{", count: 100) + String(repeating: "}", count: 100)))
 	}
 
+	/// Commands that take an argument recurse through `parseAtom` without a
+	/// brace group, so a long chain of them must hit the depth cap, not the stack.
+	func testLaTeXDeepCommandNestingFailsCleanly() throws {
+		XCTAssertNil(LaTeXToOMML.convert(String(repeating: "\\hat", count: 900) + "{x}"), "under the length cap, over the depth cap")
+		XCTAssertNil(LaTeXToOMML.convert(String(repeating: "\\hat", count: 2000) + "{x}"), "over the length cap")
+		XCTAssertNil(LaTeXToOMML.convert(String(repeating: "\\sqrt", count: 700) + "{x}"))
+		XCTAssertNil(LaTeXToOMML.convert(String(repeating: "\\frac{1}", count: 400) + "{2}"))
+		// Real nesting still converts.
+		let nested = try XCTUnwrap(LaTeXToOMML.convert("\\hat{\\hat{\\hat{\\hat{x}}}} + \\frac{1}{\\frac{2}{\\frac{3}{\\frac{4}{\\sqrt{\\sqrt{5}}}}}}"))
+		XCTAssertEqual(nested.components(separatedBy: "<m:acc>").count - 1, 4)
+		XCTAssertEqual(nested.components(separatedBy: "<m:f>").count - 1, 4)
+	}
+
+	// MARK: Equation pictures
+
+	func testEquationPicturesAreKeyedAwayFromFiguresAndSizedByPoints() {
+		let key = EquationPictures.assetKey(for: "  a & b\n")
+		XCTAssertEqual(key, "equation:a & b")
+		XCTAssertTrue(key.hasPrefix(EquationPictures.keyPrefix))
+		XCTAssertNil(UUID(uuidString: key), "never mistaken for a figure's asset id")
+		XCTAssertTrue(EquationPictures.needsPicture("a & b"))
+		XCTAssertFalse(EquationPictures.needsPicture("\\frac{a}{b}"))
+
+		// 300 × 60 px at 3 px/pt is 100 × 20 pt.
+		let info = RescrivaImageInfo(format: .png, pixelWidth: 300, pixelHeight: 60)
+		let natural = EquationPictures.extent(of: info, maxWidthInches: 6)
+		XCTAssertEqual(natural.cx, OOXML.emu(points: 100))
+		XCTAssertEqual(natural.cy, OOXML.emu(points: 20))
+		let narrow = EquationPictures.extent(of: info, maxWidthInches: 1)
+		XCTAssertEqual(narrow.cx, OOXML.emu(inches: 1))
+		XCTAssertEqual(narrow.cy, OOXML.emu(inches: 0.2))
+	}
+
+	@MainActor
+	func testEquationPicturesCoverOnlyWhatOMMLCannotTypeset() throws {
+		let unconvertible = "a & b"
+		let document = RescrivaDocument(title: "E", pages: [RescrivaPage(blocks: [
+			RescrivaBlock(content: .equation(latex: "v = \\frac{a}{b}", linear: "v = a / b", display: true)),
+			RescrivaBlock(content: .equation(latex: unconvertible, linear: "a & b", display: false)),
+			RescrivaBlock(content: .equation(latex: unconvertible, linear: "a & b", display: true)),
+			RescrivaBlock(content: .equation(latex: "\\mathbb{R}", linear: "R", display: false)),
+		])])
+		let pictures = EquationPictures.pictures(for: document)
+		XCTAssertEqual(pictures.keys.sorted(), [EquationPictures.assetKey(for: unconvertible)], "one picture, for the one equation OMML can't do and the preview can")
+		let data = try XCTUnwrap(pictures[EquationPictures.assetKey(for: unconvertible)])
+		let info = try XCTUnwrap(RescrivaImageInfo(data: data))
+		XCTAssertEqual(info.format, .png)
+		XCTAssertGreaterThan(info.pixelWidth, 20)
+		XCTAssertGreaterThan(info.pixelHeight, 20)
+		XCTAssertNil(EquationView.pngData(latex: "\\mathbb{R}", scale: 3), "what the preview can't typeset gets no picture")
+		XCTAssertNil(EquationView.pngData(latex: "", scale: 3))
+
+		// The picture then rides into Word with the LaTeX as its alt text.
+		let body = try XCTUnwrap(try parts(try DOCXRenderer.render(document, options: RenderOptions(assets: pictures)))["word/document.xml"])
+		XCTAssertEqual(body.components(separatedBy: "<pic:pic>").count - 1, 2)
+		XCTAssertTrue(body.contains("descr=\"a &amp; b\""))
+	}
+
+	func testDOCXEquationWithoutOMMLEmbedsItsPictureWithTheLaTeXAsAltText() throws {
+		let latex = "\\begin{pmatrix} a & b \\end{pmatrix}"
+		let document = RescrivaDocument(title: "E", pages: [RescrivaPage(blocks: [
+			RescrivaBlock(content: .equation(latex: latex, linear: "(a b)", display: true)),
+		])])
+		let archive = try DOCXRenderer.render(document, options: RenderOptions(assets: [EquationPictures.assetKey(for: latex): onePixelPNG]))
+		let names = try entries(archive).map(\.name)
+		XCTAssertTrue(names.contains("word/media/image1.png"))
+		let xml = try parts(archive)
+		assertWellFormed(xml)
+		let body = try XCTUnwrap(xml["word/document.xml"])
+		XCTAssertFalse(body.contains("<m:oMath"))
+		XCTAssertFalse(body.contains("<w:i/>"), "no italic fallback when the picture is there")
+		XCTAssertTrue(body.contains("<w:jc w:val=\"center\"/>"), "a display equation is centred")
+		XCTAssertTrue(body.contains("<pic:pic>"))
+		XCTAssertTrue(body.contains("descr=\"\\begin{pmatrix} a &amp; b \\end{pmatrix}\""))
+		// One pixel at 3 px/pt is a third of a point.
+		XCTAssertTrue(body.contains("<wp:extent cx=\"\(OOXML.emu(inches: 1.0 / 216))\" cy=\"\(OOXML.emu(inches: 1.0 / 216))\"/>"))
+		XCTAssertTrue(xml["word/_rels/document.xml.rels"]?.contains("media/image1.png") ?? false)
+	}
+
+	func testPPTXEquationWithoutOMMLEmbedsItsPictureWithTheLaTeXAsAltText() throws {
+		let latex = "\\begin{pmatrix} a & b \\end{pmatrix}"
+		let document = RescrivaDocument(title: "E", pages: [RescrivaPage(blocks: [
+			RescrivaBlock(content: .heading(level: 1, runs: [RescrivaRun(text: "Matrices")])),
+			RescrivaBlock(content: .equation(latex: latex, linear: "(a b)", display: true)),
+			RescrivaBlock(content: .equation(latex: "x^2", linear: "x^2", display: false)),
+		])])
+		let archive = try PPTXRenderer.render(document, options: RenderOptions(assets: [EquationPictures.assetKey(for: latex): onePixelPNG]))
+		let names = try entries(archive).map(\.name)
+		XCTAssertTrue(names.contains("ppt/media/image1.png"))
+		let xml = try parts(archive)
+		assertWellFormed(xml)
+		let slide = try XCTUnwrap(xml["ppt/slides/slide1.xml"])
+		XCTAssertTrue(slide.contains("<p:pic><p:nvPicPr><p:cNvPr id=\"3\" name=\"Equation 3\" descr=\"\\begin{pmatrix} a &amp; b \\end{pmatrix}\"/>"))
+		XCTAssertFalse(slide.contains("<a:t>(a b)</a:t>"), "the linear text isn't printed as well")
+		XCTAssertTrue(slide.contains("<a:t>x^2</a:t>"), "an equation without a picture still prints its text")
+		XCTAssertTrue(xml["ppt/slides/_rels/slide1.xml.rels"]?.contains("../media/image1.png") ?? false)
+	}
+
 	// MARK: DOCX
 
 	func testDOCXPackageStructure() throws {
@@ -273,6 +472,7 @@ final class RescrivaRendererTests: XCTestCase {
 		XCTAssertTrue(body.contains("<wpg:wgp>"))
 		XCTAssertTrue(body.contains("prst=\"diamond\""))
 		XCTAssertTrue(body.contains("<a:tailEnd type=\"triangle\""))
+		XCTAssertTrue(body.contains("<a:stCxn id="))
 		XCTAssertTrue(body.contains("<w:gridSpan w:val=\"2\"/>"))
 		XCTAssertTrue(body.contains("<w:numId w:val=\"2\"/>"))
 		XCTAssertTrue(body.contains("<w:ilvl w:val=\"1\"/>"))
@@ -321,6 +521,56 @@ final class RescrivaRendererTests: XCTestCase {
 		XCTAssertTrue(body.contains("<w:vMerge w:val=\"restart\"/>"))
 		XCTAssertTrue(body.contains("<w:vMerge/></w:tcPr><w:p></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w=\"4680\" w:type=\"dxa\"/></w:tcPr><w:p><w:r><w:t xml:space=\"preserve\">C</w:t>"))
 		XCTAssertTrue(body.hasSuffix("<w:p/><w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/><w:cols w:space=\"720\"/></w:sectPr></w:body></w:document>"))
+	}
+
+	/// Every arrow is a `straightConnector1` whose `a:stCxn`/`a:endCxn` name a
+	/// shape of the same group by its `wps:cNvPr` id and a site that shape has,
+	/// so Word keeps it attached when a shape is dragged.
+	func testDOCXConnectorsAttachToTheirShapes() throws {
+		let (document, _) = sampleDocument()
+		let body = try XCTUnwrap(try parts(try DOCXRenderer.render(document, options: options))["word/document.xml"])
+		let shapes = try matches("<wps:cNvPr id=\"(\\d+)\" name=\"Shape \\d+\"/><wps:cNvSpPr/><wps:spPr><a:xfrm><a:off[^>]*/><a:ext[^>]*/></a:xfrm><a:prstGeom prst=\"(\\w+)\"", in: body)
+		XCTAssertEqual(shapes.count, 4)
+		var sitesByID: [String: Int] = [:]
+		for shape in shapes {
+			sitesByID[shape[0]] = shape[1] == "ellipse" ? 8 : 4
+		}
+		let connectors = try matches("<wps:cNvCnPr><a:stCxn id=\"(\\d+)\" idx=\"(\\d+)\"/><a:endCxn id=\"(\\d+)\" idx=\"(\\d+)\"/></wps:cNvCnPr><wps:spPr><a:xfrm[^>]*><a:off[^>]*/><a:ext[^>]*/></a:xfrm><a:prstGeom prst=\"(\\w+)\"", in: body)
+		XCTAssertEqual(connectors.count, 4, "one per edge")
+		for connector in connectors {
+			let startSites = try XCTUnwrap(sitesByID[connector[0]], "start attached to a shape of the group")
+			let endSites = try XCTUnwrap(sitesByID[connector[2]], "end attached to a shape of the group")
+			XCTAssertLessThan(try XCTUnwrap(Int(connector[1])), startSites)
+			XCTAssertLessThan(try XCTUnwrap(Int(connector[3])), endSites)
+			XCTAssertNotEqual(connector[0], connector[2])
+			XCTAssertEqual(connector[4], "straightConnector1")
+		}
+		XCTAssertFalse(body.contains("<wps:cNvCnPr/>"), "no loose arrows")
+		// The ellipse's start site is one of its eight.
+		let fromEnzyme = try XCTUnwrap(connectors.first { sitesByID[$0[0]] == 8 })
+		XCTAssertLessThan(try XCTUnwrap(Int(fromEnzyme[1])), 8)
+		// Ids are unique across the group's shapes and connectors.
+		let ids = try matches("<wps:cNvPr id=\"(\\d+)\"", in: body).map { $0[0] }
+		XCTAssertEqual(Set(ids).count, ids.count)
+	}
+
+	func testSharedConnectionSitesMatchThePresetOrder() {
+		typealias Geometry = RescrivaDiagramGeometry
+		let rect = Geometry.Frame(x: 0, y: 0, width: 100, height: 50, shape: .rectangle)
+		let rectSites = Geometry.connectionSites(of: rect)
+		XCTAssertEqual(rectSites.count, 4)
+		XCTAssertEqual(rectSites[0].x, 50, "top first")
+		XCTAssertEqual(rectSites[0].y, 0)
+		XCTAssertEqual(rectSites[1].x, 0, "then left")
+		XCTAssertEqual(rectSites[1].y, 25)
+		XCTAssertEqual(rectSites[2].y, 50, "then bottom")
+		XCTAssertEqual(rectSites[3].x, 100, "right last")
+		let ellipse = Geometry.Frame(x: 200, y: 0, width: 100, height: 50, shape: .ellipse)
+		XCTAssertEqual(Geometry.connectionSites(of: ellipse).count, 8)
+		let connection = Geometry.connection(from: rect, to: ellipse)
+		XCTAssertEqual(connection.startSite, 3, "the rectangle's right side")
+		XCTAssertEqual(connection.endSite, 2, "the ellipse's left point")
+		XCTAssertEqual(connection.segment, Geometry.Segment(x1: 100, y1: 25, x2: 200, y2: 25))
 	}
 
 	func testDOCXEquationFallsBackToItalicLinearText() throws {
@@ -464,6 +714,15 @@ final class RescrivaRendererTests: XCTestCase {
 	}
 
 	// MARK: Plain text and Markdown
+
+	func testMarkdownIsAnExportFormatThatNeedsARebuild() {
+		XCTAssertEqual(ExportFormat.allCases, [.docx, .pptx, .pdf, .md, .txt])
+		XCTAssertEqual(ExportFormat.md.fileExtension, ".md")
+		XCTAssertEqual(ExportFormat.md.rawValue, "md")
+		XCTAssertTrue(ExportFormat.md.needsRebuild, "like Word, it comes from the rebuilt document")
+		XCTAssertFalse(ExportFormat.txt.needsRebuild)
+		XCTAssertFalse(ExportFormat.pdf.needsRebuild)
+	}
 
 	func testPlainText() {
 		let (document, _) = sampleDocument()

@@ -16,7 +16,7 @@
 //  rename); pages never saved have theirs deleted, and whatever an earlier
 //  run left in Staging goes at launch.
 //
-//  App-target only (the widget shares DataExtensions.swift, not this file).
+//  App-target only.
 //
 
 import CoreData
@@ -97,7 +97,7 @@ struct OriginalStore {
 		do {
 			return try stage(encoded)
 		} catch {
-			print("Rescriva: couldn't stage an original: \(error)")
+			Log.library.error("Couldn't stage an original: \(error)")
 			return nil
 		}
 	}
@@ -126,7 +126,7 @@ struct OriginalStore {
 		do {
 			try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: destination.path)
 		} catch {
-			print("Rescriva: couldn't touch a kept original: \(error)")
+			Log.library.error("Couldn't touch a kept original: \(error)")
 		}
 	}
 
@@ -136,16 +136,20 @@ struct OriginalStore {
 			do {
 				try FileManager.default.removeItem(at: file.url)
 			} catch {
-				print("Rescriva: couldn't remove a staged original: \(error)")
+				Log.library.error("Couldn't remove a staged original: \(error)")
 			}
 		}
 	}
 
-	/// `discard(_:)` on a background task, for the main thread.
-	func discardLater(_ staged: [Staged]) {
-		guard !staged.isEmpty else { return }
+	/// `discard(_:)` on a background task, for the main thread. The task is on purpose not tied
+	/// to the screen that gave the pages up: a staged file whose page is gone must go whether or
+	/// not the camera is still showing. It's returned (nil when there was nothing to discard) so a
+	/// caller that needs to can wait for it or cancel it.
+	@discardableResult
+	func discardLater(_ staged: [Staged]) -> Task<Void, Never>? {
+		guard !staged.isEmpty else { return nil }
 		let store = self
-		Task.detached(priority: .utility) {
+		return Task.detached(priority: .utility) {
 			store.discard(staged)
 		}
 	}
@@ -159,7 +163,7 @@ struct OriginalStore {
 		do {
 			urls = try FileManager.default.contentsOfDirectory(at: stagingDirectory, includingPropertiesForKeys: [.contentModificationDateKey])
 		} catch {
-			print("Rescriva: couldn't list staged originals: \(error)")
+			Log.library.error("Couldn't list staged originals: \(error)")
 			return 0
 		}
 		var removed = 0
@@ -170,7 +174,7 @@ struct OriginalStore {
 				try FileManager.default.removeItem(at: url)
 				removed += 1
 			} catch {
-				print("Rescriva: couldn't remove a staged original: \(error)")
+				Log.library.error("Couldn't remove a staged original: \(error)")
 			}
 		}
 		return removed
@@ -216,7 +220,7 @@ struct OriginalStore {
 		do {
 			try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: destination.path)
 		} catch {
-			print("Rescriva: couldn't touch a copied original: \(error)")
+			Log.library.error("Couldn't touch a copied original: \(error)")
 		}
 	}
 
@@ -235,7 +239,7 @@ struct OriginalStore {
 			do {
 				try FileManager.default.removeItem(at: url)
 			} catch {
-				print("Rescriva: couldn't remove an original: \(error)")
+				Log.library.error("Couldn't remove an original: \(error)")
 			}
 		}
 	}
@@ -249,7 +253,7 @@ struct OriginalStore {
 				try FileManager.default.removeItem(at: file.url)
 				removed += 1
 			} catch {
-				print("Rescriva: couldn't remove an original: \(error)")
+				Log.library.error("Couldn't remove an original: \(error)")
 			}
 		}
 		return removed
@@ -274,7 +278,7 @@ struct OriginalStore {
 		let files = storedFiles()
 		let orphans = files.filter { !ids.contains($0.id) && $0.modified < cutoff }
 		guard orphans.count * 2 <= files.count else {
-			print("Rescriva: kept \(orphans.count) of \(files.count) originals whose pages aren't here (iCloud account change?)")
+			Log.library.notice("Kept \(orphans.count) of \(files.count) originals whose pages aren't here (iCloud account change?)")
 			return 0
 		}
 		var removed = 0
@@ -283,7 +287,7 @@ struct OriginalStore {
 				try FileManager.default.removeItem(at: file.url)
 				removed += 1
 			} catch {
-				print("Rescriva: couldn't remove an orphaned original: \(error)")
+				Log.library.error("Couldn't remove an orphaned original: \(error)")
 			}
 		}
 		return removed
@@ -305,7 +309,7 @@ struct OriginalStore {
 		do {
 			urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys)
 		} catch {
-			print("Rescriva: couldn't list originals: \(error)")
+			Log.library.error("Couldn't list originals: \(error)")
 			return []
 		}
 		return urls.compactMap { url -> StoredFile? in
@@ -340,13 +344,15 @@ struct OriginalStore {
 extension OriginalStore {
 	/// Clears staged originals an earlier run left behind (its camera session or import never
 	/// saved, or the app quit first), off the main thread. Call once as the app starts: the cutoff
-	/// is taken now, so pages this run stages are never swept.
-	static func sweepStagingAtLaunch(store: OriginalStore = .shared) {
+	/// is taken now, so pages this run stages are never swept. The sweep belongs to the app, not
+	/// to any window, so the task is unowned; it's returned so a caller (a test) can wait for it.
+	@discardableResult
+	static func sweepStagingAtLaunch(store: OriginalStore = .shared) -> Task<Void, Never> {
 		let launch = Date()
-		Task.detached(priority: .utility) {
+		return Task.detached(priority: .utility) {
 			let removed = store.sweepStaging(before: launch)
 			if removed > 0 {
-				print("Rescriva: removed \(removed) staged originals left from an earlier run")
+				Log.library.notice("Removed \(removed) staged originals left from an earlier run")
 			}
 		}
 	}
@@ -368,7 +374,7 @@ extension OriginalStore {
 		do {
 			ids = Set(try context.fetch(request).compactMap { $0["id"] as? UUID })
 		} catch {
-			print("Rescriva: couldn't list pages for original cleanup: \(error)")
+			Log.library.error("Couldn't list pages for original cleanup: \(error)")
 			return
 		}
 		let cutoff = Date().addingTimeInterval(-3600)
@@ -376,7 +382,7 @@ extension OriginalStore {
 			store.pruneOrphans(keeping: ids, olderThan: cutoff)
 		}.value
 		if removed > 0 {
-			print("Rescriva: removed \(removed) orphaned originals")
+			Log.library.notice("Removed \(removed) orphaned originals")
 		}
 	}
 }
@@ -478,7 +484,7 @@ extension NSManagedObjectContext {
 		do {
 			try save()
 		} catch {
-			print("Rescriva: couldn't save a deletion, so it's undone and its files are kept: \(error)")
+			Log.library.error("Couldn't save a deletion, so it's undone and its files are kept: \(error)")
 			rollback()
 			return false
 		}

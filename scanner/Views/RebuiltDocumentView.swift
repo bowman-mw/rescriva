@@ -361,6 +361,29 @@ struct EquationView: View {
 	}
 }
 
+extension EquationView {
+	/// The typeset equation as a PNG at `scale` pixels per point, as the export embeds it when the
+	/// OMML converter can't handle the LaTeX (`EquationPictures`): the preview's own typesetting,
+	/// in ink on white paper whatever the screen's appearance. Nil when the preview can't typeset
+	/// it either, or when nothing could be drawn.
+	@MainActor
+	static func pngData(latex: String, scale: Double) -> Data? {
+		var parser = MathParser(latex)
+		guard let node = parser.parse(), node != .row([]) else { return nil }
+		let view = MathNodeView(node: node, size: 19)
+			.foregroundStyle(Color.carbon)
+			.padding(.horizontal, 6)
+			.padding(.vertical, 4)
+			.background(Color.white)
+			.environment(\.colorScheme, .light)
+		let renderer = ImageRenderer(content: view)
+		renderer.scale = CGFloat(scale)
+		renderer.isOpaque = true
+		guard let image = renderer.uiImage, image.size.width >= 1, image.size.height >= 1 else { return nil }
+		return image.pngData()
+	}
+}
+
 /// Parsed math.
 indirect enum MathNode: Equatable {
 	case symbol(String)

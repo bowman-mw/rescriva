@@ -1,6 +1,6 @@
 //
 //  scannerApp.swift
-//  Open Scanner
+//  Open Scanner → Rescriva
 //
 //  Created by Slaven Radic on 2024-09-01.
 //
@@ -15,7 +15,6 @@ struct scannerApp: App {
 	
 	init() {
 		RescrivaPreference.registerDefaults()
-		AppState.shared.viewState = .Home
 		// Rescriva: originals staged by an earlier run whose pages were never saved. Here rather than
 		// in a view's task, which a second window would run again mid-session.
 		OriginalStore.sweepStagingAtLaunch()
@@ -36,20 +35,24 @@ struct scannerApp: App {
 		}
 	}
 	
+	/// A Spotlight result names a scan (or, from an older index, one of its lines) by its object
+	/// URI. The request waits in `AppRequests` until the window takes it; there, a scan deleted
+	/// since — here or on another device — opens nothing but a note. Nothing is faulted in here,
+	/// so a stale result can't raise an exception.
 	func handleSpotlight(_ userActivity: NSUserActivity) {
-		if let id = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String {
-			if let uri = URL(string: id) {
-				if let scan = persistenceController.scanFromUri(uri) {
-					AppState.shared.openScan = scan
-				} else if let recognizedItem = persistenceController.recognizedItemFromUri(uri) {
-					AppState.shared.openScan = recognizedItem.parent?.parent
-				}
-			}
+		guard let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String else {
+			Log.app.error("A Spotlight result arrived without an identifier")
+			return
 		}
+		let context = persistenceController.container.viewContext
+		guard let objectID = PersistenceController.objectID(forSpotlightIdentifier: identifier, in: context) else {
+			Log.app.notice("A Spotlight result's identifier isn't one of this library's: \(identifier)")
+			return
+		}
+		AppRequests.shared.add(.openScan(objectID))
 	}
 	
 	func saveAppState() {
 		persistenceController.container.viewContext.saveQuietly()
 	}
 }
-

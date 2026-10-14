@@ -8,7 +8,9 @@
 //  first heading on a slide goes into the layout's title placeholder so
 //  outline view and accessibility work, the page palette becomes the theme's
 //  accent colours, diagrams become native shapes joined by connectors that
-//  follow them, and notes become speaker notes.
+//  follow them, an equation the OMML converter can't handle becomes its
+//  typeset picture (`EquationPictures`) with the LaTeX as alt text, and notes
+//  become speaker notes.
 //
 
 import Foundation
@@ -250,7 +252,7 @@ private struct PPTXWriter {
 		}
 		slide.relationships.add(type: OOXML.Rel.slideLayout, target: titleIndex == nil
 			? "../slideLayouts/slideLayout2.xml" : "../slideLayouts/slideLayout1.xml")
-		let textColor = page.background.map { Self.isDark($0) ? "FFFFFF" : nil } ?? nil
+		let textColor = page.background.map { $0.isDark ? "FFFFFF" : nil } ?? nil
 		let frame = pageFrame(page)
 		var context = BlockContext(defaultColor: textColor)
 
@@ -322,10 +324,6 @@ private struct PPTXWriter {
 						 width: width * frame.width, height: height * frame.height)
 	}
 
-	static func isDark(_ color: RGBColor) -> Bool {
-		0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue < 0.45
-	}
-
 	/// Shared per-slide rendering inputs.
 	private struct BlockContext {
 		/// Text colour for runs without their own (white on dark backgrounds).
@@ -378,7 +376,13 @@ private struct PPTXWriter {
 	private func estimatedHeight(_ block: RescrivaBlock, width: Double, available: Double) -> Double {
 		let size = Self.preferredSize(block.content)
 		switch block.content {
-		case .heading, .paragraph, .list, .equation:
+		case .heading, .paragraph, .list:
+			return TextMetrics.height(PlainTextRenderer.text(for: block.content), widthEMU: width, size: size)
+		case .equation(let latex, _, _):
+			if let info = equationPicture(for: latex)?.info {
+				let natural = EquationPictures.extent(of: info, maxWidthInches: width / OOXML.emuPerInch)
+				return min(Double(natural.cy), available * 0.5) + 91_440
+			}
 			return TextMetrics.height(PlainTextRenderer.text(for: block.content), widthEMU: width, size: size)
 		case .table(let rows):
 			return Double(max(rows.count, 1)) * (size * 1.2 * OOXML.emuPerPoint + 91_440)
@@ -425,6 +429,10 @@ private struct PPTXWriter {
 			let cellSize = context.fit ? min(max(rect.height / rowCount / OOXML.emuPerPoint * 0.5, 8), 14) : max(14 * scale, 9)
 			slide.shapes += table(rows, rect: rect, size: cellSize, font: font, bodyColor: color, id: slide.shapeID())
 		case .equation(let latex, let linear, let display):
+			if let picture = equationPicture(for: latex) {
+				addEquationPicture(picture, latex: latex, rect: rect, display: display, slide: &slide, context: context)
+				return
+			}
 			let text = linear.isEmpty ? latex : linear
 			let run = RescrivaRun(text: text, italic: true)
 			let properties = display ? "<a:pPr algn=\"ctr\"/>" : ""
@@ -572,6 +580,39 @@ private struct PPTXWriter {
 		return RGBColor(red: mix(color.red), green: mix(color.green), blue: mix(color.blue)).hex
 	}
 
+	// MARK: Equations
+
+	/// The typeset picture made for an equation the OMML converter can't
+	/// handle (`EquationPictures`), when the export carries one.
+	private func equationPicture(for latex: String) -> (key: String, data: Data, info: RescrivaImageInfo)? {
+		let key = EquationPictures.assetKey(for: latex)
+		guard let data = options.assets[key], let info = RescrivaImageInfo(data: data) else { return nil }
+		return (key, data, info)
+	}
+
+	/// The equation's picture at its natural size (shrunk to fit the block's
+	/// rect), centred across a display equation's rect, with the LaTeX as its
+	/// alt text.
+	private mutating func addEquationPicture(_ picture: (key: String, data: Data, info: RescrivaImageInfo), latex: String,
+											 rect: SlideRect, display: Bool, slide: inout SlideBuilder, context: BlockContext) {
+		let natural = EquationPictures.extent(of: picture.info, maxWidthInches: rect.width / OOXML.emuPerInch)
+		var width = Double(natural.cx)
+		var height = Double(natural.cy)
+		if context.fit, height > rect.height, rect.height > 0 {
+			width *= rect.height / height
+			height = rect.height
+		}
+		let x = display ? rect.midX - width / 2 : rect.x
+		let y = context.fit ? rect.y + max(rect.height - height, 0) / 2 : rect.y
+		let placed = SlideRect(x: x, y: y, width: width, height: height)
+		let relID = imageRelationship(assetID: picture.key, data: picture.data, info: picture.info, slide: &slide)
+		let id = slide.shapeID()
+		slide.shapes += "<p:pic><p:nvPicPr><p:cNvPr id=\"\(id)\" name=\"Equation \(id)\" descr=\"\(OOXML.escape(latex))\"/>"
+			+ "<p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>"
+			+ "<p:blipFill><a:blip r:embed=\"\(relID)\"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>"
+			+ "<p:spPr><a:xfrm>\(placed.offsetAndExtent)</a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr></p:pic>"
+	}
+
 	// MARK: Figures
 
 	private mutating func addFigure(assetID: String?, caption: String?, altText: String?, rect: SlideRect, scale: Double, slide: inout SlideBuilder, context: BlockContext) {
@@ -631,23 +672,8 @@ private struct PPTXWriter {
 
 	// MARK: Diagrams
 
-	/// Connection sites of the preset geometries, in the presets' index order:
-	/// rect, roundRect, diamond and parallelogram have top, left, bottom, right; ellipse has
-	/// eight, counter-clockwise from the top.
-	private static func connectionSites(_ rect: SlideRect, shape: Diagram.Shape) -> [(x: Double, y: Double)] {
-		let left = rect.x, right = rect.x + rect.width
-		let top = rect.y, bottom = rect.maxY
-		guard shape == .ellipse else {
-			return [(rect.midX, top), (left, rect.midY), (rect.midX, bottom), (right, rect.midY)]
-		}
-		let dx = rect.width / 2 * 0.70710678
-		let dy = rect.height / 2 * 0.70710678
-		return [
-			(rect.midX, top), (rect.midX - dx, rect.midY - dy), (left, rect.midY), (rect.midX - dx, rect.midY + dy),
-			(rect.midX, bottom), (rect.midX + dx, rect.midY + dy), (right, rect.midY), (rect.midX + dx, rect.midY - dy),
-		]
-	}
-
+	/// Connectors attach at the connection sites `RescrivaDiagramGeometry`
+	/// picks (shared with the Word renderer), so they follow their shapes.
 	private func addDiagram(_ diagram: Diagram, rect: SlideRect, scale: Double, font: FontClass?, slide: inout SlideBuilder, context: BlockContext) {
 		let hasCaption = !(diagram.caption?.isEmpty ?? true)
 		var area = rect
@@ -656,32 +682,26 @@ private struct PPTXWriter {
 		}
 		let aspect = min(max(diagram.aspect.isFinite ? diagram.aspect : 1.6, 0.25), 6)
 		let frame = area.fitting(aspect: aspect)
-		var placed: [String: (id: Int, rect: SlideRect, shape: Diagram.Shape)] = [:]
+		var placed: [String: (id: Int, frame: RescrivaDiagramGeometry.Frame)] = [:]
 		for node in diagram.nodes where placed[node.id] == nil {
 			let nodeRect = Self.place(node.box, in: frame)
 			let id = slide.shapeID()
-			placed[node.id] = (id, nodeRect, node.shape)
+			placed[node.id] = (id, RescrivaDiagramGeometry.Frame(x: nodeRect.x, y: nodeRect.y, width: nodeRect.width,
+																  height: nodeRect.height, shape: node.shape))
 			slide.shapes += Self.nodeShape(node, id: id, rect: nodeRect, font: font)
 		}
 		for edge in diagram.edges {
 			guard edge.from != edge.to, let from = placed[edge.from], let to = placed[edge.to] else { continue }
-			let start = Self.connectionSites(from.rect, shape: from.shape)
-			let end = Self.connectionSites(to.rect, shape: to.shape)
-			var best = (start: 0, end: 0, distance: Double.infinity)
-			for (i, a) in start.enumerated() {
-				for (j, b) in end.enumerated() {
-					let distance = (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)
-					if distance < best.distance { best = (i, j, distance) }
-				}
-			}
-			let a = start[best.start], b = end[best.end]
+			let connection = RescrivaDiagramGeometry.connection(from: from.frame, to: to.frame)
+			let segment = connection.segment
 			var flips = ""
-			if b.x < a.x { flips += " flipH=\"1\"" }
-			if b.y < a.y { flips += " flipV=\"1\"" }
-			let line = SlideRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
+			if segment.x2 < segment.x1 { flips += " flipH=\"1\"" }
+			if segment.y2 < segment.y1 { flips += " flipV=\"1\"" }
+			let line = SlideRect(x: min(segment.x1, segment.x2), y: min(segment.y1, segment.y2),
+								 width: abs(segment.x2 - segment.x1), height: abs(segment.y2 - segment.y1))
 			let id = slide.shapeID()
 			slide.shapes += "<p:cxnSp><p:nvCxnSpPr><p:cNvPr id=\"\(id)\" name=\"Connector \(id)\"/><p:cNvCxnSpPr>"
-				+ "<a:stCxn id=\"\(from.id)\" idx=\"\(best.start)\"/><a:endCxn id=\"\(to.id)\" idx=\"\(best.end)\"/></p:cNvCxnSpPr>"
+				+ "<a:stCxn id=\"\(from.id)\" idx=\"\(connection.startSite)\"/><a:endCxn id=\"\(to.id)\" idx=\"\(connection.endSite)\"/></p:cNvCxnSpPr>"
 				+ "<p:nvPr/></p:nvCxnSpPr><p:spPr><a:xfrm\(flips)>\(line.offsetAndExtent)</a:xfrm>"
 				+ "<a:prstGeom prst=\"straightConnector1\"><a:avLst/></a:prstGeom>"
 				+ "<a:ln w=\"19050\"><a:solidFill><a:srgbClr val=\"\(context.defaultColor ?? Self.ink)\"/></a:solidFill>"
@@ -689,7 +709,6 @@ private struct PPTXWriter {
 			if let label = edge.label, !label.isEmpty {
 				let width = min(1.8, 0.2 + 0.09 * Double(label.count)) * OOXML.emuPerInch
 				let height = 0.3 * OOXML.emuPerInch
-				let segment = RescrivaDiagramGeometry.Segment(x1: a.x, y1: a.y, x2: b.x, y2: b.y)
 				let center = RescrivaDiagramGeometry.labelCenter(for: segment, width: width, height: height, gap: 2 * OOXML.emuPerPoint)
 				let labelRect = SlideRect(x: center.x - width / 2, y: center.y - height / 2, width: width, height: height)
 				let paragraph = Self.paragraph([RescrivaRun(text: label)], properties: "<a:pPr algn=\"ctr\"/>",
@@ -708,20 +727,12 @@ private struct PPTXWriter {
 	}
 
 	private static func nodeShape(_ node: Diagram.Node, id: Int, rect: SlideRect, font: FontClass?) -> String {
-		let geometry: String
-		switch node.shape {
-		case .rectangle: geometry = "rect"
-		case .roundedRectangle: geometry = "roundRect"
-		case .ellipse: geometry = "ellipse"
-		case .diamond: geometry = "diamond"
-		case .parallelogram: geometry = "parallelogram"
-		}
 		let fill = node.fill.map { "<a:solidFill><a:srgbClr val=\"\($0.hex)\"/></a:solidFill>" } ?? "<a:noFill/>"
-		let textColor = node.fill.map { isDark($0) ? "FFFFFF" : ink } ?? ink
+		let textColor = node.fill.map { $0.isDark ? "FFFFFF" : ink } ?? ink
 		let size = TextMetrics.fittedSize(node.label, in: rect, preferred: 16, minimum: 7)
 		let paragraph = paragraph([RescrivaRun(text: node.label)], properties: "<a:pPr algn=\"ctr\"/>", size: size, font: font, color: textColor)
 		return "<p:sp><p:nvSpPr><p:cNvPr id=\"\(id)\" name=\"\(OOXML.escape(node.label))\"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>"
-			+ "<p:spPr><a:xfrm>\(rect.offsetAndExtent)</a:xfrm><a:prstGeom prst=\"\(geometry)\"><a:avLst/></a:prstGeom>\(fill)"
+			+ "<p:spPr><a:xfrm>\(rect.offsetAndExtent)</a:xfrm><a:prstGeom prst=\"\(node.shape.presetGeometry)\"><a:avLst/></a:prstGeom>\(fill)"
 			+ "<a:ln w=\"19050\"><a:solidFill><a:srgbClr val=\"\(node.stroke.hex)\"/></a:solidFill></a:ln></p:spPr>"
 			+ "<p:txBody><a:bodyPr rtlCol=\"0\" lIns=\"45720\" tIns=\"22860\" rIns=\"45720\" bIns=\"22860\" anchor=\"ctr\"><a:noAutofit/></a:bodyPr>"
 			+ "<a:lstStyle/>\(paragraph)</p:txBody></p:sp>"

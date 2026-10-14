@@ -5,7 +5,8 @@
 //  The app's side of the Share Nearby relay (Docs/Rescriva-Share-Protocol.md §2): one WebSocket in one room,
 //  who else is in it, and the connection set-up messages passed through it. It pings every 25 s so
 //  the relay doesn't drop it as stale, and when the socket goes it reconnects with backoff
-//  (1, 2, 4 … 30 s). Two misses in a row show as `unavailable`, but it keeps trying.
+//  (1, 2, 4 … 30 s). Two misses in a row show as `unavailable`, but it keeps trying. What the
+//  relay sends is read by `parse`, which needs no socket, so tests can feed it text.
 //
 
 import Foundation
@@ -20,6 +21,19 @@ final class ShareRelay {
 	}
 
 	enum Status: Equatable { case connecting, open, unavailable }
+
+	/// One message from the relay, as `parse` reads it.
+	enum Message: Equatable {
+		/// Everyone already in the room: duplicates and anything past `ShareLimits.maxPeers` left out.
+		case welcome([Peer])
+		case join(Peer)
+		case leave(id: String)
+		/// `from` is a token; whether that peer is in the room is checked when it's handled.
+		case signal(from: String, ShareSignal)
+		case error(String)
+		/// A pong, or something newer than this app.
+		case other
+	}
 
 	enum Event {
 		case status(Status)
@@ -40,12 +54,9 @@ final class ShareRelay {
 	/// A socket the relay hasn't welcomed by now counts as a miss.
 	private static let openTimeout: TimeInterval = 8
 	private static let maxRetryDelay: TimeInterval = 30
-	/// The relay passes messages of up to 64 KB; a welcome or signal wrapped around one fits easily.
-	private static let maxIncomingBytes = 128 * 1024
-	private static let maxOutgoingBytes = 64 * 1024
-	/// The relay allows 32 peers a room.
-	private static let maxPeers = 64
-	private static let relayDevices: Set<String> = ["iphone", "ipad", "mac", "phone", "tablet", "computer"]
+	/// The relay passes messages of up to `ShareLimits.maxMessageBytes`; a welcome or signal wrapped
+	/// around one fits easily in twice that.
+	private static let maxIncomingBytes = 2 * ShareLimits.maxMessageBytes
 	/// Unreserved URL characters (RFC 3986 §2.3); everything else in a query value is escaped,
 	/// including "+", which the relay would read as a space.
 	private static let queryValueCharacters = CharacterSet(
@@ -101,19 +112,19 @@ final class ShareRelay {
 	/// Sends `signal` to a peer in the room. Dropped (and logged) while the relay isn't open.
 	func signal(to peerID: String, _ signal: ShareSignal) {
 		guard let socket, isWelcomed else {
-			print("Rescriva: Share Nearby dropped a signal; the relay isn't open")
+			Log.share.notice("Share Nearby dropped a signal; the relay isn't open")
 			return
 		}
 		guard ShareJSON.token(peerID) != nil else {
-			print("Rescriva: Share Nearby won't signal a malformed peer id")
+			Log.share.notice("Share Nearby won't signal a malformed peer id")
 			return
 		}
 		let message: [String: Any] = ["t": "signal", "to": peerID, "data": signal.data]
 		guard JSONSerialization.isValidJSONObject(message),
 			  let data = try? JSONSerialization.data(withJSONObject: message),
-			  data.count <= Self.maxOutgoingBytes,
+			  data.count <= ShareLimits.maxMessageBytes,
 			  let text = String(data: data, encoding: .utf8) else {
-			print("Rescriva: Share Nearby couldn't encode a signal for the relay")
+			Log.share.error("Share Nearby couldn't encode a signal for the relay")
 			return
 		}
 		send(text, on: socket)
@@ -125,7 +136,7 @@ final class ShareRelay {
 		guard isRunning, socket == nil else { return }
 		guard let request = makeRequest() else {
 			// A bad address or room never gets better, so don't retry.
-			print("Rescriva: Share Nearby can't use relay \(url.absoluteString) with room \(room.prefix(6))…")
+			Log.share.error("Share Nearby can't use relay \(self.url.absoluteString) with this room")
 			setStatus(.unavailable)
 			return
 		}
@@ -147,8 +158,8 @@ final class ShareRelay {
 		let fields = [
 			("room", room),
 			("role", "app"),
-			("name", ShareJSON.cleanName(ShareDevice.name, limit: 64)),
-			("device", Self.relayDevices.contains(kind) ? kind : "iphone"),
+			("name", ShareJSON.cleanName(ShareDevice.name, limit: ShareLimits.maxDeviceName)),
+			("device", ShareLimits.appDevices.contains(kind) ? kind : "iphone"),
 		]
 		var parts: [String] = []
 		for (key, value) in fields {
@@ -189,7 +200,7 @@ final class ShareRelay {
 	private func send(_ text: String, on socket: URLSessionWebSocketTask) {
 		socket.send(.string(text)) { error in
 			if let error {
-				print("Rescriva: Share Nearby couldn't write to the relay: \(error.localizedDescription)")
+				Log.share.error("Share Nearby couldn't write to the relay: \(error.localizedDescription)")
 			}
 		}
 	}
@@ -202,7 +213,7 @@ final class ShareRelay {
 		let httpStatus = (socket.response as? HTTPURLResponse)?.statusCode
 		let refusal = httpStatus.flatMap { $0 == 101 ? nil : "HTTP \($0)" }
 		let detail = code == 4408 ? "dropped as stale" : refusal ?? reason
-		print("Rescriva: Share Nearby's relay connection ended (\(detail))")
+		Log.share.notice("Share Nearby's relay connection ended (\(detail))")
 		socket.cancel(with: .goingAway, reason: nil)
 		discardSocket()
 		let gone = peers
@@ -277,73 +288,100 @@ final class ShareRelay {
 	// MARK: Messages
 
 	private func handle(_ text: String) {
-		guard text.utf8.count <= Self.maxIncomingBytes,
-			  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
-			  let message = object as? [String: Any],
-			  let type = message["t"] as? String else { return }
-		switch type {
-		case "welcome": welcome(message)
-		case "join": join(message)
-		case "leave": leave(message)
-		case "signal": signalArrived(message)
-		case "error":
-			let detail = (message["message"] as? String).map { ShareJSON.cleanName($0, limit: 200) } ?? "?"
-			print("Rescriva: Share Nearby's relay said: \(detail)")
-		default:
-			break // "pong", and anything newer
+		guard let message = Self.parse(text) else { return }
+		switch message {
+		case .welcome(let list): welcome(list)
+		case .join(let peer): join(peer)
+		case .leave(let id): leave(id)
+		case .signal(let from, let signal): signalArrived(signal, from: from)
+		case .error(let detail): Log.share.notice("Share Nearby's relay said: \(detail)")
+		case .other: break
 		}
 	}
 
-	private func welcome(_ message: [String: Any]) {
+	private func welcome(_ list: [Peer]) {
 		guard !isWelcomed else { return }
-		let list = message["peers"] as? [Any] ?? []
 		isWelcomed = true
 		failures = 0
 		timeout?.cancel()
 		timeout = nil
 		startPinging()
-		peers = []
-		for item in list.prefix(Self.maxPeers) {
-			guard let peer = Self.peer(from: item), !peers.contains(where: { $0.id == peer.id }) else { continue }
-			peers.append(peer)
-		}
+		peers = list
 		setStatus(.open)
 		guard isWelcomed else { return }
 		onEvent(.peers(peers))
 	}
 
-	private func join(_ message: [String: Any]) {
-		guard isWelcomed, let peer = Self.peer(from: message["peer"]) else { return }
+	private func join(_ peer: Peer) {
+		guard isWelcomed else { return }
 		if let index = peers.firstIndex(where: { $0.id == peer.id }) {
 			peers[index] = peer
 		} else {
-			guard peers.count < Self.maxPeers else { return }
+			guard peers.count < ShareLimits.maxPeers else { return }
 			peers.append(peer)
 		}
 		onEvent(.join(peer))
 	}
 
-	private func leave(_ message: [String: Any]) {
-		guard let id = message["id"] as? String, let index = peers.firstIndex(where: { $0.id == id }) else { return }
+	private func leave(_ id: String) {
+		guard let index = peers.firstIndex(where: { $0.id == id }) else { return }
 		peers.remove(at: index)
 		onEvent(.leave(id))
 	}
 
-	private func signalArrived(_ message: [String: Any]) {
-		guard isWelcomed, let from = ShareJSON.token(message["from"]), peers.contains(where: { $0.id == from }),
-			  let data = message["data"] as? [String: Any], let signal = ShareSignal(data: data) else { return }
+	private func signalArrived(_ signal: ShareSignal, from: String) {
+		guard isWelcomed, peers.contains(where: { $0.id == from }) else { return }
 		onEvent(.signal(from: from, signal))
 	}
 
 	// MARK: Checking what the relay says
 
+	/// What one text frame from the relay says (PROTOCOL.md §2), or nil for anything too long,
+	/// not JSON, or out of shape: a welcome without a list, a join without a peer, a leave without
+	/// an id, a signal with a bad sender or payload. Needs no socket, so tests feed it text.
+	static func parse(_ text: String) -> Message? {
+		guard text.utf8.count <= maxIncomingBytes,
+			  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
+			  let message = object as? [String: Any],
+			  let type = message["t"] as? String else { return nil }
+		switch type {
+		case "welcome":
+			guard let list = message["peers"] as? [Any] else { return nil }
+			return .welcome(peers(from: list))
+		case "join":
+			guard let peer = peer(from: message["peer"]) else { return nil }
+			return .join(peer)
+		case "leave":
+			guard let id = ShareJSON.token(message["id"]) else { return nil }
+			return .leave(id: id)
+		case "signal":
+			guard let from = ShareJSON.token(message["from"]), let data = message["data"] as? [String: Any],
+				  let signal = ShareSignal(data: data) else { return nil }
+			return .signal(from: from, signal)
+		case "error":
+			return .error((message["message"] as? String).map { ShareJSON.cleanName($0, limit: 200) } ?? "?")
+		default:
+			return .other
+		}
+	}
+
+	/// The well-formed peers in a welcome's list, each id once, at most `ShareLimits.maxPeers`.
+	private static func peers(from list: [Any]) -> [Peer] {
+		var peers: [Peer] = []
+		for item in list.prefix(ShareLimits.maxPeers) {
+			guard let peer = peer(from: item), !peers.contains(where: { $0.id == peer.id }) else { continue }
+			peers.append(peer)
+		}
+		return peers
+	}
+
 	/// A peer from a welcome or join: a token id, a known role, a clean name, a known device.
 	private static func peer(from value: Any?) -> Peer? {
 		guard let object = value as? [String: Any], let id = ShareJSON.token(object["id"]),
 			  let role = object["role"] as? String, role == "app" || role == "web" else { return nil }
-		let name = (object["name"] as? String).map { ShareJSON.cleanName($0, limit: 64) } ?? ""
+		let name = (object["name"] as? String).map { ShareJSON.cleanName($0, limit: ShareLimits.maxDeviceName) } ?? ""
 		let device = object["device"] as? String ?? ""
-		return Peer(id: id, role: role, name: name, device: relayDevices.contains(device) ? device : "computer")
+		return Peer(id: id, role: role, name: name, device: ShareLimits.relayDevices.contains(device) ? device : "computer")
 	}
 
 	/// "auto", or 22 base64url characters.

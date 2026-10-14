@@ -2,13 +2,15 @@
 //  ZipArchive.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  A minimal ZIP writer (STORED entries only) plus the Open Packaging
-//  Conventions helpers the Word and PowerPoint renderers share: XML escaping,
-//  `[Content_Types].xml`, relationship parts, document properties and image
-//  header sniffing. Foundation-only so it builds for the app and for macOS
-//  test harnesses alike.
+//  A minimal ZIP writer (DEFLATE through Apple's Compression framework, STORED
+//  when that doesn't shrink an entry) plus the Open Packaging Conventions
+//  helpers the Word and PowerPoint renderers share: XML escaping,
+//  `[Content_Types].xml`, relationship parts, document properties, image
+//  header sniffing and the DrawingML tokens both diagram writers use.
+//  Foundation-only so it builds for the app and for macOS test harnesses alike.
 //
 
+import Compression
 import Foundation
 
 /// Errors thrown while packaging an export.
@@ -23,19 +25,31 @@ enum RescrivaExportError: Error, Equatable {
 	case tooManyEntries
 }
 
-/// A minimal ZIP writer: STORED (uncompressed) entries with CRC-32, local file
-/// headers, a central directory and an end-of-central-directory record.
+/// A minimal ZIP writer: DEFLATE (method 8) or STORED entries with CRC-32,
+/// local file headers, a central directory and an end-of-central-directory
+/// record.
 ///
 /// Entries are written in the order they were added, except that
 /// `[Content_Types].xml` is always written first, which some Office readers
-/// expect. No ZIP64, no encryption, no compression: Office packages open fine
-/// with STORED entries and the exports stay small enough.
+/// expect. Each entry is deflated with the Compression framework and kept
+/// STORED when that would not make it smaller (pictures, tiny parts). No
+/// ZIP64 and no encryption.
 struct ZipArchive {
+	/// ZIP compression methods written.
+	enum Method: UInt16 {
+		case stored = 0
+		case deflate = 8
+	}
+
 	/// One file waiting to be written.
 	private struct Entry {
 		let path: String
 		let nameBytes: Data
-		let data: Data
+		/// The bytes written after the local header: deflated, or the file as given.
+		let payload: Data
+		let method: Method
+		/// Uncompressed size.
+		let size: UInt32
 		let crc: UInt32
 		let isASCII: Bool
 	}
@@ -55,6 +69,11 @@ struct ZipArchive {
 	/// Entry paths in the order they will be written.
 	var paths: [String] { orderedEntries.map(\.path) }
 
+	/// The compression method chosen for `path`; nil when no such entry was added.
+	func method(for path: String) -> Method? {
+		entries.first { $0.path == path }?.method
+	}
+
 	/// Adds a file. Paths use `/` separators and must be relative.
 	mutating func add(_ path: String, data: Data) throws {
 		guard !path.isEmpty, !path.hasPrefix("/") else { throw RescrivaExportError.invalidPath(path) }
@@ -64,7 +83,10 @@ struct ZipArchive {
 		let nameBytes = Data(path.utf8)
 		guard nameBytes.count <= 0xFFFF else { throw RescrivaExportError.invalidPath(path) }
 		let isASCII = path.unicodeScalars.allSatisfy(\.isASCII)
-		entries.append(Entry(path: path, nameBytes: nameBytes, data: data, crc: Self.crc32(data), isASCII: isASCII))
+		let deflated = Self.deflate(data)
+		entries.append(Entry(path: path, nameBytes: nameBytes, payload: deflated ?? data,
+							 method: deflated == nil ? .stored : .deflate, size: UInt32(data.count),
+							 crc: Self.crc32(data), isASCII: isASCII))
 		names.insert(path)
 	}
 
@@ -83,33 +105,33 @@ struct ZipArchive {
 			guard UInt64(output.count) < UInt64(UInt32.max) else { throw RescrivaExportError.archiveTooLarge }
 			let offset = UInt32(output.count)
 			let flags: UInt16 = entry.isASCII ? 0 : 0x0800
-			let size = UInt32(entry.data.count)
+			let compressedSize = UInt32(entry.payload.count)
 			let nameLength = UInt16(entry.nameBytes.count)
 
 			output.appendLittleEndian(UInt32(0x0403_4B50))
 			output.appendLittleEndian(UInt16(20))
 			output.appendLittleEndian(flags)
-			output.appendLittleEndian(UInt16(0))
+			output.appendLittleEndian(entry.method.rawValue)
 			output.appendLittleEndian(stamp.time)
 			output.appendLittleEndian(stamp.date)
 			output.appendLittleEndian(entry.crc)
-			output.appendLittleEndian(size)
-			output.appendLittleEndian(size)
+			output.appendLittleEndian(compressedSize)
+			output.appendLittleEndian(entry.size)
 			output.appendLittleEndian(nameLength)
 			output.appendLittleEndian(UInt16(0))
 			output.append(entry.nameBytes)
-			output.append(entry.data)
+			output.append(entry.payload)
 
 			central.appendLittleEndian(UInt32(0x0201_4B50))
 			central.appendLittleEndian(UInt16(20))
 			central.appendLittleEndian(UInt16(20))
 			central.appendLittleEndian(flags)
-			central.appendLittleEndian(UInt16(0))
+			central.appendLittleEndian(entry.method.rawValue)
 			central.appendLittleEndian(stamp.time)
 			central.appendLittleEndian(stamp.date)
 			central.appendLittleEndian(entry.crc)
-			central.appendLittleEndian(size)
-			central.appendLittleEndian(size)
+			central.appendLittleEndian(compressedSize)
+			central.appendLittleEndian(entry.size)
 			central.appendLittleEndian(nameLength)
 			central.appendLittleEndian(UInt16(0))
 			central.appendLittleEndian(UInt16(0))
@@ -138,7 +160,43 @@ struct ZipArchive {
 		entries.filter { $0.path == Self.contentTypesPath } + entries.filter { $0.path != Self.contentTypesPath }
 	}
 
-	// MARK: CRC-32 and DOS time
+	// MARK: DEFLATE, CRC-32 and DOS time
+
+	/// `data` as a raw DEFLATE stream (RFC 1951, the payload of ZIP method 8),
+	/// or nil when compressing fails or would not make it smaller. Compression's
+	/// `COMPRESSION_ZLIB` writes the bare stream with no zlib header or trailer,
+	/// which is exactly what a ZIP entry holds.
+	static func deflate(_ data: Data) -> Data? {
+		guard !data.isEmpty else { return nil }
+		let capacity = data.count
+		var output = Data(count: capacity)
+		let written = data.withUnsafeBytes { source -> Int in
+			guard let sourceBase = source.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+			return output.withUnsafeMutableBytes { destination -> Int in
+				guard let destinationBase = destination.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+				return compression_encode_buffer(destinationBase, capacity, sourceBase, source.count, nil, COMPRESSION_ZLIB)
+			}
+		}
+		guard written > 0, written < data.count else { return nil }
+		output.count = written
+		return output
+	}
+
+	/// The bytes a raw DEFLATE stream of known uncompressed `size` decodes to,
+	/// or nil when it is malformed or decodes to another length.
+	static func inflate(_ payload: Data, size: Int) -> Data? {
+		guard size > 0 else { return payload.isEmpty ? Data() : nil }
+		var output = Data(count: size)
+		let written = payload.withUnsafeBytes { source -> Int in
+			guard let sourceBase = source.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+			return output.withUnsafeMutableBytes { destination -> Int in
+				guard let destinationBase = destination.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+				return compression_decode_buffer(destinationBase, size, sourceBase, source.count, nil, COMPRESSION_ZLIB)
+			}
+		}
+		guard written == size else { return nil }
+		return output
+	}
 
 	private static let crcTable: [UInt32] = (0..<256).map { index -> UInt32 in
 		var value = UInt32(index)
@@ -181,10 +239,8 @@ private extension Data {
 	}
 }
 
-// MARK: - Open Packaging Conventions helpers
+// MARK: - DrawingML tokens shared by the diagram writers
 
-/// Helpers shared by the Word and PowerPoint renderers: XML escaping, units,
-/// content types, relationships and the document-properties parts.
 extension Diagram.Direction {
 	/// DrawingML line-end decorations: the head end is the line's start, the
 	/// tail end its finish.
@@ -198,6 +254,31 @@ extension Diagram.Direction {
 	}
 }
 
+extension Diagram.Shape {
+	/// The DrawingML preset geometry (`a:prstGeom prst`) that draws this shape.
+	var presetGeometry: String {
+		switch self {
+		case .rectangle: return "rect"
+		case .roundedRectangle: return "roundRect"
+		case .ellipse: return "ellipse"
+		case .diamond: return "diamond"
+		case .parallelogram: return "parallelogram"
+		}
+	}
+}
+
+extension RGBColor {
+	/// Whether text over this colour should be white: its relative luminance
+	/// is under 0.45.
+	var isDark: Bool {
+		0.2126 * red + 0.7152 * green + 0.0722 * blue < 0.45
+	}
+}
+
+// MARK: - Open Packaging Conventions helpers
+
+/// Helpers shared by the Word and PowerPoint renderers: XML escaping, units,
+/// content types, relationships and the document-properties parts.
 enum OOXML {
 	/// The XML declaration every part starts with.
 	static let declaration = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"

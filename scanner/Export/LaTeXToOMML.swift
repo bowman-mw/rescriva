@@ -7,7 +7,7 @@
 //  sub/superscripts, radicals, \left…\right delimiters, n-ary operators,
 //  accents, Greek letters and the common operators and relations. Anything
 //  outside the subset makes `convert` return nil so the caller falls back to
-//  the equation's linear text.
+//  the equation's typeset picture (`EquationPictures`) or its linear text.
 //
 
 import Foundation
@@ -18,8 +18,10 @@ import Foundation
 /// the containing part must declare. Runs carry Cambria Math so Word renders
 /// them with its math font.
 enum LaTeXToOMML {
-	/// Deepest group nesting accepted before giving up (guards the recursion).
-	static let maxDepth = 32
+	/// Deepest nesting accepted before giving up: every sequence and every atom
+	/// counts, so this bounds the parser's recursion whatever the input does
+	/// (`\hat\hat\hat…` nests an atom per command, braces two levels each).
+	static let maxDepth = 64
 	/// Longest input accepted.
 	static let maxLength = 4_000
 
@@ -253,7 +255,8 @@ enum LaTeXToOMML {
 	// MARK: Parser
 
 	/// Recursive-descent parser over the token list. Recursion depth is capped
-	/// by `LaTeXToOMML.maxDepth`.
+	/// by `LaTeXToOMML.maxDepth`: `parseSequence` and `parseAtom` each count a
+	/// level, and every other recursive path goes through one of them.
 	private struct Parser {
 		let tokens: [Token]
 		var index = 0
@@ -386,6 +389,8 @@ enum LaTeXToOMML {
 		}
 
 		private mutating func parseAtom() throws -> Atom {
+			try enter()
+			defer { depth -= 1 }
 			skipSpaces()
 			guard let token = current else { throw ParseError.unexpectedEnd }
 			switch token {
@@ -534,5 +539,42 @@ enum LaTeXToOMML {
 		}
 
 		private func render(_ atoms: [Atom]) -> String { LaTeXToOMML.render(atoms) }
+	}
+}
+
+// MARK: - Typeset pictures
+
+/// The picture route for equations the converter can't handle: the export
+/// renders each such equation from the app's own equation preview (on the
+/// main actor, before the renderers run) and carries the PNG in
+/// `RenderOptions.assets` under `assetKey(for:)`, where the Word and
+/// PowerPoint renderers embed it with the LaTeX as alt text. This half is
+/// Foundation-only; `ExportService` adds the rendering.
+enum EquationPictures {
+	/// Prefix that keeps equation keys clear of figure asset ids (UUID strings).
+	static let keyPrefix = "equation:"
+	/// Pixels per point the pictures are rendered at.
+	static let scale = 3.0
+
+	/// The `RenderOptions.assets` key of the picture for `latex`.
+	static func assetKey(for latex: String) -> String {
+		keyPrefix + latex.trimmingCharacters(in: .whitespacesAndNewlines)
+	}
+
+	/// Whether an equation needs a picture: the converter can't make OMML of it.
+	static func needsPicture(_ latex: String) -> Bool {
+		LaTeXToOMML.convert(latex) == nil
+	}
+
+	/// The picture's size in EMU at its natural point size (pixels ÷ `scale`),
+	/// shrunk to `maxWidthInches` when wider.
+	static func extent(of info: RescrivaImageInfo, maxWidthInches: Double) -> (cx: Int, cy: Int) {
+		var width = Double(info.pixelWidth) / scale / 72
+		var height = Double(info.pixelHeight) / scale / 72
+		if maxWidthInches > 0, width > maxWidthInches {
+			height *= maxWidthInches / width
+			width = maxWidthInches
+		}
+		return (OOXML.emu(inches: width), OOXML.emu(inches: height))
 	}
 }

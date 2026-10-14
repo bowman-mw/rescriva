@@ -205,7 +205,7 @@ struct AnnotateView: View {
 			onSave()
 			dismiss()
 		} catch {
-			print("Rescriva: saving annotations failed: \(error)")
+			Log.library.error("Saving annotations failed: \(error)")
 			saveFailed = true
 		}
 	}

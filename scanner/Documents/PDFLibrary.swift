@@ -77,7 +77,7 @@ final class PDFLibrary {
 		do {
 			try FileManager.default.createDirectory(at: self.root, withIntermediateDirectories: true)
 		} catch {
-			print("Rescriva: couldn't create the PDF library folder: \(error)")
+			Log.library.error("Couldn't create the PDF library folder: \(error)")
 		}
 		reload()
 	}
@@ -101,15 +101,56 @@ final class PDFLibrary {
 	/// Reads every item's info from disk.
 	func reload() {
 		let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-		items = folders.compactMap { folder in
-			guard let data = try? Data(contentsOf: folder.appendingPathComponent("info.json")) else { return nil }
-			return try? JSONDecoder.rescriva.decode(PDFItem.self, from: data)
-		}
-		.sorted { $0.importedAt > $1.importedAt }
+		items = folders.compactMap(item(in:)).sorted { $0.importedAt > $1.importedAt }
 		// Text extraction can be cut short (the app quits mid-import); finish it now.
 		for item in items where !FileManager.default.fileExists(atPath: textURL(for: item.id).path) {
 			indexText(of: item)
 		}
+	}
+
+	/// The item in `folder`: its info.json or, when that's missing or unreadable, a stand-in made
+	/// from the PDF itself, so a PDF never vanishes from the Library over a bad record. A record
+	/// that's missing is written back; one that's there but unreadable is left for recovery and
+	/// logged (a rename or a favorite replaces it). A folder without a PDF isn't an item.
+	private func item(in folder: URL) -> PDFItem? {
+		let info = folder.appendingPathComponent("info.json")
+		do {
+			return try JSONDecoder.rescriva.decode(PDFItem.self, from: Data(contentsOf: info))
+		} catch {
+			guard let id = UUID(uuidString: folder.lastPathComponent),
+				  FileManager.default.fileExists(atPath: folder.appendingPathComponent("original.pdf").path) else { return nil }
+			Log.library.error("\(folder.lastPathComponent)/info.json couldn't be read (\(error)); showing the PDF with its own details")
+			let item = standIn(for: id)
+			if !FileManager.default.fileExists(atPath: info.path) {
+				do {
+					try writeInfo(item)
+				} catch {
+					Log.library.error("Couldn't write a PDF's details back: \(error)")
+				}
+			}
+			return item
+		}
+	}
+
+	/// What can be known about a PDF without its record: the title it carries, the files' dates,
+	/// its pages and its size.
+	private func standIn(for id: UUID) -> PDFItem {
+		let original = folder(for: id).appendingPathComponent("original.pdf")
+		let edited = folder(for: id).appendingPathComponent("edited.pdf")
+		let hasEdits = FileManager.default.fileExists(atPath: edited.path)
+		let current = hasEdits ? edited : original
+		let document = PDFDocument(url: current)
+		let carried = (document?.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String)?
+			.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+		let title = carried.isEmpty ? String(localized: "Untitled PDF") : carried
+		return PDFItem(id: id, title: title, sourceName: title + ".pdf", importedAt: fileDate(original) ?? Date(),
+					   editedAt: hasEdits ? fileDate(edited) : nil, pageCount: document?.pageCount ?? 0, byteCount: fileSize(current))
+	}
+
+	/// When the file was made, or failing that last changed.
+	private func fileDate(_ url: URL) -> Date? {
+		let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+		return (attributes?[.creationDate] ?? attributes?[.modificationDate]) as? Date
 	}
 
 	// MARK: Import
@@ -142,11 +183,11 @@ final class PDFLibrary {
 			}
 		}.value
 		if case .failure(let error) = copied {
-			removeIfPresent(folder)
+			FileManager.default.removeIfPresent(folder, log: Log.library)
 			throw error
 		}
 		guard let document = PDFDocument(url: destination) else {
-			removeIfPresent(folder)
+			FileManager.default.removeIfPresent(folder, log: Log.library)
 			throw PDFLibraryError.unreadable
 		}
 		let name = url.lastPathComponent
@@ -168,7 +209,7 @@ final class PDFLibrary {
 		let destination = folder.appendingPathComponent("original.pdf")
 		try data.write(to: destination, options: .atomic)
 		guard let document = PDFDocument(url: destination) else {
-			removeIfPresent(folder)
+			FileManager.default.removeIfPresent(folder, log: Log.library)
 			throw PDFLibraryError.unreadable
 		}
 		let item = PDFItem(id: id, title: title, sourceName: title + ".pdf", importedAt: Date(),
@@ -248,14 +289,14 @@ final class PDFLibrary {
 										  options: [PDFDocumentWriteOption: Any]) throws -> (pageCount: Int, report: PDFFormatReport?) {
 		let staging = folder.appendingPathComponent("saving-\(UUID().uuidString).pdf")
 		guard document.write(to: staging, withOptions: options) else {
-			removeQuietly(staging)
+			FileManager.default.removeIfPresent(staging, log: Log.library)
 			throw PDFLibraryError.writeFailed
 		}
 		do {
 			_ = try PDFClaimStripper.stripClaims(inFileAt: staging)
 		} catch {
 			// The copy is still a good PDF; it just keeps the claim.
-			print("Rescriva: removing conformance claims failed: \(error)")
+			Log.library.error("Removing conformance claims failed: \(error)")
 		}
 		if FileManager.default.fileExists(atPath: edited.path) {
 			_ = try FileManager.default.replaceItemAt(edited, withItemAt: staging)
@@ -265,20 +306,11 @@ final class PDFLibrary {
 		return (document.pageCount, PDFFormatInspector.inspect(url: edited))
 	}
 
-	private nonisolated static func removeQuietly(_ url: URL) {
-		guard FileManager.default.fileExists(atPath: url.path) else { return }
-		do {
-			try FileManager.default.removeItem(at: url)
-		} catch {
-			print("Rescriva: couldn't remove \(url.lastPathComponent): \(error)")
-		}
-	}
-
 	/// Throws away Rescriva's edits; the original opens next time. Waits for a save under way, which
 	/// would otherwise put the edits back.
 	func revertToOriginal(_ item: PDFItem) async throws {
 		await waitForSave(of: item.id)
-		removeIfPresent(editedURL(for: item))
+		FileManager.default.removeIfPresent(editedURL(for: item), log: Log.library)
 		var updated = item
 		updated.editedAt = nil
 		updated.pageCount = PDFDocument(url: originalURL(for: item))?.pageCount ?? item.pageCount
@@ -305,7 +337,7 @@ final class PDFLibrary {
 	}
 
 	func delete(_ item: PDFItem) {
-		removeIfPresent(folder(for: item.id))
+		FileManager.default.removeIfPresent(folder(for: item.id), log: Log.library)
 		items.removeAll { $0.id == item.id }
 		texts[item.id] = nil
 	}
@@ -331,7 +363,7 @@ final class PDFLibrary {
 			do {
 				try text.write(to: destination, atomically: true, encoding: .utf8)
 			} catch {
-				print("Rescriva: couldn't save a PDF's text for search: \(error)")
+				Log.library.error("Couldn't save a PDF's text for search: \(error)")
 			}
 		}
 	}
@@ -362,16 +394,7 @@ final class PDFLibrary {
 		do {
 			try update(item)
 		} catch {
-			print("Rescriva: couldn't save a PDF's details: \(error)")
-		}
-	}
-
-	private func removeIfPresent(_ url: URL) {
-		guard FileManager.default.fileExists(atPath: url.path) else { return }
-		do {
-			try FileManager.default.removeItem(at: url)
-		} catch {
-			print("Rescriva: couldn't remove \(url.lastPathComponent): \(error)")
+			Log.library.error("Couldn't save a PDF's details: \(error)")
 		}
 	}
 

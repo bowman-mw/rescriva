@@ -129,6 +129,27 @@ final class RescrivaCoreTests: XCTestCase {
 		XCTAssertEqual(decoded, document)
 	}
 
+	func testStoredDocumentsDecodeByVersion() throws {
+		var document = SampleLibrary.labNotesDocument
+		XCTAssertEqual(document.version, RescrivaDocument.currentVersion, "new documents carry the version this build writes")
+		XCTAssertEqual(RescrivaDocument.decodeStored(try JSONEncoder.rescriva.encode(document)), .document(document))
+
+		let newer = RescrivaDocument.currentVersion + 1
+		document.version = newer
+		XCTAssertEqual(RescrivaDocument.decodeStored(try JSONEncoder.rescriva.encode(document)), .needsNewerApp(version: newer),
+					   "a document a newer Rescriva wrote, even one this build could read")
+		let unreadableNewer = Data(#"{"version": \#(newer), "title": "x", "pages": "a shape this build doesn't know"}"#.utf8)
+		XCTAssertEqual(RescrivaDocument.decodeStored(unreadableNewer), .needsNewerApp(version: newer),
+					   "the version is read on its own when the rest won't decode")
+
+		XCTAssertEqual(RescrivaDocument.decodeStored(Data("{".utf8)), .unreadable)
+		XCTAssertEqual(RescrivaDocument.decodeStored(Data(#"{"title": "x", "pages": 3}"#.utf8)), .unreadable, "this version's JSON gone wrong")
+		XCTAssertNil(RebuiltDocumentState.unreadable.document)
+		XCTAssertNil(RebuiltDocumentState.needsNewerApp(version: newer).document)
+		XCTAssertTrue(RebuiltDocumentState.needsNewerApp(version: newer).needsNewerApp)
+		XCTAssertFalse(RebuiltDocumentState.missing.needsNewerApp)
+	}
+
 	// MARK: Flags from Vision's alternatives
 
 	func testWordFlagFindsTheOneWordTheReadingsDisagreeOn() throws {

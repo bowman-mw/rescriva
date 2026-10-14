@@ -53,19 +53,19 @@ struct ShareQRCode: View {
 	static func makeImage(_ text: String) -> CGImage? {
 		let data = Data(text.utf8)
 		guard !data.isEmpty, data.count <= maxBytes else {
-			print("Rescriva: no QR code for \(data.count) bytes")
+			Log.share.error("No QR code for \(data.count) bytes")
 			return nil
 		}
 		let filter = CIFilter.qrCodeGenerator()
 		filter.message = data
 		filter.correctionLevel = "M"
 		guard let output = filter.outputImage else {
-			print("Rescriva: CoreImage made no QR code")
+			Log.share.error("CoreImage made no QR code")
 			return nil
 		}
 		let context = CIContext(options: [.useSoftwareRenderer: false])
 		guard let image = context.createCGImage(output, from: output.extent.integral) else {
-			print("Rescriva: couldn't render the QR code")
+			Log.share.error("Couldn't render the QR code")
 			return nil
 		}
 		return image

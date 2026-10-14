@@ -124,7 +124,7 @@ enum PDFOpening {
 			do {
 				opened.append(try await library.importPDF(at: url))
 			} catch {
-				print("Rescriva: couldn't open a PDF: \(error)")
+				Log.library.error("Couldn't open a PDF: \(error)")
 				failures += 1
 			}
 		}

@@ -9,6 +9,7 @@ import Foundation
 import SwiftUI
 import UIKit
 import ImageIO
+import os
 
 public extension Color {
 	
@@ -122,23 +123,45 @@ extension String {
 		}
 	}
 	
-	func sanitized() -> String {
-		// see for ressoning on charachrer sets https://superuser.com/a/358861
-		let invalidCharacters = CharacterSet(charactersIn: "\\/:*?\"<>|")
-			.union(.newlines)
-			.union(.illegalCharacters)
-			.union(.controlCharacters)
-		
-		return String(
-			self
-				.components(separatedBy: invalidCharacters)
-				.joined(separator: "")
-				.prefix(50)
-		)
+	/// Room for a long name in UTF-8 with an extension, under the file system's 255 bytes.
+	static let maxFileNameBytes = 200
+	/// The longest extension a clipped name keeps; anything longer is cut with the rest.
+	static let maxExtensionLength = 16
+	/// Characters file systems or paths don't allow in a name.
+	private static let notInFileNames = CharacterSet(charactersIn: "/\\:*?\"<>|")
+
+	/// The receiver made safe as one file name: path separators, the characters file systems
+	/// refuse and control characters become spaces, runs of whitespace collapse to one, leading
+	/// dots and spaces go, and the result is cut to `maxBytes` of UTF-8 with a short extension
+	/// kept. Empty when nothing is left, so the caller chooses the fallback.
+	func safeFileName(maxBytes: Int = String.maxFileNameBytes) -> String {
+		var scalars = String.UnicodeScalarView()
+		for scalar in unicodeScalars.prefix(1024) {
+			let unsafe = CharacterSet.controlCharacters.contains(scalar) || String.notInFileNames.contains(scalar)
+			scalars.append(unsafe ? " " : scalar)
+		}
+		let words = String(scalars).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+		let trimmed = words.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+		return trimmed.clippedFileName(to: maxBytes)
 	}
-	
-	mutating func sanitize() -> Void {
-		self = self.sanitized()
+
+	/// The receiver cut to `maxBytes` of UTF-8 at a character boundary, keeping an extension of
+	/// up to `maxExtensionLength` characters when it has one.
+	private func clippedFileName(to maxBytes: Int) -> String {
+		guard utf8.count > maxBytes else { return self }
+		let ext = (self as NSString).pathExtension
+		let keepsExtension = !ext.isEmpty && ext.count <= String.maxExtensionLength
+		let suffix = keepsExtension ? "." + ext : ""
+		let stem = keepsExtension ? (self as NSString).deletingPathExtension : self
+		var out = ""
+		var used = suffix.utf8.count
+		for character in stem {
+			let size = String(character).utf8.count
+			if used + size > maxBytes { break }
+			out.append(character)
+			used += size
+		}
+		return out + suffix
 	}
 	
 	func whitespaceCondensed() -> String {
@@ -149,6 +172,19 @@ extension String {
 	
 	mutating func condenseWhitespace() -> Void {
 		self = self.whitespaceCondensed()
+	}
+}
+
+extension FileManager {
+	/// Removes `url` when it's there, logging to `log` rather than throwing when it can't: for
+	/// staging copies, downloads and leftovers, whose loss nothing depends on. Any thread.
+	func removeIfPresent(_ url: URL, log: Logger = Log.app) {
+		guard fileExists(atPath: url.path) else { return }
+		do {
+			try removeItem(at: url)
+		} catch {
+			log.error("Couldn't remove \(url.lastPathComponent, privacy: .private): \(error)")
+		}
 	}
 }
 

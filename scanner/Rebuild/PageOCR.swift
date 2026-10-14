@@ -14,19 +14,65 @@ import UIKit
 import Vision
 
 /// Captures whose text recognition is still running, so screens can say
-/// "Reading…" instead of "No text found".
+/// "Reading…" instead of "No text found", and the rebuild can wait for a
+/// page being read elsewhere (`waitUntilRead`).
 @MainActor
 @Observable
 final class RecognitionTracker {
 	static let shared = RecognitionTracker()
 	private(set) var pending: Set<NSManagedObjectID> = []
 
+	/// A task waiting for a page's reading to end (`waitUntilRead`), by a token of its own.
+	private struct Waiter {
+		let page: NSManagedObjectID
+		let continuation: CheckedContinuation<Void, Never>
+	}
+
+	@ObservationIgnored private var waiters: [UUID: Waiter] = [:]
+
 	func isReading(_ capture: ScanCapture) -> Bool {
 		pending.contains(capture.objectID)
 	}
 
-	fileprivate func begin(_ id: NSManagedObjectID) { pending.insert(id) }
-	fileprivate func end(_ id: NSManagedObjectID) { pending.remove(id) }
+	/// Returns once `capture`'s reading, if one is running, has ended; at once when none is. A
+	/// cancelled task stops waiting, while the reading itself carries on for the screens showing it.
+	func waitUntilRead(_ capture: ScanCapture) async {
+		let id = capture.objectID
+		guard pending.contains(id), !Task.isCancelled else { return }
+		let token = UUID()
+		await withTaskCancellationHandler {
+			await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+				guard pending.contains(id), !Task.isCancelled else { return continuation.resume() }
+				waiters[token] = Waiter(page: id, continuation: continuation)
+			}
+		} onCancel: {
+			Task { @MainActor in RecognitionTracker.shared.stopWaiting(token) }
+		}
+	}
+
+	/// Resumes the waiter `token`, if it is still waiting.
+	private func stopWaiting(_ token: UUID) {
+		guard let waiter = waiters.removeValue(forKey: token) else { return }
+		waiter.continuation.resume()
+	}
+
+	/// Marks the page as being read. `PageOCR.process` calls it; tests stand in for a reading
+	/// with it, so a reading's end is under their control.
+	func begin(_ id: NSManagedObjectID) { pending.insert(id) }
+
+	/// Marks the page read and resumes everyone waiting for it. Harmless for a page not being read.
+	func end(_ id: NSManagedObjectID) {
+		pending.remove(id)
+		for (token, waiter) in waiters where waiter.page == id {
+			waiters[token] = nil
+			waiter.continuation.resume()
+		}
+	}
+
+	#if DEBUG
+	/// How many tasks are waiting in `waitUntilRead`, for tests.
+	var waitingCountForTesting: Int { waiters.count }
+	#endif
 }
 
 /// Vision text recognition for scanned pages.
@@ -135,7 +181,7 @@ enum PageOCR {
 			try context.obtainPermanentIDs(for: [capture])
 		} catch {
 			// Reading still works with a temporary ID; the "Reading…" state just won't match after save.
-			print("Rescriva: couldn't obtain a permanent ID for a page: \(error)")
+			Log.rebuild.error("Couldn't obtain a permanent ID for a page: \(error)")
 		}
 		return capture.objectID
 	}
@@ -188,7 +234,7 @@ extension NSManagedObjectContext {
 		do {
 			try save()
 		} catch {
-			print("Rescriva: save failed: \(error)")
+			Log.rebuild.error("Save failed: \(error)")
 		}
 	}
 }

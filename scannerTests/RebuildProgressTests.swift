@@ -6,6 +6,10 @@
 //  counts its pages off one at a time, a cancelled rebuild caches nothing,
 //  diagrams are numbered on across pages built one at a time, and Apple
 //  Intelligence asks about each open word at most once, within its budget.
+//  Also: the rebuild works from a snapshot without Core Data, waits for a
+//  page being read elsewhere instead of polling, the decoded document
+//  follows the stored bytes, and a document a newer Rescriva wrote is
+//  never rebuilt over.
 //
 
 import CoreData
@@ -66,11 +70,133 @@ final class RebuildProgressTests: XCTestCase {
 		XCTAssertNil(scan.rebuiltData, "a half-built document would come back as the scan's for good")
 	}
 
+	// MARK: Off Core Data
+
+	func testTheRebuildWorksFromASnapshotAlone() async throws {
+		let scan = try makeScan(pageCount: 2, in: try makeContext())
+		let snapshot = Rebuilder.snapshot(of: scan, pages: scan.capturesArray)
+		XCTAssertEqual(snapshot.captureIDs, scan.capturesArray.compactMap(\.id))
+		XCTAssertEqual(snapshot.pages.map(\.lines).map { $0.map(\.text) }, [["Page 1"], ["Page 2"]])
+		XCTAssertTrue(snapshot.pages.allSatisfy { $0.image == nil }, "pages are decoded by the rebuild, one at a time")
+		var steps: [RebuildProgress] = []
+
+		let document = await Rebuilder(tier: .basic).build(snapshot) { steps.append($0) }
+
+		XCTAssertEqual(document.title, scan.displayTitle)
+		XCTAssertEqual(document.sourceCaptureIDs, snapshot.captureIDs)
+		XCTAssertEqual(document.pages.map { $0.blocks.map(\.content.plainText) }, [["Page 1"], ["Page 2"]])
+		XCTAssertNotNil(document.pages[0].sourceTextDigest)
+		XCTAssertEqual(steps.filter { $0.stage == .structure }.map(\.done), [0, 1, 2])
+		XCTAssertNil(scan.rebuiltData, "building from a snapshot writes nothing back")
+	}
+
+	func testASnapshotDecodesItsPageOnceAndKeepsTheRest() async throws {
+		let data = try XCTUnwrap(UIImage(cgImage: try twoBoxDiagram()).jpegData(compressionQuality: 0.9))
+		let stored = Rebuilder.PageSnapshot(imageData: data, lines: [], aspect: 800.0 / 600.0)
+
+		let decoded = await stored.decodingImage()
+
+		let image = try XCTUnwrap(decoded.image)
+		XCTAssertEqual(image.width, 800)
+		XCTAssertEqual(image.height, 600)
+		XCTAssertEqual(decoded.imageData, data, "the bytes stay, for `isCurrent`")
+		XCTAssertTrue(decoded.decodedImage === image, "a pass reads the one decode")
+		let again = await decoded.decodingImage()
+		XCTAssertTrue(again.image === image, "not decoded twice")
+		let empty = await Rebuilder.PageSnapshot(imageData: Data(), lines: [], aspect: 0.75).decodingImage()
+		XCTAssertNil(empty.image)
+		XCTAssertNil(empty.decodedImage)
+		XCTAssertNil(Rebuilder.decodedPage(Data("not a picture".utf8)))
+	}
+
+	// MARK: Waiting for a reading
+
+	func testTheRebuildWaitsForAPageBeingReadElsewhere() async throws {
+		let scan = try makeScan(pageCount: 1, in: try makeContext())
+		let capture = try XCTUnwrap(scan.capturesArray.first)
+		let image = try XCTUnwrap(capture.image)
+		await RecognitionTracker.shared.waitUntilRead(capture)
+		XCTAssertFalse(RecognitionTracker.shared.isReading(capture), "nothing to wait for returns at once")
+
+		let reading = Task { @MainActor in await PageOCR.process(capture, image: image) }
+		// The reading marks its page before its first suspension; give it its turn.
+		for _ in 0..<100 where !RecognitionTracker.shared.isReading(capture) { await Task.yield() }
+		await RecognitionTracker.shared.waitUntilRead(capture)
+
+		XCTAssertFalse(RecognitionTracker.shared.isReading(capture), "returned only once the page was read")
+		await reading.value
+	}
+
+	func testACancelledWaitReturnsWhileTheReadingCarriesOn() async throws {
+		let scan = try makeScan(pageCount: 1, in: try makeContext())
+		let capture = try XCTUnwrap(scan.capturesArray.first)
+		// The reading is stood in for with the tracker's own marks, so its end is under this test's
+		// control: the only way out of the wait before `end` is the cancellation.
+		let tracker = RecognitionTracker.shared
+		tracker.begin(capture.objectID)
+		defer { tracker.end(capture.objectID) }
+		let before = tracker.waitingCountForTesting
+
+		let waiting = Task { @MainActor in await tracker.waitUntilRead(capture) }
+		for _ in 0..<1000 where tracker.waitingCountForTesting == before { await Task.yield() }
+		XCTAssertEqual(tracker.waitingCountForTesting, before + 1, "the task is waiting on the page")
+		waiting.cancel()
+		await waiting.value
+
+		XCTAssertTrue(tracker.isReading(capture), "the reading carries on; only the wait ended")
+		XCTAssertEqual(tracker.waitingCountForTesting, before, "the cancelled waiter is gone, not left behind")
+		tracker.end(capture.objectID)
+		XCTAssertFalse(tracker.isReading(capture))
+	}
+
+	// MARK: The stored document
+
+	func testTheDecodedDocumentFollowsTheStoredBytes() throws {
+		let scan = try makeScan(pageCount: 1, in: try makeContext())
+		XCTAssertEqual(scan.rebuiltDocumentState, .missing)
+		let first = RescrivaDocument(title: "First", pages: [RescrivaPage()], sourceCaptureIDs: scan.capturesArray.compactMap(\.id))
+		scan.rebuiltDocument = first
+		XCTAssertEqual(scan.rebuiltDocument, first)
+		XCTAssertEqual(scan.rebuiltDocument, first, "read again from the cache")
+
+		// Written as a merge from another device writes it: bytes only.
+		let second = RescrivaDocument(title: "Second", pages: [])
+		scan.rebuiltData = try JSONEncoder.rescriva.encode(second)
+		XCTAssertEqual(scan.rebuiltDocument, second, "the cache follows the stored bytes")
+
+		scan.rebuiltData = Data("{".utf8)
+		XCTAssertNil(scan.rebuiltDocument)
+		XCTAssertEqual(scan.rebuiltDocumentState, .unreadable)
+		scan.rebuiltDocument = nil
+		XCTAssertNil(scan.rebuiltData, "an unreadable document can be cleared")
+		XCTAssertEqual(scan.rebuiltDocumentState, .missing)
+	}
+
+	func testADocumentFromANewerRescrivaIsKeptAndNeverRebuiltOver() async throws {
+		let scan = try makeScan(pageCount: 3, in: try makeContext())
+		var newer = RescrivaDocument(title: "From the future", pages: [RescrivaPage()], sourceCaptureIDs: scan.capturesArray.compactMap(\.id))
+		newer.version = RescrivaDocument.currentVersion + 1
+		let stored = try JSONEncoder.rescriva.encode(newer)
+		scan.rebuiltData = stored
+		XCTAssertEqual(scan.rebuiltDocumentState, .needsNewerApp(version: RescrivaDocument.currentVersion + 1))
+		XCTAssertNil(scan.rebuiltDocument, "nothing this build can show")
+
+		let document = await Rebuilder(tier: .basic).document(for: scan) { _ in }
+
+		XCTAssertEqual(document.pages.count, 3, "built afresh for this build")
+		XCTAssertEqual(scan.rebuiltData, stored, "never cached over the newer document")
+		let refreshed = await Rebuilder(tier: .basic).refreshStalePages(of: scan)
+		XCTAssertNil(refreshed, "nothing of it to refresh either")
+		scan.rebuiltDocument = nil
+		XCTAssertEqual(scan.rebuiltData, stored, "nor cleared")
+	}
+
 	// MARK: Diagrams a page at a time
 
 	func testDiagramsAreNumberedOnFromEarlierPages() async throws {
 		let data = try XCTUnwrap(UIImage(cgImage: try twoBoxDiagram()).jpegData(compressionQuality: 0.9))
-		let snapshot = Rebuilder.PageSnapshot(imageData: data, lines: [], aspect: 800.0 / 600.0)
+		let snapshot = await Rebuilder.PageSnapshot(imageData: data, lines: [], aspect: 800.0 / 600.0).decodingImage()
+		XCTAssertNotNil(snapshot.image, "the stored JPEG decodes once for every pass")
 
 		let pages = await Rebuilder.detectDiagrams(in: [RescrivaPage()], pages: [snapshot], numberingAfter: 2)
 

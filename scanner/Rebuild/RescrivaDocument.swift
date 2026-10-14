@@ -15,8 +15,12 @@ import Foundation
 
 /// A rebuilt document: an ordered list of pages, each an ordered list of blocks.
 struct RescrivaDocument: Codable, Hashable, Sendable {
+	/// The schema version this build writes, and the newest it reads (`decodeStored`). Bump it
+	/// with any change an older build couldn't decode or would misread.
+	static let currentVersion = 1
+
 	/// Schema version of the JSON encoding.
-	var version: Int = 1
+	var version: Int = RescrivaDocument.currentVersion
 	var title: String
 	var pages: [RescrivaPage]
 	/// The scan pages (Open Scanner capture IDs, in order) this document was
@@ -43,6 +47,59 @@ struct RescrivaDocument: Codable, Hashable, Sendable {
 			}
 		}
 		return result
+	}
+}
+
+/// What a scan's stored document (`Scan.rebuiltData`) holds, as this build reads it.
+enum RebuiltDocumentState: Equatable, Sendable {
+	/// No rebuilt document.
+	case missing
+	/// The document, decoded.
+	case document(RescrivaDocument)
+	/// A document written by a newer Rescriva (schema `version`, above `currentVersion`). It is
+	/// kept as it is for that version and never rebuilt over; this build has no document to show.
+	case needsNewerApp(version: Int)
+	/// JSON this build should read but couldn't; a rebuild replaces it.
+	case unreadable
+
+	/// The document, when there is one this build can read.
+	var document: RescrivaDocument? {
+		if case .document(let document) = self { return document }
+		return nil
+	}
+
+	/// True for a document only a newer Rescriva can read.
+	var needsNewerApp: Bool {
+		if case .needsNewerApp = self { return true }
+		return false
+	}
+}
+
+extension RescrivaDocument {
+	/// Decodes a stored document. One a newer Rescriva wrote (its `version` above
+	/// `currentVersion`) is reported as such whether or not the rest of it still decodes, so the
+	/// caller keeps it for that version. Anything else that fails to decode is logged and reported
+	/// unreadable. Never returns `.missing`.
+	static func decodeStored(_ data: Data) -> RebuiltDocumentState {
+		do {
+			let document = try JSONDecoder.rescriva.decode(RescrivaDocument.self, from: data)
+			guard document.version <= currentVersion else { return .needsNewerApp(version: document.version) }
+			return .document(document)
+		} catch {
+			if let version = storedVersion(of: data), version > currentVersion {
+				return .needsNewerApp(version: version)
+			}
+			Log.rebuild.error("Couldn't decode a stored document (\(data.count) bytes): \(error)")
+			return .unreadable
+		}
+	}
+
+	/// The `version` stamped on stored JSON, read on its own when the whole document won't decode.
+	private static func storedVersion(of data: Data) -> Int? {
+		struct Stamp: Decodable {
+			var version: Int?
+		}
+		return (try? JSONDecoder.rescriva.decode(Stamp.self, from: data))?.version
 	}
 }
 

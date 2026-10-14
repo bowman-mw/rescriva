@@ -147,19 +147,25 @@ struct ReviewView: View {
 
 	/// In place of the rebuilt document when the scan has none (its rebuild was stopped, or its
 	/// pages changed while it ran): a way to run it again rather than a blank page.
+	/// Shown when there's no document to review: the rebuild didn't finish, or (the "never rebuilt
+	/// over" rule, `Scan.rebuiltDocument`) a newer Rescriva made it and this build keeps it as is.
 	private var notRebuiltCard: some View {
 		VStack(spacing: 12) {
-			Text("Not rebuilt yet")
+			(madeByNewerApp ? Text("Made with a newer Rescriva") : Text("Not rebuilt yet"))
 				.font(RescrivaFont.display(22))
 				.foregroundStyle(.carbon)
-			Text("The rebuild didn’t finish. Run it again to see the rebuilt pages here.")
+			(madeByNewerApp
+			 ? Text("This scan was rebuilt and reviewed on a newer version of Rescriva. That work is kept, but this version can’t show or edit it. Update Rescriva to pick it up here; exports still work.")
+			 : Text("The rebuild didn’t finish. Run it again to see the rebuilt pages here."))
 				.font(RescrivaFont.note(15))
 				.foregroundStyle(Color.carbon.opacity(0.7))
 				.multilineTextAlignment(.center)
-			PrimaryButton(title: "Rebuild", systemImage: "arrow.clockwise", height: 48) {
-				router.replaceTop(with: .processing(scan))
+			if !madeByNewerApp {
+				PrimaryButton(title: "Rebuild", systemImage: "arrow.clockwise", height: 48) {
+					router.replaceTop(with: .processing(scan))
+				}
+				.padding(.top, 4)
 			}
-			.padding(.top, 4)
 		}
 		.padding(22)
 		.frame(maxWidth: .infinity)
@@ -319,7 +325,17 @@ struct ReviewView: View {
 
 	// MARK: Edits
 
+	/// True for a scan whose stored document a newer Rescriva wrote (`RebuiltDocumentState`): this
+	/// build can't read it, and must not write over it, so there is nothing to edit here.
+	private var madeByNewerApp: Bool {
+		scan.rebuiltDocumentState.needsNewerApp
+	}
+
 	private func edit(_ change: (inout RescrivaDocument) -> Void) {
+		guard !madeByNewerApp else {
+			router.showToast(String(localized: "This scan was rebuilt by a newer Rescriva, so it can't be edited here."))
+			return
+		}
 		guard var updated = document else { return }
 		change(&updated)
 		withAnimation(RescrivaMotion.ui) { document = updated }

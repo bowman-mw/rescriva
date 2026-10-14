@@ -75,7 +75,7 @@ enum Library {
 		do {
 			return try context.fetch(request)
 		} catch {
-			print("Rescriva: library fetch failed: \(error)")
+			Log.library.error("Library fetch failed: \(error)")
 			return []
 		}
 	}
@@ -101,7 +101,7 @@ enum Library {
 		do {
 			return try context.count(for: request)
 		} catch {
-			print("Rescriva: library count failed: \(error)")
+			Log.library.error("Library count failed: \(error)")
 			return 0
 		}
 	}

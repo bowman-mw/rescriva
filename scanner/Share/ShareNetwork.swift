@@ -5,7 +5,8 @@
 //  Which of the app's own addresses goes in a connection code (Docs/Rescriva-Share-Protocol.md §3.1). The
 //  code holds one private IPv4 address the computer can reach: the Personal Hotspot address when
 //  this iPhone is the hotspot, else Wi-Fi, else another local network. Cellular, VPN, AirDrop and
-//  loopback interfaces never qualify. Also the IPv4 address behind a page's mDNS candidate name.
+//  loopback interfaces never qualify. Also the IPv4 address behind a page's mDNS candidate name,
+//  and whether an address a pairing code names is on a local network at all.
 //
 
 import Foundation
@@ -15,7 +16,7 @@ enum ShareNetwork {
 	static func interfaceNames() -> [String: String] {
 		var first: UnsafeMutablePointer<ifaddrs>?
 		guard getifaddrs(&first) == 0, let head = first else {
-			print("Rescriva: getifaddrs failed (\(errno))")
+			Log.share.error("getifaddrs failed (\(errno))")
 			return [:]
 		}
 		defer { freeifaddrs(head) }
@@ -43,6 +44,23 @@ enum ShareNetwork {
 			bestRank = rank
 		}
 		return best
+	}
+
+	// MARK: Where a pairing code points
+
+	/// True when `host`, as a pairing code writes it, is only reachable on a local network: RFC 1918
+	/// IPv4 (10/8, 172.16/12, 192.168/16), IPv4 link-local (169.254/16), IPv6 link-local (fe80::/10)
+	/// or unique-local (fc00::/7), an IPv4-mapped IPv6 address of one of those, or a ".local" name.
+	/// A public address means the page isn't on this network at all, whatever the code says.
+	static func isLocalNetworkHost(_ host: String) -> Bool {
+		if host.hasSuffix(".local") { return host.utf8.count > ".local".utf8.count }
+		if let octets = ShareCodes.ipv4Octets(host) { return isPrivate(octets) || isLinkLocal(octets) }
+		guard let address = ipv6Bytes(host) else { return false }
+		if address[0] == 0xFE && address[1] & 0xC0 == 0x80 { return true } // fe80::/10
+		if address[0] & 0xFE == 0xFC { return true } // fc00::/7
+		guard address.prefix(10).allSatisfy({ $0 == 0 }), address[10] == 0xFF, address[11] == 0xFF else { return false }
+		let mapped = Array(address[12..<16])
+		return isPrivate(mapped) || isLinkLocal(mapped)
 	}
 
 	// MARK: The page's mDNS names
@@ -84,7 +102,7 @@ enum ShareNetwork {
 		var result: UnsafeMutablePointer<addrinfo>?
 		let status = getaddrinfo(name, nil, &hints, &result)
 		guard status == 0, let first = result else {
-			print("Rescriva: Share Nearby couldn't find a page's mDNS name (\(status))")
+			Log.share.error("Share Nearby couldn't find a page's mDNS name (\(status))")
 			return nil
 		}
 		defer { freeaddrinfo(first) }
@@ -119,6 +137,20 @@ enum ShareNetwork {
 		if octets[0] == 10 { return true }
 		if octets[0] == 172 && (16...31).contains(octets[1]) { return true }
 		return octets[0] == 192 && octets[1] == 168
+	}
+
+	/// 169.254/16: an address a device gave itself with no router, so never routed anywhere.
+	private static func isLinkLocal(_ octets: [UInt8]) -> Bool {
+		octets.count == 4 && octets[0] == 169 && octets[1] == 254
+	}
+
+	/// The 16 bytes of IPv6 text, or nil when `text` isn't a plain IPv6 address (a zone id, as in
+	/// "fe80::1%en0", isn't something a pairing code writes).
+	private static func ipv6Bytes(_ text: String) -> [UInt8]? {
+		guard text.utf8.count <= 64, !text.isEmpty, !text.contains("%") else { return nil }
+		var storage = in6_addr()
+		guard inet_pton(AF_INET6, text, &storage) == 1 else { return nil }
+		return withUnsafeBytes(of: &storage) { Array($0.prefix(16)) }
 	}
 
 	/// Dotted text for an AF_INET socket address, or nil for any other family.

@@ -59,7 +59,7 @@ struct ShareDocumentPicker: View {
 					sectionLabel("Scans")
 					ForEach(scans, id: \.objectID) { scan in
 						row(.scan(scan), title: scan.displayTitle, detail: scan.libraryMeta,
-							thumbnail: scan.capturesArray.first?.thumbnail)
+							thumbnail: scan.coverThumbnail)
 					}
 				}
 				if !library.items.isEmpty {

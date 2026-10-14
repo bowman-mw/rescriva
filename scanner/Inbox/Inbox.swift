@@ -4,8 +4,9 @@
 //
 //  Importing what Rescriva's extensions hand over (see InboxManifest.swift). On launch, on coming to
 //  the foreground and on an openscanner://inbox link, everything waiting goes into PDF Files:
-//  a PDF as it is, a web page saved as a PDF first, a link downloaded first. Each hand-off's
-//  folder is deleted once it's been through, imported or not. App-target only.
+//  a PDF as it is, a web page saved as a PDF first, a link downloaded first (to the same size cap
+//  as a hand-off, `InboxDrop.maxBytes`). Each hand-off's folder is deleted once it's been
+//  through, imported or not. App-target only.
 //
 
 import SwiftUI
@@ -16,12 +17,18 @@ struct InboxReport: Equatable {
 	var added = 0
 	/// Hand-offs that couldn't be opened (and were removed).
 	var failed = 0
+	/// Why, when exactly one hand-off failed for a reason the Inbox can put into words (a link
+	/// too large, a page that timed out). Nil otherwise; system errors stay in the log.
+	var reason: String?
 
 	/// The toast for what went wrong, or nil when everything opened (PDFOpening reports that).
 	var problem: String? {
 		guard failed > 0 else { return nil }
-		let missed = failed == 1 ? String(localized: "1 item sent to Rescriva couldn't be opened.")
+		var missed = failed == 1 ? String(localized: "1 item sent to Rescriva couldn't be opened.")
 			: String(localized: "\(failed) items sent to Rescriva couldn't be opened.")
+		if failed == 1, let reason {
+			missed += " " + reason
+		}
 		guard added > 1 else { return missed }
 		return String(localized: "Added \(added) PDFs.") + " " + missed
 	}
@@ -72,14 +79,16 @@ enum Inbox {
 			do {
 				files.append(try await pdfFile(for: item, web: web))
 			} catch {
-				print("Rescriva: couldn't import \(item.manifest.kind.rawValue) from the Inbox: \(error)")
+				Log.inbox.error("Couldn't import \(item.manifest.kind.rawValue) from the Inbox: \(error)")
 				report.failed += 1
+				report.reason = report.failed == 1 ? sentence(for: error) : nil
 			}
 		}
 		let before = Set(library.items.map(\.id))
 		await PDFOpening.open(files, in: library, router: router)
 		report.added = library.items.filter { !before.contains($0.id) }.count
 		report.failed += files.count - report.added
+		if report.failed != 1 { report.reason = nil }
 		for item in contents.ready {
 			store.remove(item.folder)
 		}
@@ -105,10 +114,10 @@ enum Inbox {
 		case .link:
 			guard let url = manifest.sourceURL else { throw InboxDropError.notAWebAddress }
 			let downloaded = try await web.download(url)
-			defer { removeQuietly(downloaded) }
+			defer { FileManager.default.removeIfPresent(downloaded, log: Log.inbox) }
 			if try InboxDrop.startsLikePDF(downloaded) {
 				// A run cut short may have left one here already.
-				removeQuietly(destination)
+				FileManager.default.removeIfPresent(destination, log: Log.inbox)
 				try FileManager.default.moveItem(at: downloaded, to: destination)
 			} else {
 				try await web.pdf(loading: url).write(to: destination, options: .atomic)
@@ -117,12 +126,125 @@ enum Inbox {
 		}
 	}
 
-	private static func removeQuietly(_ url: URL) {
-		guard FileManager.default.fileExists(atPath: url.path) else { return }
+	/// The sentence for the toast when `error` is one of the Inbox's own; nil for a system error,
+	/// whose wording wouldn't tell the user anything.
+	private static func sentence(for error: Error) -> String? {
+		switch error {
+		case let known as InboxDropError: return known.errorDescription
+		case let known as InboxDownloadError: return known.errorDescription
+		case let known as WebPagePDFError: return known.errorDescription
+		default: return nil
+		}
+	}
+}
+
+// MARK: - Downloads
+
+enum InboxDownloadError: LocalizedError, Equatable {
+	/// The server announced, or sent, more than `InboxDrop.maxBytes`.
+	case tooLarge
+	/// The server answered with an error status.
+	case badResponse(Int)
+	/// The download finished but its file couldn't be kept.
+	case notSaved
+
+	var errorDescription: String? {
+		switch self {
+		case .tooLarge:
+			let limit = ByteCountFormatter.string(fromByteCount: InboxDrop.maxBytes, countStyle: .binary)
+			return String(localized: "That link leads to a file over \(limit), too large for Rescriva to open.")
+		case .badResponse(let status):
+			return String(localized: "The site answered with an error (\(status)).")
+		case .notSaved:
+			return String(localized: "The download couldn't be saved.")
+		}
+	}
+}
+
+/// Keeps a link's download inside `InboxDrop.maxBytes`, the cap a hand-off from the extension has.
+struct InboxDownloadLimit: Equatable {
+	let maxBytes: Int64
+
+	init(maxBytes: Int64 = InboxDrop.maxBytes) {
+		self.maxBytes = maxBytes
+	}
+
+	/// Throws once `bytes`, announced (Content-Length) or received so far, is over the limit. A
+	/// server that doesn't say how much is coming reports -1, which passes until the bytes show.
+	func check(bytes: Int64) throws {
+		guard bytes <= maxBytes else { throw InboxDownloadError.tooLarge }
+	}
+}
+
+/// One download that stops the moment it passes its limit, kept as a file of our own. The
+/// session's delegate queue is serial and the continuation is set before the task starts, so
+/// the state below is only ever touched by one thread at a time; hence `@unchecked Sendable`.
+private final class CappedDownload: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+	private let limit: InboxDownloadLimit
+	private let destination: URL
+	private var waiting: CheckedContinuation<URL, Error>?
+	private var failure: Error?
+	private var saved = false
+
+	init(limit: InboxDownloadLimit, destination: URL) {
+		self.limit = limit
+		self.destination = destination
+	}
+
+	/// Downloads `request` to the destination, giving up as soon as the server announces or sends
+	/// more than the limit allows.
+	func run(_ request: URLRequest) async throws -> URL {
+		let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
+		defer { session.finishTasksAndInvalidate() }
+		let task = session.downloadTask(with: request)
+		return try await withTaskCancellationHandler {
+			try await withCheckedThrowingContinuation { continuation in
+				waiting = continuation
+				task.resume()
+			}
+		} onCancel: {
+			task.cancel()
+		}
+	}
+
+	func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+					totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
 		do {
-			try FileManager.default.removeItem(at: url)
+			try limit.check(bytes: totalBytesExpectedToWrite)
+			try limit.check(bytes: totalBytesWritten)
 		} catch {
-			print("Rescriva: couldn't remove a download: \(error)")
+			failure = error
+			downloadTask.cancel()
+		}
+	}
+
+	func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+		// URLSession deletes the file at `location` when this returns, so it's kept here or not at all.
+		if let http = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+			failure = InboxDownloadError.badResponse(http.statusCode)
+			return
+		}
+		do {
+			let attributes = try FileManager.default.attributesOfItem(atPath: location.path)
+			try limit.check(bytes: (attributes[.size] as? NSNumber)?.int64Value ?? 0)
+			try FileManager.default.moveItem(at: location, to: destination)
+			saved = true
+		} catch {
+			failure = error
+		}
+	}
+
+	func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+		guard let waiting else { return }
+		self.waiting = nil
+		if let failure {
+			waiting.resume(throwing: failure)
+		} else if let error {
+			waiting.resume(throwing: error)
+		} else if saved {
+			waiting.resume(returning: destination)
+		} else {
+			waiting.resume(throwing: InboxDownloadError.notSaved)
 		}
 	}
 }
@@ -139,16 +261,11 @@ struct LiveInboxWeb: InboxWeb {
 		try await WebPagePDF.pdf(loading: url)
 	}
 
+	/// Downloads `url` to a temporary file of our own, at most `InboxDrop.maxBytes`.
 	func download(_ url: URL) async throws -> URL {
 		let request = URLRequest(url: url, timeoutInterval: WebPagePDF.loadTimeout)
-		let (file, response) = try await URLSession.shared.download(for: request)
-		if let http = response as? HTTPURLResponse {
-			guard (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
-		}
-		// URLSession deletes its file when this returns; keep a copy under a name of our own.
 		let kept = FileManager.default.temporaryDirectory.appendingPathComponent("inbox-\(UUID().uuidString)")
-		try FileManager.default.moveItem(at: file, to: kept)
-		return kept
+		return try await CappedDownload(limit: InboxDownloadLimit(), destination: kept).run(request)
 	}
 }
 

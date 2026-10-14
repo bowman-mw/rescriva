@@ -68,7 +68,7 @@ final class AnnotationStore {
 			let data = try Data(contentsOf: url)
 			return try JSONDecoder.rescriva.decode(PageAnnotations.self, from: data).marks
 		} catch {
-			print("Rescriva: couldn't read the annotations for page \(pageID): \(error)")
+			Log.library.error("Couldn't read the annotations for page \(pageID): \(error)")
 			return []
 		}
 	}

@@ -6,9 +6,10 @@
 //  the document is rebuilt by structure, not position: blocks follow one
 //  another in IR order with no page breaks between scanned pages. Every IR
 //  block maps to a native construct — heading styles, real numbering,
-//  checkbox content controls, tables with merged cells, OMML equations,
-//  inline pictures, a DrawingML shape group for diagrams and Word comments
-//  for notes.
+//  checkbox content controls, tables with merged cells, OMML equations (a
+//  typeset picture with the LaTeX as alt text when the converter can't, see
+//  `EquationPictures`), inline pictures, a DrawingML shape group for diagrams
+//  whose connectors are attached to their shapes, and Word comments for notes.
 //
 
 import Foundation
@@ -97,6 +98,50 @@ enum RescrivaDiagramGeometry {
 		}
 		t = min(t, 1)
 		return (frame.midX + dx * t, frame.midY + dy * t)
+	}
+
+	/// A connector attached to two shapes: the connection-site index on each
+	/// (`a:stCxn`/`a:endCxn` `idx`) and the segment between those sites.
+	struct Connection: Equatable {
+		var startSite: Int
+		var endSite: Int
+		var segment: Segment
+	}
+
+	/// Connection sites of a node's preset geometry, in the preset's index
+	/// order: top, left, bottom and right for rectangles, rounded rectangles,
+	/// diamonds and parallelograms; eight for an ellipse, counter-clockwise
+	/// from the top.
+	static func connectionSites(of frame: Frame) -> [(x: Double, y: Double)] {
+		let left = frame.x, right = frame.x + frame.width
+		let top = frame.y, bottom = frame.y + frame.height
+		guard frame.shape == .ellipse else {
+			return [(frame.midX, top), (left, frame.midY), (frame.midX, bottom), (right, frame.midY)]
+		}
+		let dx = frame.width / 2 * 0.70710678
+		let dy = frame.height / 2 * 0.70710678
+		return [
+			(frame.midX, top), (frame.midX - dx, frame.midY - dy), (left, frame.midY), (frame.midX - dx, frame.midY + dy),
+			(frame.midX, bottom), (frame.midX + dx, frame.midY + dy), (right, frame.midY), (frame.midX + dx, frame.midY - dy),
+		]
+	}
+
+	/// The closest pair of connection sites on `from` and `to`, which is where
+	/// a straight connector between the two shapes attaches.
+	static func connection(from: Frame, to: Frame) -> Connection {
+		let starts = connectionSites(of: from)
+		let ends = connectionSites(of: to)
+		var best = Connection(startSite: 0, endSite: 0, segment: Segment(x1: from.midX, y1: from.midY, x2: to.midX, y2: to.midY))
+		var bestDistance = Double.infinity
+		for (startIndex, start) in starts.enumerated() {
+			for (endIndex, end) in ends.enumerated() {
+				let distance = (start.x - end.x) * (start.x - end.x) + (start.y - end.y) * (start.y - end.y)
+				guard distance < bestDistance else { continue }
+				bestDistance = distance
+				best = Connection(startSite: startIndex, endSite: endIndex, segment: Segment(x1: start.x, y1: start.y, x2: end.x, y2: end.y))
+			}
+		}
+		return best
 	}
 
 	/// Centre for a `width` × `height` label beside the segment's midpoint:
@@ -299,7 +344,8 @@ private struct DOCXWriter {
 		case .table(let rows):
 			return table(rows, font: font, anchors: anchors, lead: lead, trail: trail)
 		case .equation(let latex, let linear, let display):
-			return assemble([equationParagraph(latex: latex, linear: linear, display: display)], lead: lead, trail: trail)
+			let paragraph = equationParagraph(latex: latex, linear: linear, display: display)
+			return assemble([paragraph], lead: lead, trail: trail)
 		case .figure(let assetID, let caption, let altText):
 			let paragraphs = figureParagraphs(assetID: assetID, caption: caption, altText: altText, box: block.box, page: page)
 			return assemble(paragraphs, lead: lead, trail: trail)
@@ -495,12 +541,23 @@ private struct DOCXWriter {
 
 	// MARK: Equations
 
-	private func equationParagraph(latex: String, linear: String, display: Bool) -> Paragraph {
+	/// Native OMML when the converter manages the LaTeX; else the typeset
+	/// picture made for it (`EquationPictures`), with the LaTeX as alt text;
+	/// else the linear text in italics.
+	private mutating func equationParagraph(latex: String, linear: String, display: Bool) -> Paragraph {
 		if let math = LaTeXToOMML.convert(latex) {
 			return ("", display ? "<m:oMathPara>\(math)</m:oMathPara>" : math)
 		}
+		let justification = display ? "<w:jc w:val=\"center\"/>" : ""
+		let key = EquationPictures.assetKey(for: latex)
+		if let data = options.assets[key], let info = RescrivaImageInfo(data: data) {
+			let relID = mediaRelationship(assetID: key, data: data, info: info)
+			let maxWidth = min(Self.maxFigureWidthInches, Double(textWidthTwips) / 1440)
+			let size = EquationPictures.extent(of: info, maxWidthInches: maxWidth)
+			return (justification, pictureRun(relID: relID, cx: size.cx, cy: size.cy, description: latex))
+		}
 		let text = linear.isEmpty ? latex : linear
-		return (display ? "<w:jc w:val=\"center\"/>" : "", "<w:r><w:rPr><w:i/><w:iCs/></w:rPr>\(Self.textContent(text))</w:r>")
+		return (justification, "<w:r><w:rPr><w:i/><w:iCs/></w:rPr>\(Self.textContent(text))</w:r>")
 	}
 
 	// MARK: Figures
@@ -570,8 +627,9 @@ private struct DOCXWriter {
 	// MARK: Diagrams
 
 	/// The diagram as one inline `wpg:wgp` group: a `wps:wsp` per node (with its
-	/// label in a text box) and a straight arrow per edge, clipped to the node
-	/// outlines. Sized 6in wide by `Diagram.aspect` (at most 7in tall).
+	/// label in a text box) and a straight connector per edge, attached to
+	/// both shapes' connection sites so it follows them when they are moved in
+	/// Word. Sized 6in wide by `Diagram.aspect` (at most 7in tall).
 	private mutating func diagramRun(_ diagram: Diagram, font: FontClass?) -> String {
 		let aspect = min(max(diagram.aspect.isFinite ? diagram.aspect : 1.6, 0.25), 6)
 		var width = min(6.0, Double(textWidthTwips) / 1440) * OOXML.emuPerInch
@@ -585,19 +643,22 @@ private struct DOCXWriter {
 		let groupID = nextDrawingID
 		nextDrawingID += 1
 
-		var frames: [String: Frame] = [:]
+		var placed: [String: (id: Int, frame: Frame)] = [:]
 		var shapes = ""
-		for node in diagram.nodes where frames[node.id] == nil {
+		for node in diagram.nodes where placed[node.id] == nil {
 			let frame = Self.frame(for: node, width: width, height: height)
-			frames[node.id] = frame
-			shapes += nodeShape(node, frame: frame, font: font)
+			let id = nextDrawingID
+			nextDrawingID += 1
+			placed[node.id] = (id, frame)
+			shapes += nodeShape(node, id: id, frame: frame, font: font)
 		}
 		for edge in diagram.edges {
-			guard edge.from != edge.to, let from = frames[edge.from], let to = frames[edge.to] else { continue }
-			guard let segment = RescrivaDiagramGeometry.clippedSegment(from: from, to: to, minimumLength: 2 * OOXML.emuPerPoint) else { continue }
-			shapes += arrowShape(segment, direction: edge.direction)
+			guard edge.from != edge.to, let from = placed[edge.from], let to = placed[edge.to] else { continue }
+			let connection = RescrivaDiagramGeometry.connection(from: from.frame, to: to.frame)
+			guard connection.segment.length > OOXML.emuPerPoint else { continue }
+			shapes += connectorShape(connection, from: from.id, to: to.id, direction: edge.direction)
 			if let label = edge.label, !label.isEmpty {
-				shapes += edgeLabelShape(label, beside: segment, font: font)
+				shapes += edgeLabelShape(label, beside: connection.segment, font: font)
 			}
 		}
 		let description = OOXML.escape([diagram.caption ?? "", BlockContent.diagram(diagram).plainText]
@@ -621,16 +682,6 @@ private struct DOCXWriter {
 		return Frame(x: x * width, y: y * height, width: w * width, height: h * height, shape: node.shape)
 	}
 
-	private static func presetGeometry(_ shape: Diagram.Shape) -> String {
-		switch shape {
-		case .rectangle: return "rect"
-		case .roundedRectangle: return "roundRect"
-		case .ellipse: return "ellipse"
-		case .diamond: return "diamond"
-		case .parallelogram: return "parallelogram"
-		}
-	}
-
 	/// A label font size (points) that fits `text` in a frame of `width` × `height` EMU.
 	static func labelFontSize(_ text: String, width: Double, height: Double, preferred: Double, minimum: Double) -> Double {
 		let longest = Double(max(text.split(whereSeparator: \.isNewline).map(\.count).max() ?? 1, 1))
@@ -645,27 +696,29 @@ private struct DOCXWriter {
 	/// Black or white text, whichever reads better on `fill`.
 	static func textColor(on fill: RGBColor?) -> String {
 		guard let fill else { return ink }
-		let luminance = 0.2126 * fill.red + 0.7152 * fill.green + 0.0722 * fill.blue
-		return luminance < 0.45 ? "FFFFFF" : ink
+		return fill.isDark ? "FFFFFF" : ink
 	}
 
-	private mutating func nodeShape(_ node: Diagram.Node, frame: Frame, font: FontClass?) -> String {
-		let id = nextDrawingID
-		nextDrawingID += 1
+	private func nodeShape(_ node: Diagram.Node, id: Int, frame: Frame, font: FontClass?) -> String {
 		let fill = node.fill.map { "<a:solidFill><a:srgbClr val=\"\($0.hex)\"/></a:solidFill>" } ?? "<a:noFill/>"
 		let size = Self.labelFontSize(node.label, width: frame.width, height: frame.height, preferred: 11, minimum: 6)
 		return "<wps:wsp><wps:cNvPr id=\"\(id)\" name=\"Shape \(id)\"/><wps:cNvSpPr/><wps:spPr>"
 			+ Self.xfrm(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
-			+ "<a:prstGeom prst=\"\(Self.presetGeometry(node.shape))\"><a:avLst/></a:prstGeom>\(fill)"
+			+ "<a:prstGeom prst=\"\(node.shape.presetGeometry)\"><a:avLst/></a:prstGeom>\(fill)"
 			+ "<a:ln w=\"19050\"><a:solidFill><a:srgbClr val=\"\(node.stroke.hex)\"/></a:solidFill></a:ln></wps:spPr>"
 			+ Self.textBox(node.label, size: size, color: Self.textColor(on: node.fill), font: font)
 			+ "<wps:bodyPr rot=\"0\" vert=\"horz\" wrap=\"square\" lIns=\"45720\" tIns=\"18288\" rIns=\"45720\" bIns=\"18288\""
 			+ " anchor=\"ctr\" anchorCtr=\"0\"><a:noAutofit/></wps:bodyPr></wps:wsp>"
 	}
 
-	private mutating func arrowShape(_ segment: RescrivaDiagramGeometry.Segment, direction: Diagram.Direction) -> String {
+	/// A straight connector between the shapes `fromID` and `toID` (their
+	/// `wps:cNvPr` ids in this group), attached at the connection sites the
+	/// geometry chose so Word keeps it on the shapes.
+	private mutating func connectorShape(_ connection: RescrivaDiagramGeometry.Connection, from fromID: Int, to toID: Int,
+										 direction: Diagram.Direction) -> String {
 		let id = nextDrawingID
 		nextDrawingID += 1
+		let segment = connection.segment
 		var flips = ""
 		if segment.x2 < segment.x1 { flips += " flipH=\"1\"" }
 		if segment.y2 < segment.y1 { flips += " flipV=\"1\"" }
@@ -673,9 +726,11 @@ private struct DOCXWriter {
 		let y = Int(min(segment.y1, segment.y2).rounded())
 		let cx = Int(abs(segment.x2 - segment.x1).rounded())
 		let cy = Int(abs(segment.y2 - segment.y1).rounded())
-		return "<wps:wsp><wps:cNvPr id=\"\(id)\" name=\"Arrow \(id)\"/><wps:cNvCnPr/><wps:spPr>"
+		return "<wps:wsp><wps:cNvPr id=\"\(id)\" name=\"Connector \(id)\"/><wps:cNvCnPr>"
+			+ "<a:stCxn id=\"\(fromID)\" idx=\"\(connection.startSite)\"/><a:endCxn id=\"\(toID)\" idx=\"\(connection.endSite)\"/>"
+			+ "</wps:cNvCnPr><wps:spPr>"
 			+ "<a:xfrm\(flips)><a:off x=\"\(x)\" y=\"\(y)\"/><a:ext cx=\"\(cx)\" cy=\"\(cy)\"/></a:xfrm>"
-			+ "<a:prstGeom prst=\"line\"><a:avLst/></a:prstGeom>"
+			+ "<a:prstGeom prst=\"straightConnector1\"><a:avLst/></a:prstGeom>"
 			+ "<a:ln w=\"15875\"><a:solidFill><a:srgbClr val=\"\(Self.ink)\"/></a:solidFill>"
 			+ "\(direction.drawingMLLineEnds)</a:ln></wps:spPr><wps:bodyPr/></wps:wsp>"
 	}

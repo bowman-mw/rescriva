@@ -94,7 +94,7 @@ struct SmartRule: Codable, Hashable, Sendable {
 		do {
 			return String(decoding: try JSONEncoder().encode(self), as: UTF8.self)
 		} catch {
-			print("Rescriva: couldn't encode a smart folder rule: \(error)")
+			Log.library.error("Couldn't encode a smart folder rule: \(error)")
 			return "{}"
 		}
 	}
@@ -105,7 +105,7 @@ struct SmartRule: Codable, Hashable, Sendable {
 		do {
 			return try JSONDecoder().decode(SmartRule.self, from: Data(json.utf8))
 		} catch {
-			print("Rescriva: couldn't read a smart folder rule: \(error)")
+			Log.library.error("Couldn't read a smart folder rule: \(error)")
 			return SmartRule()
 		}
 	}

@@ -14,7 +14,8 @@ enum ShareSDP {
 	/// The page's offer, rebuilt from its QR code (the exact lines in Tools/NearbyShareSpike/spike.swift).
 	/// Every value in it was checked when the payload was read. `addresses` gives an IPv4 address
 	/// to use in place of an mDNS candidate name; anything there that isn't dotted IPv4 is ignored.
-	static func offer(for pairing: SharePairingOffer, addresses: [String: String] = [:]) -> String {
+	/// With `localOnly`, only the code's local-network candidates go in (`SharePairingOffer.localCandidates`).
+	static func offer(for pairing: SharePairingOffer, addresses: [String: String] = [:], localOnly: Bool = false) -> String {
 		var lines = [
 			"v=0",
 			"o=- 4611731400430051336 2 IN IP4 127.0.0.1",
@@ -25,7 +26,8 @@ enum ShareSDP {
 			"m=application 9 UDP/DTLS/SCTP webrtc-datachannel",
 			"c=IN IP4 0.0.0.0",
 		]
-		for (index, candidate) in pairing.candidates.prefix(8).enumerated() {
+		let candidates = localOnly ? pairing.localCandidates : pairing.candidates
+		for (index, candidate) in candidates.prefix(8).enumerated() {
 			let resolved = addresses[candidate.host].flatMap { ShareCodes.ipv4Octets($0) == nil ? nil : $0 }
 			lines.append("a=candidate:\(index + 1) 1 udp \(hostPriority(index)) \(resolved ?? candidate.host) \(candidate.port) typ host")
 		}
@@ -47,7 +49,7 @@ enum ShareSDP {
 	/// when either value isn't ice-chars, so nothing else can get into the text.
 	static func replacingICECredentials(in sdp: String, ufrag: String, pwd: String) -> String {
 		guard isICEText(ufrag, lengths: 4...256), isICEText(pwd, lengths: 22...256) else {
-			print("Rescriva: refusing ICE credentials that aren't ice-chars")
+			Log.share.notice("Refusing ICE credentials that aren't ice-chars")
 			return sdp
 		}
 		var text = sdp

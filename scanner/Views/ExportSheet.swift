@@ -2,9 +2,10 @@
 //  ExportSheet.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  Export: pick a format (Word, PowerPoint, searchable PDF, plain text),
-//  decide about notes, and share — which includes Save to Files — or hand the
-//  file to Share Nearby. A PDF also gets its paper, image quality (both
+//  Export: pick a format (Word, PowerPoint, searchable PDF, Markdown, plain
+//  text), decide about notes, and share — which includes Save to Files — or
+//  hand the file to Share Nearby. Markdown can also go straight to the
+//  pasteboard ("Copy for AI"). A PDF also gets its paper, image quality (both
 //  remembered) and an optional password (never stored).
 //
 
@@ -43,6 +44,9 @@ struct ExportSheet: View {
 			.scrollBounceBehavior(.basedOnSize)
 
 			PrimaryButton(title: "Share", systemImage: "square.and.arrow.up", isBusy: isWorking, action: share)
+			if format == .md {
+				copyForAIButton
+			}
 			if router != nil {
 				shareNearbyButton
 			}
@@ -53,10 +57,18 @@ struct ExportSheet: View {
 		.onAppear {
 			format = initialFormat.needsRebuild && !tier.canRebuild ? .pdf : initialFormat
 		}
-		.presentationDetents([.height((format == .pdf ? 668 : 514) + (router != nil ? 56 : 0))])
+		.presentationDetents([.height(sheetHeight)])
 		.presentationDragIndicator(.visible)
 		.presentationCornerRadius(RescrivaRadius.large)
 		.presentationBackground(Color.vellum)
+	}
+
+	/// Tall enough for the five format rows, a PDF's options and whichever extra buttons show.
+	private var sheetHeight: CGFloat {
+		var height: CGFloat = format == .pdf ? 732 : 578
+		if format == .md { height += 56 }
+		if router != nil { height += 56 }
+		return height
 	}
 
 	/// The file, its format, a PDF's options, the notes switch and any failure.
@@ -188,6 +200,24 @@ struct ExportSheet: View {
 		.accessibilityHint(locked ? Text("Needs a newer iPhone") : Text(""))
 	}
 
+	/// "Copy for AI": the Markdown on the pasteboard, ready to paste into an assistant.
+	private var copyForAIButton: some View {
+		Button(action: copyForAI) {
+			HStack(spacing: 8) {
+				Glyph("doc.on.clipboard", size: 15)
+				Text("Copy for AI")
+					.font(RescrivaFont.ui(15, weight: .medium))
+			}
+			.foregroundStyle(.ink)
+			.frame(maxWidth: .infinity)
+			.frame(minHeight: 42)
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(PressScaleStyle(scale: 0.96))
+		.disabled(isWorking)
+		.accessibilityHint("Copies the Markdown, with its Mermaid diagrams, to paste into an AI assistant")
+	}
+
 	/// "Share Nearby": the same file, handed to the Share Nearby screen.
 	private var shareNearbyButton: some View {
 		Button(action: shareNearby) {
@@ -225,6 +255,23 @@ struct ExportSheet: View {
 				isWorking = false
 				failure = String(localized: "That didn't work — the file couldn't be written. Try again, or pick another format.")
 			}
+		}
+	}
+
+	/// Puts the scan's Markdown on the pasteboard and closes the sheet.
+	private func copyForAI() {
+		isWorking = true
+		failure = nil
+		Task {
+			let markdown = await ExportService.markdown(for: scan, includeNotes: includeNotes)
+			isWorking = false
+			guard !markdown.isEmpty else {
+				failure = String(localized: "There are no words to copy yet.")
+				return
+			}
+			UIPasteboard.general.string = markdown
+			onFinished?(String(localized: "Copied as Markdown"))
+			dismiss()
 		}
 	}
 

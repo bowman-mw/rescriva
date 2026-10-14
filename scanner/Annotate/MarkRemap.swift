@@ -214,7 +214,7 @@ extension AnnotationStore {
 		do {
 			try save(moved, for: pageID)
 		} catch {
-			print("Rescriva: couldn't move the annotations on page \(pageID): \(error)")
+			Log.library.error("Couldn't move the annotations on page \(pageID): \(error)")
 		}
 	}
 
@@ -230,7 +230,7 @@ extension AnnotationStore {
 			try save(pages.second, for: newID)
 			try save(pages.first, for: pageID)
 		} catch {
-			print("Rescriva: couldn't share out the annotations on page \(pageID): \(error)")
+			Log.library.error("Couldn't share out the annotations on page \(pageID): \(error)")
 		}
 	}
 
@@ -240,7 +240,7 @@ extension AnnotationStore {
 		do {
 			try save([], for: pageID)
 		} catch {
-			print("Rescriva: couldn't remove the annotations for page \(pageID): \(error)")
+			Log.library.error("Couldn't remove the annotations for page \(pageID): \(error)")
 		}
 	}
 }

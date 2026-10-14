@@ -3,13 +3,15 @@
 //  Rescriva (fork of Open Scanner)
 //
 //  Share Nearby's pure core against Docs/Rescriva-Share-Protocol.md: the shared test vectors (room id, ICE
-//  credentials, hello proofs, connection codes), the page's pairing payload byte for byte as
-//  rescriva-share's tests/index.html builds it, what a bad payload looks like, the SDP the app rebuilds
-//  and edits, which local address goes in a connection code, the data channel's messages both
-//  ways, relay signals, PINs, the built-in certificate, which leftover folders get swept, and
-//  the numbers that tell pages with the same name apart.
+//  credentials, hello proofs, check numbers, connection codes), the page's pairing payload byte for
+//  byte as rescriva-share's tests/index.html builds it, what a bad payload looks like and where it
+//  points, the SDP the app rebuilds and edits, which local address goes in a connection code, the
+//  data channel's messages both ways, relay signals and messages, PINs and their lockout, the
+//  built-in certificate, which leftover folders get swept, the numbers that tell pages with the
+//  same name apart, and (NearbyShareSessionTests) the session driven over stub connections.
 //
 
+import CoreData
 import CryptoKit
 import UIKit
 import XCTest
@@ -71,6 +73,36 @@ final class NearbyShareTests: XCTestCase {
 					   "NuogRNgcibvc8iD5AZFpJUq_MdvVGuhpw622Z3WAd3M")
 		XCTAssertNotEqual(ShareCodes.proof(secret: secret, role: "app", offerFingerprint: fingerprintBB, answerFingerprint: fingerprintAA),
 						  "NuogRNgcibvc8iD5AZFpJUq_MdvVGuhpw622Z3WAd3M", "swapped fingerprints must not prove anything")
+	}
+
+	func testCheckNumbersMatchTheVectorsAndOrderMatters() {
+		XCTAssertEqual(ShareCodes.checkNumber(offerFingerprint: fingerprintAA, answerFingerprint: fingerprintBB), "424561948")
+		XCTAssertEqual(ShareCodes.checkNumber(offerFingerprint: fingerprintBB, answerFingerprint: fingerprintAA), "576993692")
+		XCTAssertEqual(ShareCodes.displayCheckNumber(ShareCodes.checkNumber(offerFingerprint: fingerprintAA, answerFingerprint: fingerprintBB)), "424 561 948")
+		let number = ShareCodes.checkNumber(offerFingerprint: pageFingerprint.uppercased(), answerFingerprint: ShareCertificate.fingerprint)
+		XCTAssertEqual(number.count, 9)
+		XCTAssertTrue(number.utf8.allSatisfy { (48...57).contains($0) }, number)
+	}
+
+	func testCheckNumbersAreShownInThreeGroups() {
+		XCTAssertEqual(ShareCodes.displayCheckNumber("000000001"), "000 000 001")
+		XCTAssertEqual(ShareCodes.displayCheckNumber("12"), "12", "anything else is left alone")
+		XCTAssertEqual(ShareCodes.displayPIN("424561948"), "424561948", "a check number isn't a PIN")
+	}
+
+	func testProofRuleNeedsASecretAndBothFingerprints() {
+		let offer = fingerprintAA
+		let answer = fingerprintBB
+		XCTAssertTrue(NearbyShareLink.proves(nil, secret: nil, offerFingerprint: offer, answerFingerprint: answer))
+		XCTAssertTrue(NearbyShareLink.proves("anything", secret: nil, offerFingerprint: nil, answerFingerprint: nil))
+		let right = ShareCodes.proof(secret: secret, role: "web", offerFingerprint: offer, answerFingerprint: answer)
+		XCTAssertTrue(NearbyShareLink.proves(right, secret: secret, offerFingerprint: offer, answerFingerprint: answer))
+		XCTAssertFalse(NearbyShareLink.proves(nil, secret: secret, offerFingerprint: offer, answerFingerprint: answer))
+		XCTAssertFalse(NearbyShareLink.proves(right, secret: secret, offerFingerprint: nil, answerFingerprint: answer), "no fingerprint yet")
+		XCTAssertFalse(NearbyShareLink.proves(right, secret: secret, offerFingerprint: answer, answerFingerprint: offer), "swapped")
+		let appProof = ShareCodes.proof(secret: secret, role: "app", offerFingerprint: offer, answerFingerprint: answer)
+		XCTAssertFalse(NearbyShareLink.proves(appProof, secret: secret, offerFingerprint: offer, answerFingerprint: answer), "the app's own role")
+		XCTAssertFalse(NearbyShareLink.proves(right + "A", secret: secret, offerFingerprint: offer, answerFingerprint: answer))
 	}
 
 	// MARK: Connection code (PROTOCOL.md §3.1)
@@ -220,6 +252,65 @@ final class NearbyShareTests: XCTestCase {
 		XCTAssertNil(SharePairingOffer(payload: payload(candidates: [[5, 1, 2, 3, 4, 0x13, 0x88]])), "unknown kind")
 		XCTAssertNil(SharePairingOffer(payload: payload(candidates: [[4, 192, 168, 1, 5, 0, 0]])), "port 0")
 		XCTAssertEqual(SharePairingOffer(payload: payload(candidates: []))?.candidates, [])
+	}
+
+	func testPairingOfferKnowsWhetherItPointsAtThisNetwork() throws {
+		func offer(_ candidates: [[UInt8]]) throws -> SharePairingOffer {
+			try XCTUnwrap(SharePairingOffer(payload: payload(candidates: candidates)))
+		}
+		let privateIPv4: [UInt8] = [4, 192, 168, 1, 5, 0xFB, 0x9B]
+		let publicIPv4: [UInt8] = [4, 8, 8, 8, 8, 0x01, 0xBB]
+		let linkLocalIPv6: [UInt8] = [6] + [0xFE, 0x80] + Array(repeating: 0, count: 13) + [1] + [0xFB, 0x9A]
+		let uniqueLocalIPv6: [UInt8] = [6] + [0xFD, 0x12] + Array(repeating: 0, count: 13) + [1] + [0xFB, 0x9A]
+		let publicIPv6: [UInt8] = [6] + [0x20, 0x01, 0x0D, 0xB8] + Array(repeating: 0, count: 11) + [1] + [0xFB, 0x9A]
+		let mapped: [UInt8] = [6] + Array(repeating: 0, count: 10) + [0xFF, 0xFF, 10, 0, 0, 1] + [0xFB, 0x9A]
+		let mdns: [UInt8] = [109] + Array(hexData("40dae37193f3444588ecb805a2838109")) + [0xD2, 0x95]
+		XCTAssertTrue(try offer([privateIPv4]).isWithinPrivateNetwork)
+		XCTAssertTrue(try offer([linkLocalIPv6]).isWithinPrivateNetwork)
+		XCTAssertTrue(try offer([uniqueLocalIPv6]).isWithinPrivateNetwork)
+		XCTAssertTrue(try offer([mapped]).isWithinPrivateNetwork, "IPv4-mapped private address")
+		XCTAssertTrue(try offer([mdns]).isWithinPrivateNetwork)
+		XCTAssertTrue(try offer([privateIPv4, linkLocalIPv6, mdns]).isWithinPrivateNetwork)
+		XCTAssertFalse(try offer([publicIPv4, privateIPv4]).isWithinPrivateNetwork, "a decoy local candidate beside a public one doesn't pass")
+		XCTAssertFalse(try offer([privateIPv4, publicIPv6]).isWithinPrivateNetwork, "in either order")
+		XCTAssertFalse(try offer([publicIPv4]).isWithinPrivateNetwork)
+		XCTAssertFalse(try offer([publicIPv6]).isWithinPrivateNetwork)
+		XCTAssertFalse(try offer([publicIPv4, publicIPv6]).isWithinPrivateNetwork)
+		XCTAssertFalse(try offer([]).isWithinPrivateNetwork, "nowhere to reach")
+		XCTAssertTrue(try XCTUnwrap(SharePairingOffer(payload: webTestsPayload)).isWithinPrivateNetwork)
+		XCTAssertEqual(try offer([publicIPv4, privateIPv4, mdns]).localCandidates.map(\.host),
+					   ["192.168.1.5", "40dae371-93f3-4445-88ec-b805a2838109.local"], "the local ones, in order")
+		XCTAssertEqual(try offer([publicIPv4]).localCandidates, [])
+	}
+
+	func testLocalOnlyOfferLeavesPublicCandidatesOut() throws {
+		let privateIPv4: [UInt8] = [4, 192, 168, 1, 5, 0xFB, 0x9B]
+		let publicIPv4: [UInt8] = [4, 203, 0, 113, 9, 0x01, 0xBB]
+		let mdns: [UInt8] = [109] + Array(hexData("40dae37193f3444588ecb805a2838109")) + [0xD2, 0x95]
+		let pairing = try XCTUnwrap(SharePairingOffer(payload: payload(candidates: [privateIPv4, publicIPv4, mdns])))
+		func hosts(localOnly: Bool) -> [String] {
+			ShareSDP.offer(for: pairing, localOnly: localOnly).components(separatedBy: "\r\n")
+				.filter { $0.hasPrefix("a=candidate:") }.compactMap { ShareSDP.hostCandidate($0)?.address }
+		}
+		XCTAssertEqual(hosts(localOnly: false), ["192.168.1.5", "203.0.113.9", "40dae371-93f3-4445-88ec-b805a2838109.local"])
+		XCTAssertEqual(hosts(localOnly: true), ["192.168.1.5", "40dae371-93f3-4445-88ec-b805a2838109.local"])
+		let lines = ShareSDP.offer(for: pairing, localOnly: true).components(separatedBy: "\r\n").filter { $0.hasPrefix("a=candidate:") }
+		XCTAssertEqual(lines.count, 2)
+		XCTAssertTrue(lines[1].hasPrefix("a=candidate:2 1 udp "), "numbered without a gap: \(lines[1])")
+		XCTAssertTrue(lines[1].hasSuffix(" 40dae371-93f3-4445-88ec-b805a2838109.local 53909 typ host"), lines[1])
+	}
+
+	func testLocalNetworkHostsAreRFC1918LinkLocalUniqueLocalOrMDNS() {
+		for host in ["10.0.0.1", "10.255.255.255", "172.16.0.1", "172.31.255.254", "192.168.0.1", "169.254.1.1",
+					 "fe80::1", "FE80::1", "febf::1", "fc00::1", "fd00::1234", "fdff::1", "::ffff:192.168.1.5", "::ffff:169.254.0.1",
+					 "40dae371-93f3-4445-88ec-b805a2838109.local", "printer.local"] {
+			XCTAssertTrue(ShareNetwork.isLocalNetworkHost(host), host)
+		}
+		for host in ["8.8.8.8", "172.15.0.1", "172.32.0.1", "192.169.0.1", "169.255.0.1", "1.1.1.1", "0.0.0.0", "127.0.0.1",
+					 "2001:db8::1", "fec0::1", "fbff::1", "fe00::1", "::1", "::", "::ffff:8.8.8.8", "example.com", ".local", "local", "",
+					 "192.168.1.5 typ host", "fe80::1%en0"] {
+			XCTAssertFalse(ShareNetwork.isLocalNetworkHost(host), host)
+		}
 	}
 
 	// MARK: SDP (PROTOCOL.md §3)
@@ -456,6 +547,22 @@ final class NearbyShareTests: XCTestCase {
 		XCTAssertEqual(helloName.count, 64)
 	}
 
+	func testNamesLoseBidiOverridesAndIsolates() {
+		let controls = (0x202A...0x202E).map { $0 } + (0x2066...0x2069).map { $0 }
+		for value in controls {
+			let scalar = String(UnicodeScalar(UInt32(value)).map { Character($0) } ?? "?")
+			XCTAssertNotEqual(scalar, "?", String(value, radix: 16))
+			XCTAssertEqual(ShareJSON.cleanName("Lea\(scalar)se.pdf", limit: 64), "Lease.pdf", String(value, radix: 16))
+			XCTAssertEqual(inbound(#"{"t":"hello","name":"Chrome\#(scalar) on Mac","device":"computer"}"#),
+						   .hello(name: "Chrome on Mac", device: "computer", proof: nil), String(value, radix: 16))
+			XCTAssertEqual(inbound(#"{"t":"send","xfer":"u1","name":"\#(scalar)fdp.esaeL","size":1,"type":"application/pdf"}"#),
+						   .send(xfer: "u1", name: "fdp.esaeL", size: 1, type: "application/pdf"), String(value, radix: 16))
+		}
+		XCTAssertEqual(ShareJSON.cleanName("\u{202E}\u{2066}\u{2069}", limit: 64), "")
+		XCTAssertEqual(ShareJSON.cleanName("  Chrome\u{0007} on\u{200B} Mac\n", limit: 64), "Chrome on Mac", "controls and format characters go too")
+		XCTAssertEqual(ShareJSON.cleanName("Émilie’s MacBook", limit: 64), "Émilie’s MacBook", "ordinary text stays")
+	}
+
 	func testMalformedInboundMessagesAreDropped() {
 		let malformed = [
 			"not json", "[]", #""hello""#, "{}", #"{"t":5}"#,
@@ -592,6 +699,226 @@ final class NearbyShareTests: XCTestCase {
 		}
 	}
 
+	// MARK: Limits
+
+	func testLimitsMatchTheRelayAndThePage() {
+		XCTAssertEqual(ShareLimits.maxPeers, 32)
+		XCTAssertEqual(ShareLimits.maxMessageBytes, 64 * 1024)
+		XCTAssertLessThan(ShareLimits.maxSDPBytes, ShareLimits.maxMessageBytes, "an SDP has to fit in a message with its wrapping")
+		XCTAssertEqual(ShareLimits.maxCandidateBytes, 1024)
+		XCTAssertEqual(ShareLimits.maxDocuments, 200)
+		XCTAssertEqual(ShareLimits.maxDeviceName, 64)
+		XCTAssertEqual(ShareLimits.stallSeconds, 30)
+		XCTAssertEqual(ShareLimits.relayDevices, ["iphone", "ipad", "mac", "phone", "tablet", "computer"])
+		XCTAssertTrue(ShareLimits.pageDevices.isDisjoint(with: ShareLimits.appDevices))
+	}
+
+	// MARK: Input checks
+
+	func testPINsAreExactlySixASCIIDigits() {
+		XCTAssertTrue(NearbyShareInput.isPIN("482913"))
+		XCTAssertTrue(NearbyShareInput.isPIN("000000"))
+		for text in ["48291", "4829133", "48291a", "482 913", "４８２９１３", "", "48291\n"] {
+			XCTAssertFalse(NearbyShareInput.isPIN(text), text)
+		}
+	}
+
+	func testSecretComparisonIsExact() {
+		XCTAssertTrue(NearbyShareInput.same("482913", "482913"))
+		XCTAssertTrue(NearbyShareInput.same("", ""))
+		XCTAssertFalse(NearbyShareInput.same("482913", "482914"))
+		XCTAssertFalse(NearbyShareInput.same("482913", "48291"))
+		XCTAssertFalse(NearbyShareInput.same("é", "e\u{301}"), "bytes, not canonical equivalence")
+	}
+
+	func testUploadsMustBePDFsOrPlainImageTypes() {
+		XCTAssertTrue(NearbyShareInput.acceptsUpload(type: "application/pdf"))
+		XCTAssertTrue(NearbyShareInput.acceptsUpload(type: "image/jpeg"))
+		XCTAssertTrue(NearbyShareInput.acceptsUpload(type: "image/svg+xml"))
+		XCTAssertTrue(NearbyShareInput.acceptsUpload(type: "image/vnd.adobe.photoshop"))
+		for type in ["", "image/", "image/JPEG", "image/png; charset=x", "text/html", "application/octet-stream", "application/pdf2",
+					 "image/" + String(repeating: "a", count: 70), "image/png\n"] {
+			XCTAssertFalse(NearbyShareInput.acceptsUpload(type: type), type)
+		}
+	}
+
+	func testFileNamesLosePathsControlsAndLeadingDots() {
+		XCTAssertEqual(NearbyShareInput.fileName("Lease.pdf", fallback: "x"), "Lease.pdf")
+		XCTAssertEqual(NearbyShareInput.fileName("../../etc/passwd", fallback: "x"), "etc passwd")
+		XCTAssertEqual(NearbyShareInput.fileName("C:\\Users\\me\\a.pdf", fallback: "x"), "C Users me a.pdf")
+		XCTAssertEqual(NearbyShareInput.fileName(".hidden", fallback: "x"), "hidden")
+		XCTAssertEqual(NearbyShareInput.fileName("  a\u{0000}b\tc.pdf  ", fallback: "x"), "a b c.pdf")
+		XCTAssertEqual(NearbyShareInput.fileName("a  <b>|c?*\"d.pdf", fallback: "x"), "a b c d.pdf")
+		XCTAssertEqual(NearbyShareInput.fileName("", fallback: "Received file"), "Received file")
+		XCTAssertEqual(NearbyShareInput.fileName(" ... ", fallback: "Received file"), "Received file")
+		let long = String(repeating: "é", count: 150) + ".pdf"
+		let clipped = NearbyShareInput.fileName(long, fallback: "x")
+		XCTAssertLessThanOrEqual(clipped.utf8.count, NearbyShareInput.maxFileNameBytes)
+		XCTAssertTrue(clipped.hasSuffix(".pdf"), "a short extension is kept")
+		let longExtension = String(repeating: "a", count: 200) + "." + String(repeating: "b", count: 30)
+		let clippedExtension = NearbyShareInput.fileName(longExtension, fallback: "x")
+		XCTAssertLessThanOrEqual(clippedExtension.utf8.count, NearbyShareInput.maxFileNameBytes)
+		XCTAssertFalse(clippedExtension.contains("."), "a long extension is just cut with the rest")
+		XCTAssertEqual(NearbyShareInput.fileName(String(repeating: "x", count: 2000), fallback: "x").utf8.count, NearbyShareInput.maxFileNameBytes)
+	}
+
+	func testTheOneSanitizerNamesSharedFilesAndExports() {
+		// Share Nearby's names come from String.safeFileName, the sanitizer every export uses too.
+		XCTAssertEqual("Q3: plan / budget?".safeFileName(), "Q3 plan budget")
+		XCTAssertEqual("  ..Lease.pdf".safeFileName(), "Lease.pdf")
+		XCTAssertEqual(" ... ".safeFileName(), "", "nothing left means empty, so the caller picks the fallback")
+		XCTAssertEqual("\u{0007}\n\t".safeFileName(), "")
+		XCTAssertEqual(NearbyShareInput.fileName("Lease.pdf", fallback: "x"), "Lease.pdf".safeFileName())
+		XCTAssertEqual(NearbyShareInput.fileName(" ", fallback: "../Received file"), "Received file", "the fallback is made safe too")
+		XCTAssertEqual(NearbyShareInput.maxFileNameBytes, String.maxFileNameBytes)
+
+		let flags = String(repeating: "🇨🇦", count: 80) + ".pdf"
+		let clipped = flags.safeFileName(maxBytes: 40)
+		XCTAssertEqual(clipped, String(repeating: "🇨🇦", count: 4) + ".pdf", "cut at a character boundary, extension kept")
+		XCTAssertLessThanOrEqual(clipped.utf8.count, 40)
+		XCTAssertEqual(String(repeating: "x", count: 300).safeFileName(maxBytes: 10), String(repeating: "x", count: 10))
+	}
+
+	func testPDFTitlesComeFromTheFileNameWithoutItsExtension() {
+		XCTAssertEqual(NearbyShareInput.title(fromFileName: "Lease agreement.pdf"), "Lease agreement")
+		XCTAssertEqual(NearbyShareInput.title(fromFileName: "Lease"), "Lease")
+		XCTAssertEqual(NearbyShareInput.title(fromFileName: " notes .PDF"), "notes")
+		XCTAssertEqual(NearbyShareInput.title(fromFileName: "   "), "Received PDF")
+		XCTAssertEqual(NearbyShareInput.title(fromFileName: ""), "Received PDF")
+	}
+
+	// MARK: PIN lockout (PROTOCOL.md §1.3)
+
+	private let pageA = UUID()
+	private let pageB = UUID()
+	private let pageC = UUID()
+	private let pageD = UUID()
+
+	func testFourWrongTriesFromOnePageOnlyCountDown() {
+		var lock = NearbySharePINLock()
+		let now = Date(timeIntervalSinceReferenceDate: 1000)
+		for expected in [4, 3, 2, 1] {
+			XCTAssertEqual(lock.recordWrong(from: pageA, at: now), .init(left: expected, retryIn: nil, replacesPIN: false))
+			XCTAssertNil(lock.secondsLeft(for: pageA, at: now))
+		}
+		XCTAssertEqual(lock.triesLeft(for: pageA), 1)
+		XCTAssertEqual(lock.triesLeft(for: pageB), 5)
+		XCTAssertEqual(lock.wrongTries, 4)
+		XCTAssertEqual(lock.lockouts, 0)
+		XCTAssertNil(lock.lockedUntil)
+	}
+
+	func testFifthWrongTryRefusesThatPageAloneForThirtySeconds() {
+		var lock = NearbySharePINLock()
+		let now = Date(timeIntervalSinceReferenceDate: 1000)
+		for _ in 0..<4 { _ = lock.recordWrong(from: pageA, at: now) }
+		XCTAssertEqual(lock.recordWrong(from: pageA, at: now), .init(left: 0, retryIn: 30, replacesPIN: false))
+		XCTAssertEqual(lock.secondsLeft(for: pageA, at: now), 30)
+		XCTAssertEqual(lock.secondsLeft(for: pageA, at: now.addingTimeInterval(29.2)), 1)
+		XCTAssertNil(lock.secondsLeft(for: pageA, at: now.addingTimeInterval(30)))
+		XCTAssertNil(lock.secondsLeft(for: pageB, at: now), "another page isn't refused")
+		XCTAssertEqual(lock.recordWrong(from: pageB, at: now), .init(left: 4, retryIn: nil, replacesPIN: false))
+		XCTAssertEqual(lock.lockedLinks, [pageA])
+		XCTAssertNil(lock.lockedUntil, "nobody else waits")
+		XCTAssertEqual(lock.lockouts, 0)
+	}
+
+	func testATryWhileRefusedOnlyRepeatsTheRefusal() {
+		var lock = NearbySharePINLock()
+		let now = Date(timeIntervalSinceReferenceDate: 1000)
+		for _ in 0..<5 { _ = lock.recordWrong(from: pageA, at: now) }
+		let during = now.addingTimeInterval(10)
+		XCTAssertEqual(lock.recordWrong(from: pageA, at: during), .init(left: 0, retryIn: 20, replacesPIN: false))
+		XCTAssertEqual(lock.wrongTries, 5, "a refused try isn't counted")
+		XCTAssertEqual(lock.secondsLeft(for: pageA, at: during), 20)
+	}
+
+	func testARefusedPageStartsAFreshCountAfterItsCooldown() {
+		var lock = NearbySharePINLock()
+		let now = Date(timeIntervalSinceReferenceDate: 1000)
+		for _ in 0..<5 { _ = lock.recordWrong(from: pageA, at: now) }
+		let later = now.addingTimeInterval(31)
+		XCTAssertEqual(lock.recordWrong(from: pageA, at: later), .init(left: 4, retryIn: nil, replacesPIN: false))
+		XCTAssertEqual(lock.triesLeft(for: pageA), 4)
+		XCTAssertEqual(lock.wrongTries, 6, "but everyone's total keeps growing")
+		XCTAssertEqual(lock.lockedLinks, [pageA], "and it still counts as a page that was refused")
+	}
+
+	func testFifteenWrongTriesAcrossPagesReplaceThePINAndRefuseEveryone() {
+		var lock = NearbySharePINLock()
+		let now = Date(timeIntervalSinceReferenceDate: 1000)
+		for _ in 0..<5 { _ = lock.recordWrong(from: pageA, at: now) }
+		for _ in 0..<5 { _ = lock.recordWrong(from: pageA, at: now.addingTimeInterval(31)) }
+		for _ in 0..<4 { _ = lock.recordWrong(from: pageA, at: now.addingTimeInterval(62)) }
+		XCTAssertEqual(lock.wrongTries, 14)
+		XCTAssertEqual(lock.lockedLinks.count, 1, "one page alone never trips the three-page rule")
+		let last = now.addingTimeInterval(62)
+		XCTAssertEqual(lock.recordWrong(from: pageA, at: last), .init(left: 0, retryIn: 30, replacesPIN: true))
+		XCTAssertEqual(lock.lockouts, 1)
+		XCTAssertEqual(lock.lockedUntil, last.addingTimeInterval(30))
+		XCTAssertEqual(lock.secondsLeft(for: pageA, at: last), 30)
+		XCTAssertEqual(lock.secondsLeft(for: pageD, at: last), 30, "a page that never tried waits too")
+		XCTAssertEqual(lock.wrongTries, 0, "the new PIN starts clean")
+		XCTAssertEqual(lock.lockedLinks, [])
+		XCTAssertEqual(lock.triesLeft(for: pageA), 5)
+		XCTAssertNil(lock.secondsLeft(for: pageD, at: last.addingTimeInterval(30)))
+	}
+
+	func testThreeRefusedPagesReplaceThePIN() {
+		var lock = NearbySharePINLock()
+		let now = Date(timeIntervalSinceReferenceDate: 1000)
+		for page in [pageA, pageB] {
+			for _ in 0..<5 { _ = lock.recordWrong(from: page, at: now) }
+		}
+		for _ in 0..<4 { _ = lock.recordWrong(from: pageC, at: now) }
+		XCTAssertEqual(lock.wrongTries, 14)
+		XCTAssertEqual(lock.recordWrong(from: pageC, at: now), .init(left: 0, retryIn: 30, replacesPIN: true))
+		XCTAssertEqual(lock.lockouts, 1)
+		XCTAssertEqual(lock.secondsLeft(for: pageD, at: now), 30)
+	}
+
+	func testAPageRefusedTwiceCountsAsOnePage() {
+		var lock = NearbySharePINLock()
+		var now = Date(timeIntervalSinceReferenceDate: 1000)
+		for _ in 0..<5 { _ = lock.recordWrong(from: pageA, at: now) }
+		now = now.addingTimeInterval(31)
+		for _ in 0..<4 { _ = lock.recordWrong(from: pageA, at: now) }
+		XCTAssertEqual(lock.recordWrong(from: pageA, at: now), .init(left: 0, retryIn: 30, replacesPIN: false), "refused a second time")
+		XCTAssertEqual(lock.wrongTries, 10)
+		XCTAssertEqual(lock.lockedLinks, [pageA])
+		XCTAssertEqual(lock.lockouts, 0, "one page can't reach the three-page rule on its own")
+		for _ in 0..<4 { _ = lock.recordWrong(from: pageB, at: now) }
+		XCTAssertEqual(lock.lockouts, 0)
+		XCTAssertEqual(lock.recordWrong(from: pageB, at: now), .init(left: 0, retryIn: 30, replacesPIN: true), "the fifteenth try does")
+		XCTAssertEqual(lock.lockouts, 1)
+	}
+
+	func testGlobalCooldownDoublesUpToThirtyTwoMinutes() {
+		var lock = NearbySharePINLock()
+		var now = Date(timeIntervalSinceReferenceDate: 1000)
+		var waits: [Int] = []
+		for _ in 0..<9 {
+			var outcome = NearbySharePINLock.Outcome(left: 5, retryIn: nil, replacesPIN: false)
+			for _ in 0..<15 where !outcome.replacesPIN {
+				if let wait = lock.secondsLeft(for: pageA, at: now) { now = now.addingTimeInterval(TimeInterval(wait)) }
+				outcome = lock.recordWrong(from: pageA, at: now)
+			}
+			XCTAssertTrue(outcome.replacesPIN)
+			waits.append(outcome.retryIn ?? -1)
+			now = now.addingTimeInterval(TimeInterval(outcome.retryIn ?? 0))
+		}
+		XCTAssertEqual(waits, [30, 60, 120, 240, 480, 960, 1920, 1920, 1920])
+		XCTAssertEqual(lock.lockouts, 9)
+		XCTAssertEqual(NearbySharePINLock.maxDoublings, 6)
+	}
+
+	func testNothingIsRefusedBeforeAnyWrongTry() {
+		let lock = NearbySharePINLock()
+		XCTAssertNil(lock.secondsLeft(for: pageA, at: .now))
+		XCTAssertEqual(lock.triesLeft(for: pageA), NearbySharePINLock.triesPerLink)
+		XCTAssertEqual(lock, NearbySharePINLock())
+	}
+
 	// MARK: PINs
 
 	func testPINsAreSixDigitsAndUniqueInASession() {
@@ -659,6 +986,41 @@ final class NearbyShareTests: XCTestCase {
 					   ["old-run", "older-run", "current"])
 		XCTAssertEqual(NearbyShareFiles.leftoverFolders(in: base.appendingPathComponent("missing"), keeping: []), [])
 		XCTAssertEqual(NearbyShareFiles.sessionsFolder.lastPathComponent, "NearbyShare")
+		XCTAssertEqual(NearbyShareFiles.receivedFolderRoot.lastPathComponent, "NearbyShareReceived")
+		XCTAssertEqual(NearbyShareFiles.receivedFolderRoot.deletingLastPathComponent().path, NearbyShareFiles.sessionsFolder.deletingLastPathComponent().path,
+					   "side by side in tmp, so the same sweep reaches both")
+	}
+
+	func testChunkFilesWriteInOrderAndReadBack() async throws {
+		let folder = FileManager.default.temporaryDirectory.appendingPathComponent("NearbyShareTests-\(UUID().uuidString)", isDirectory: true)
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		defer { try? FileManager.default.removeItem(at: folder) }
+		let url = folder.appendingPathComponent("chunks.bin")
+		XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: nil))
+		let writer = try NearbyShareChunkFile(writingTo: url)
+		let chunks = (0..<5).map { Data(repeating: UInt8($0), count: 1000) }
+		for chunk in chunks { XCTAssertTrue(writer.append(chunk)) }
+		XCTAssertFalse(writer.hasFailed)
+		XCTAssertTrue(writer.finish(), "waits for every write")
+		XCTAssertFalse(writer.finish(), "closed once")
+		XCTAssertEqual(NearbyShareFiles.size(of: url), 5000)
+		let reader = try NearbyShareChunkFile(readingFrom: url)
+		var read = Data()
+		for _ in 0..<10 {
+			guard let data = await reader.read(upTo: 1500) else { break }
+			read.append(data)
+		}
+		XCTAssertEqual(read, chunks.reduce(Data(), +))
+		let atEnd = await reader.read(upTo: 10)
+		XCTAssertNil(atEnd, "at the end")
+		let nothing = await reader.read(upTo: 0)
+		XCTAssertNil(nothing)
+		reader.discard()
+		let afterClosing = await reader.read(upTo: 10)
+		XCTAssertNil(afterClosing, "after closing")
+		let discarded = try NearbyShareChunkFile(readingFrom: url)
+		discarded.discard(deleting: folder.appendingPathComponent("gone", isDirectory: true))
+		XCTAssertThrowsError(try NearbyShareChunkFile(readingFrom: folder.appendingPathComponent("missing.bin")))
 	}
 
 	// MARK: Names
@@ -801,5 +1163,488 @@ final class NearbyShareTests: XCTestCase {
 			.replacingOccurrences(of: "-----END \(label)-----", with: "")
 			.components(separatedBy: .whitespacesAndNewlines).joined()
 		return Data(base64Encoded: body)
+	}
+}
+
+/// The session driven over stub connections (`NearbyShareSession.connectStubForTesting`), with no
+/// relay (the `shareRelayURL` default is "off" for each test) and no WebRTC: hellos and proofs,
+/// the check number, PINs and their per-page lockout, a download chunk by chunk, uploads that are
+/// cancelled, stall or end short, the documents cap, closing and stopping; and what the relay
+/// sends, read by `ShareRelay.parse`.
+@MainActor
+final class NearbyShareSessionTests: XCTestCase {
+	private let fingerprintAA = Array(repeating: "AA", count: 32).joined(separator: ":")
+	private let fingerprintBB = Array(repeating: "BB", count: 32).joined(separator: ":")
+	/// Stores stay alive for the test that made them.
+	private var containers: [NSPersistentContainer] = []
+	private var folder = URL(fileURLWithPath: "/")
+	private var relayOverride: String?
+
+	override func setUp() async throws {
+		folder = FileManager.default.temporaryDirectory.appendingPathComponent("NearbyShareSessionTests-\(UUID().uuidString)", isDirectory: true)
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		relayOverride = UserDefaults.standard.string(forKey: "shareRelayURL")
+		UserDefaults.standard.set("off", forKey: "shareRelayURL")
+	}
+
+	override func tearDown() async throws {
+		if let relayOverride {
+			UserDefaults.standard.set(relayOverride, forKey: "shareRelayURL")
+		} else {
+			UserDefaults.standard.removeObject(forKey: "shareRelayURL")
+		}
+		try? FileManager.default.removeItem(at: folder)
+		containers = []
+	}
+
+	// MARK: Documents
+
+	func testDocumentsAreCappedAndNotRepeated() async throws {
+		var items: [NearbyShareItem] = []
+		for index in 0..<(ShareLimits.maxDocuments + 5) {
+			items.append(try makeFile("doc\(index).pdf", size: 10))
+		}
+		items.append(items[0])
+		let session = try makeSession(items: items)
+		XCTAssertFalse(session.isRunning)
+		XCTAssertTrue(session.documents.isEmpty, "nothing until start")
+		session.start()
+		XCTAssertTrue(session.isRunning)
+		XCTAssertEqual(session.documents.count, ShareLimits.maxDocuments)
+		XCTAssertEqual(Set(session.documents.map(\.pin)).count, ShareLimits.maxDocuments, "every PIN is different")
+		XCTAssertEqual(Set(session.documents.map(\.id)).count, ShareLimits.maxDocuments)
+		XCTAssertNotNil(session.openLink)
+		XCTAssertEqual(session.relayState, .off)
+		session.add([try makeFile("extra.pdf", size: 10)])
+		XCTAssertEqual(session.documents.count, ShareLimits.maxDocuments, "the cap holds for add too")
+		session.stop()
+		XCTAssertFalse(session.isRunning)
+		XCTAssertTrue(session.documents.isEmpty)
+		XCTAssertNil(session.openLink)
+		session.stop()
+	}
+
+	func testRemovingADocumentTellsPages() async throws {
+		let session = try await startedSession(with: [try makeFile("Lease.pdf"), try makeFile("Notes.pdf")])
+		let link = try connectedPage(session)
+		let first = try XCTUnwrap(session.documents.first)
+		session.remove(first)
+		XCTAssertEqual(session.documents.map(\.name), ["Notes.pdf"])
+		guard case .docs(let list)? = messages(link).last else { return XCTFail("no docs after a removal") }
+		XCTAssertEqual(list.map(\.name), ["Notes.pdf"])
+		deliver(["t": "get", "id": first.id], to: link)
+		XCTAssertEqual(messages(link).last, .denied(id: first.id, reason: "gone", retryIn: nil, left: nil))
+		session.stop()
+	}
+
+	// MARK: Hello, trust and the check number
+
+	func testPageWithNoSecretSeesTheListAndItsCheckNumber() async throws {
+		let session = try await startedSession(with: [try makeFile("Lease.pdf")])
+		let document = try XCTUnwrap(session.documents.first)
+		let link = try connectedPage(session)
+		guard case .hello(let name, let device, let sessionID, let proof)? = messages(link).first else { return XCTFail("the app says hello first") }
+		XCTAssertFalse(name.isEmpty)
+		XCTAssertTrue(ShareLimits.appDevices.contains(device), device)
+		XCTAssertEqual(sessionID.count, 11)
+		XCTAssertNil(proof, "no secret, nothing to prove")
+		XCTAssertEqual(session.devices.map(\.name), ["Chrome on Mac"])
+		XCTAssertEqual(session.devices.first?.kind, "computer")
+		XCTAssertEqual(session.devices.first?.trusted, false)
+		XCTAssertEqual(session.devices.first?.checkNumber, "424561948", "the vector for AA…/BB…")
+		XCTAssertEqual(session.untrustedPageCount, 1)
+		XCTAssertEqual(messages(link).last, .docs([ShareDocSummary(id: document.id, name: "Lease.pdf", size: 10_000, type: "application/pdf", unlocked: false)]))
+		XCTAssertTrue(link.ready)
+		XCTAssertFalse(link.trusted)
+		XCTAssertFalse(link.canDownload(document.id))
+		session.stop()
+	}
+
+	func testPageWithASecretMustProveItAndShowsNoCheckNumber() async throws {
+		let session = try await startedSession(with: [try makeFile("Lease.pdf")])
+		let document = try XCTUnwrap(session.documents.first)
+		let secret = ShareCodes.newSecret()
+		let faker = try XCTUnwrap(session.connectStubForTesting(secret: secret, origin: .relay(room: "room", peerID: "p9"),
+																offerFingerprint: fingerprintAA, answerFingerprint: fingerprintBB))
+		faker.peer.deliverForTesting(.open)
+		guard case .hello(_, _, _, let proof)? = messages(faker).first else { return XCTFail("the app says hello first") }
+		XCTAssertEqual(proof, ShareCodes.proof(secret: secret, role: "app", offerFingerprint: fingerprintAA, answerFingerprint: fingerprintBB))
+		deliver(["t": "hello", "v": 1, "role": "web", "name": "Chrome on Mac", "device": "computer"], to: faker)
+		XCTAssertEqual(messages(faker).last, .bye, "no proof: goodbye")
+		XCTAssertFalse(session.holdsForTesting(faker))
+		XCTAssertTrue(session.devices.isEmpty)
+		deliver(["t": "get", "id": document.id], to: faker)
+		XCTAssertEqual(messages(faker).last, .bye, "and nothing more is heard")
+
+		let page = try connectedPage(session, name: "Safari on iPhone", peerID: "p2", secret: secret)
+		XCTAssertEqual(session.devices.map(\.name), ["Safari on iPhone"])
+		XCTAssertEqual(session.devices.first?.trusted, true)
+		XCTAssertNil(session.devices.first?.checkNumber, "a proof already matches the two ends")
+		XCTAssertEqual(session.untrustedPageCount, 0)
+		XCTAssertTrue(page.trusted)
+		XCTAssertTrue(page.canDownload(document.id))
+		XCTAssertEqual(messages(page).last, .docs([ShareDocSummary(id: document.id, name: "Lease.pdf", size: 10_000, type: "application/pdf", unlocked: true)]))
+		session.stop()
+	}
+
+	func testNothingIsAnsweredBeforeThePagesHello() async throws {
+		let session = try await startedSession(with: [try makeFile("Lease.pdf")])
+		let document = try XCTUnwrap(session.documents.first)
+		let link = try XCTUnwrap(session.connectStubForTesting(secret: nil, origin: .relay(room: "auto", peerID: "p1"),
+															   offerFingerprint: fingerprintAA, answerFingerprint: fingerprintBB))
+		link.peer.deliverForTesting(.open)
+		XCTAssertEqual(messages(link).count, 1, "the hello")
+		deliver(["t": "get", "id": document.id], to: link)
+		deliver(["t": "unlock", "id": document.id, "pin": document.pin], to: link)
+		XCTAssertEqual(messages(link).count, 1)
+		XCTAssertTrue(session.devices.isEmpty)
+		session.stop()
+	}
+
+	func testPagesWithTheSameNameAreNumbered() async throws {
+		let session = try await startedSession(with: [])
+		_ = try connectedPage(session, name: "Chrome on Mac", peerID: "p1")
+		_ = try connectedPage(session, name: "Chrome on Mac", peerID: "p2")
+		_ = try connectedPage(session, name: "", peerID: "p3")
+		XCTAssertEqual(session.devices.map(\.name), ["Chrome on Mac", "Chrome on Mac 2", "Web browser"])
+		XCTAssertEqual(session.untrustedPageCount, 3)
+		session.stop()
+	}
+
+	// MARK: PINs
+
+	func testWrongAndRightPINs() async throws {
+		let session = try await startedSession(with: [try makeFile("Lease.pdf")])
+		let document = try XCTUnwrap(session.documents.first)
+		let link = try connectedPage(session)
+		deliver(["t": "get", "id": document.id], to: link)
+		XCTAssertEqual(messages(link).last, .denied(id: document.id, reason: "locked", retryIn: nil, left: nil))
+		deliver(["t": "unlock", "id": document.id, "pin": wrongPIN(for: document)], to: link)
+		XCTAssertEqual(messages(link).last, .denied(id: document.id, reason: "wrong", retryIn: nil, left: 4))
+		XCTAssertEqual(session.documents.first?.pin, document.pin, "a wrong try doesn't replace the PIN")
+		deliver(["t": "unlock", "id": document.id, "pin": "12345"], to: link)
+		XCTAssertEqual(messages(link).last, .denied(id: document.id, reason: "wrong", retryIn: nil, left: 3), "not even six digits")
+		deliver(["t": "unlock", "id": document.id, "pin": document.pin], to: link)
+		let after = messages(link)
+		XCTAssertEqual(after.dropLast().last, .unlocked(id: document.id))
+		XCTAssertEqual(after.last, .docs([ShareDocSummary(id: document.id, name: "Lease.pdf", size: 10_000, type: "application/pdf", unlocked: true)]))
+		XCTAssertTrue(link.canDownload(document.id))
+		deliver(["t": "unlock", "id": document.id, "pin": "000000"], to: link)
+		XCTAssertEqual(messages(link).dropLast().last, .unlocked(id: document.id), "once unlocked, any PIN confirms it")
+		deliver(["t": "unlock", "id": "nope", "pin": document.pin], to: link)
+		XCTAssertEqual(messages(link).last, .denied(id: "nope", reason: "gone", retryIn: nil, left: nil))
+		session.stop()
+	}
+
+	func testFiveWrongPINsRefuseThatPageAlone() async throws {
+		let session = try await startedSession(with: [try makeFile("Lease.pdf")])
+		let document = try XCTUnwrap(session.documents.first)
+		let first = try connectedPage(session, name: "Chrome on Mac", peerID: "p1")
+		let second = try connectedPage(session, name: "Safari on iPad", peerID: "p2")
+		XCTAssertEqual(session.untrustedPageCount, 2)
+		let wrong = wrongPIN(for: document)
+		for left in [4, 3, 2, 1] {
+			deliver(["t": "unlock", "id": document.id, "pin": wrong], to: first)
+			XCTAssertEqual(messages(first).last, .denied(id: document.id, reason: "wrong", retryIn: nil, left: left))
+		}
+		deliver(["t": "unlock", "id": document.id, "pin": wrong], to: first)
+		XCTAssertEqual(messages(first).last, .denied(id: document.id, reason: "wrong", retryIn: 30, left: 0))
+		deliver(["t": "unlock", "id": document.id, "pin": document.pin], to: first)
+		guard case .denied(let id, let reason, let retryIn, let left)? = messages(first).last else { return XCTFail("not refused") }
+		XCTAssertEqual(id, document.id)
+		XCTAssertEqual(reason, "cooldown")
+		XCTAssertEqual(retryIn, 30)
+		XCTAssertNil(left)
+		XCTAssertFalse(first.canDownload(document.id), "even the right PIN waits")
+		XCTAssertEqual(session.documents.first?.pin, document.pin, "the PIN stays")
+		deliver(["t": "unlock", "id": document.id, "pin": wrong], to: second)
+		XCTAssertEqual(messages(second).last, .denied(id: document.id, reason: "wrong", retryIn: nil, left: 4), "the other page isn't refused")
+		deliver(["t": "unlock", "id": document.id, "pin": document.pin], to: second)
+		XCTAssertEqual(messages(second).dropLast().last, .unlocked(id: document.id))
+		session.stop()
+	}
+
+	// MARK: Downloads
+
+	func testUnlockedDocumentGoesInChunksThenEnds() async throws {
+		let size = 200_000
+		let session = try await startedSession(with: [try makeFile("Big.pdf", size: size)])
+		let document = try XCTUnwrap(session.documents.first)
+		let link = try connectedPage(session)
+		deliver(["t": "unlock", "id": document.id, "pin": document.pin], to: link)
+		deliver(["t": "get", "id": document.id], to: link)
+		let done = await waitUntil { session.transfers.first?.state == .done }
+		XCTAssertTrue(done, "\(String(describing: session.transfers.first?.state))")
+		let sent = messages(link)
+		guard case .file(let id, let xfer, let name, let fileSize, let type)? = sent.first(where: { if case .file = $0 { return true } else { return false } }) else {
+			return XCTFail("no file message")
+		}
+		XCTAssertEqual(id, document.id)
+		XCTAssertEqual(xfer, "d1")
+		XCTAssertEqual(name, "Big.pdf")
+		XCTAssertEqual(fileSize, Int64(size))
+		XCTAssertEqual(type, "application/pdf")
+		XCTAssertEqual(sent.last, .end(xfer: "d1"))
+		let chunks = link.peer.recordedForTesting.compactMap { if case .bytes(let count) = $0 { return count } else { return nil } }
+		XCTAssertEqual(chunks.reduce(0, +), size)
+		XCTAssertEqual(chunks.count, 4, "three full chunks and the rest")
+		XCTAssertTrue(chunks.allSatisfy { $0 <= NearbyShareConfig.chunkSize })
+		XCTAssertEqual(session.transfers.first?.direction, .sending)
+		XCTAssertEqual(session.transfers.first?.done, Int64(size))
+		XCTAssertEqual(session.transfers.first?.deviceName, "Chrome on Mac")
+		session.stop()
+	}
+
+	// MARK: Uploads
+
+	func testCancelledUploadFreesTheSlotAndDeletesThePartialFile() async throws {
+		let session = try await startedSession(with: [])
+		let link = try connectedPage(session)
+		link.peer.deliverForTesting(.binary(Data(repeating: 1, count: 100)))
+		XCTAssertNil(link.upload, "bytes before an offer go nowhere")
+		deliver(["t": "send", "xfer": "u1", "name": "Photo.jpg", "size": 5000, "type": "image/jpeg"], to: link)
+		XCTAssertEqual(session.incoming.map(\.name), ["Photo.jpg"])
+		XCTAssertEqual(session.incoming.first?.deviceName, "Chrome on Mac")
+		deliver(["t": "send", "xfer": "u2", "name": "Other.pdf", "size": 10, "type": "application/pdf"], to: link)
+		XCTAssertEqual(messages(link).last, .decline(xfer: "u2", reason: "busy"))
+		let offer = try XCTUnwrap(session.incoming.first)
+		session.accept(offer)
+		XCTAssertTrue(session.incoming.isEmpty)
+		XCTAssertEqual(messages(link).last, .accept(xfer: "u1"))
+		XCTAssertEqual(session.transfers.first?.state, .moving)
+		XCTAssertEqual(session.transfers.first?.direction, .receiving)
+		link.peer.deliverForTesting(.binary(Data(repeating: 1, count: 2000)))
+		XCTAssertEqual(link.upload?.received, 2000)
+		let partial = try XCTUnwrap(link.upload?.url)
+		deliver(["t": "cancel", "xfer": "u1"], to: link)
+		XCTAssertNil(link.upload)
+		XCTAssertEqual(session.transfers.first?.state, .failed("Cancelled on the other device."))
+		let deleted = await waitUntil { !FileManager.default.fileExists(atPath: partial.deletingLastPathComponent().path) }
+		XCTAssertTrue(deleted, "the partial file goes")
+		deliver(["t": "send", "xfer": "u3", "name": "Again.pdf", "size": 10, "type": "application/pdf"], to: link)
+		XCTAssertEqual(session.incoming.map(\.name), ["Again.pdf"], "the slot is free again")
+		session.decline(try XCTUnwrap(session.incoming.first))
+		XCTAssertEqual(messages(link).last, .decline(xfer: "u3", reason: nil))
+		XCTAssertNil(link.upload)
+		session.stop()
+	}
+
+	func testStalledUploadIsGivenUpAndTheSlotFreed() async throws {
+		let session = try await startedSession(with: [])
+		session.stallSeconds = 0.3
+		let link = try connectedPage(session)
+		deliver(["t": "send", "xfer": "u1", "name": "Photo.jpg", "size": 5000, "type": "image/jpeg"], to: link)
+		session.accept(try XCTUnwrap(session.incoming.first))
+		link.peer.deliverForTesting(.binary(Data(repeating: 1, count: 1000)))
+		let failed = await waitUntil {
+			if case .failed? = session.transfers.first?.state { return true } else { return false }
+		}
+		XCTAssertTrue(failed)
+		XCTAssertEqual(session.transfers.first?.state, .failed("The other device stopped sending."))
+		XCTAssertEqual(messages(link).last, .cancel(xfer: "u1"))
+		XCTAssertNil(link.upload)
+		deliver(["t": "send", "xfer": "u2", "name": "Scan.pdf", "size": 10, "type": "application/pdf"], to: link)
+		XCTAssertEqual(session.incoming.map(\.name), ["Scan.pdf"], "the slot is free again")
+		session.stop()
+	}
+
+	func testUploadThatEndsShortOrRunsLongFails() async throws {
+		let session = try await startedSession(with: [])
+		let link = try connectedPage(session)
+		deliver(["t": "send", "xfer": "u1", "name": "Photo.jpg", "size": 5000, "type": "image/jpeg"], to: link)
+		session.accept(try XCTUnwrap(session.incoming.first))
+		link.peer.deliverForTesting(.binary(Data(repeating: 1, count: 1000)))
+		deliver(["t": "end", "xfer": "u1"], to: link)
+		XCTAssertEqual(messages(link).last, .saved(xfer: "u1", ok: false))
+		XCTAssertEqual(session.transfers.first?.state, .failed("The file didn't arrive whole."))
+		XCTAssertNil(link.upload)
+		deliver(["t": "send", "xfer": "u2", "name": "Photo.jpg", "size": 5000, "type": "image/jpeg"], to: link)
+		session.accept(try XCTUnwrap(session.incoming.first))
+		link.peer.deliverForTesting(.binary(Data(repeating: 1, count: 6000)))
+		XCTAssertEqual(messages(link).last, .cancel(xfer: "u2"), "more than it offered")
+		XCTAssertEqual(session.transfers.last?.state, .failed("The file didn't arrive whole."))
+		XCTAssertNil(link.upload)
+		session.stop()
+	}
+
+	func testUploadsOfOtherTypesOrSizesAreDeclined() async throws {
+		let session = try await startedSession(with: [])
+		let link = try connectedPage(session)
+		deliver(["t": "send", "xfer": "u1", "name": "Setup.exe", "size": 10, "type": "application/octet-stream"], to: link)
+		XCTAssertEqual(messages(link).last, .decline(xfer: "u1", reason: "type"))
+		deliver(["t": "send", "xfer": "u2", "name": "Empty.pdf", "size": 0, "type": "application/pdf"], to: link)
+		XCTAssertEqual(messages(link).last, .decline(xfer: "u2", reason: "size"))
+		deliver(["t": "send", "xfer": "u3", "name": "Huge.jpg", "size": NearbyShareConfig.maxIncomingImageBytes + 1, "type": "image/jpeg"], to: link)
+		XCTAssertEqual(messages(link).last, .decline(xfer: "u3", reason: "size"))
+		XCTAssertTrue(session.incoming.isEmpty)
+		XCTAssertNil(link.upload)
+		session.stop()
+	}
+
+	// MARK: Closing and stopping
+
+	func testConnectionClosingRemovesTheDevice() async throws {
+		let session = try await startedSession(with: [])
+		let link = try connectedPage(session)
+		XCTAssertEqual(session.devices.count, 1)
+		let before = messages(link).count
+		link.peer.deliverForTesting(.closed)
+		XCTAssertTrue(session.devices.isEmpty)
+		XCTAssertEqual(session.untrustedPageCount, 0)
+		XCTAssertFalse(session.holdsForTesting(link))
+		XCTAssertTrue(link.isClosed)
+		deliver(["t": "hello", "v": 1, "role": "web", "name": "Chrome on Mac", "device": "computer"], to: link)
+		XCTAssertEqual(messages(link).count, before, "a closed connection hears nothing more")
+		session.stop()
+	}
+
+	func testByeFromThePageDropsIt() async throws {
+		let session = try await startedSession(with: [])
+		let link = try connectedPage(session)
+		deliver(["t": "bye"], to: link)
+		XCTAssertTrue(session.devices.isEmpty)
+		XCTAssertFalse(session.holdsForTesting(link))
+		session.stop()
+	}
+
+	func testStopSaysGoodbyeToEveryPage() async throws {
+		let session = try await startedSession(with: [try makeFile("Lease.pdf")])
+		let link = try connectedPage(session)
+		let other = try connectedPage(session, name: "Firefox", peerID: "p2")
+		session.stop()
+		for page in [link, other] {
+			XCTAssertEqual(Array(messages(page).suffix(2)), [.docs([]), .bye])
+			XCTAssertTrue(page.isClosed)
+		}
+		XCTAssertTrue(session.devices.isEmpty)
+		XCTAssertTrue(session.documents.isEmpty)
+		XCTAssertEqual(session.untrustedPageCount, 0)
+		XCTAssertEqual(session.pairing, .idle)
+	}
+
+	// MARK: What the relay says (PROTOCOL.md §2)
+
+	func testRelayMessagesAreParsedFieldByField() {
+		let peer = ShareRelay.Peer(id: "abc123", role: "web", name: "Chrome on Mac", device: "computer")
+		let welcome = #"{"t":"welcome","id":"me","peers":[{"id":"abc123","role":"web","name":"Chrome on Mac","device":"computer"},"#
+			+ #"{"id":"abc123","role":"web","name":"again","device":"computer"},{"id":"bad id","role":"web"},{"id":"x","role":"admin"},"#
+			+ #"{"id":"y","role":"app","name":"iPhone","device":"iphone"},{"id":"z","role":"web","name":"‮evil","device":"toaster"}]}"#
+		XCTAssertEqual(ShareRelay.parse(welcome), .welcome([peer, .init(id: "y", role: "app", name: "iPhone", device: "iphone"),
+															.init(id: "z", role: "web", name: "evil", device: "computer")]))
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"welcome","peers":[]}"#), .welcome([]))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"welcome"}"#))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"welcome","peers":"none"}"#))
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"join","peer":{"id":"abc123","role":"web","name":"Chrome on Mac","device":"computer"}}"#), .join(peer))
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"join","peer":{"id":"abc123","role":"web"}}"#), .join(.init(id: "abc123", role: "web", name: "", device: "computer")))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"join"}"#))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"join","peer":{"id":"abc123"}}"#))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"join","peer":{"role":"web"}}"#))
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"leave","id":"abc123"}"#), .leave(id: "abc123"))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"leave","id":"has space"}"#))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"leave"}"#))
+		let line = "candidate:1 1 udp 2122260223 192.168.1.5 64411 typ host"
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"signal","from":"abc123","data":{"candidate":{"candidate":"\#(line)","sdpMid":"0","sdpMLineIndex":0}}}"#),
+					   .signal(from: "abc123", .candidate(line, sdpMid: "0", sdpMLineIndex: 0)))
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"signal","from":"abc123","data":{"sdp":{"type":"offer","sdp":"v=0"}}}"#),
+					   .signal(from: "abc123", .offer("v=0")))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"signal","data":{"sdp":{"type":"offer","sdp":"v=0"}}}"#))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"signal","from":"a b","data":{"sdp":{"type":"offer","sdp":"v=0"}}}"#))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"signal","from":"abc123","data":{"sdp":{"type":"pranswer","sdp":"v=0"}}}"#))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"signal","from":"abc123","data":"v=0"}"#))
+		XCTAssertNil(ShareRelay.parse(#"{"t":"signal","from":"abc123"}"#))
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"error","message":"room full"}"#), .error("room full"))
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"error","message":"\u0007beep‮"}"#), .error("beep"))
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"error"}"#), .error("?"))
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"pong"}"#), .other)
+		XCTAssertEqual(ShareRelay.parse(#"{"t":"newer","x":1}"#), .other)
+		for text in ["", "not json", "[]", "{}", #"{"t":5}"#, #"{"t":"pong"}"# + String(repeating: " ", count: 130 * 1024)] {
+			XCTAssertNil(ShareRelay.parse(text), text.prefix(20).description)
+		}
+	}
+
+	func testRelayWelcomeKeepsAtMostThePeersARoomAllows() {
+		let list = (0..<40).map { #"{"id":"p\#($0)","role":"web","name":"n","device":"phone"}"# }.joined(separator: ",")
+		guard case .welcome(let peers)? = ShareRelay.parse(#"{"t":"welcome","peers":[\#(list)]}"#) else { return XCTFail("no welcome") }
+		XCTAssertEqual(peers.count, ShareLimits.maxPeers)
+		XCTAssertEqual(peers.first?.id, "p0")
+		XCTAssertEqual(peers.last?.id, "p31")
+		XCTAssertEqual(peers.first?.device, "phone")
+	}
+
+	// MARK: Helpers
+
+	/// A fresh in-memory store on the app's own model.
+	private func makeContext() throws -> NSManagedObjectContext {
+		let model = PersistenceController.shared.container.managedObjectModel
+		let container = NSPersistentContainer(name: "NearbyShareSessionTests", managedObjectModel: model)
+		let description = NSPersistentStoreDescription()
+		description.type = NSInMemoryStoreType
+		container.persistentStoreDescriptions = [description]
+		var loadError: Error?
+		container.loadPersistentStores { _, error in loadError = error }
+		if let loadError { throw loadError }
+		containers.append(container)
+		return container.viewContext
+	}
+
+	private func makeSession(items: [NearbyShareItem]) throws -> NearbyShareSession {
+		let library = PDFLibrary(root: folder.appendingPathComponent("Library", isDirectory: true))
+		return NearbyShareSession(items: items, library: library, context: try makeContext())
+	}
+
+	/// A file of `size` bytes to share as it is.
+	private func makeFile(_ name: String, size: Int = 10_000) throws -> NearbyShareItem {
+		let url = folder.appendingPathComponent(name)
+		try Data(repeating: 0x25, count: size).write(to: url)
+		return .file(url, name: name)
+	}
+
+	/// A running session whose documents are all ready.
+	private func startedSession(with items: [NearbyShareItem]) async throws -> NearbyShareSession {
+		let session = try makeSession(items: items)
+		session.start()
+		let ready = await waitUntil { session.documents.allSatisfy { $0.state == .ready } }
+		XCTAssertTrue(ready, "\(session.documents.map(\.state))")
+		return session
+	}
+
+	/// A page that opened a stub connection and said hello (with a proof when it has `secret`).
+	private func connectedPage(_ session: NearbyShareSession, name: String = "Chrome on Mac", peerID: String = "p1",
+							   secret: Data? = nil) throws -> NearbyShareLink {
+		let room = secret == nil ? "auto" : "room"
+		let link = try XCTUnwrap(session.connectStubForTesting(secret: secret, origin: .relay(room: room, peerID: peerID),
+															   offerFingerprint: fingerprintAA, answerFingerprint: fingerprintBB))
+		link.peer.deliverForTesting(.open)
+		var hello: [String: Any] = ["t": "hello", "v": 1, "role": "web", "name": name, "device": "computer"]
+		if let secret {
+			hello["proof"] = ShareCodes.proof(secret: secret, role: "web", offerFingerprint: fingerprintAA, answerFingerprint: fingerprintBB)
+		}
+		deliver(hello, to: link)
+		return link
+	}
+
+	private func deliver(_ message: [String: Any], to link: NearbyShareLink) {
+		guard let data = try? JSONSerialization.data(withJSONObject: message) else { return XCTFail("not JSON: \(message)") }
+		link.peer.deliverForTesting(.text(data))
+	}
+
+	/// The text messages the session sent over `link`, in order.
+	private func messages(_ link: NearbyShareLink) -> [ShareOutbound] {
+		link.peer.recordedForTesting.compactMap { if case .message(let message) = $0 { return message } else { return nil } }
+	}
+
+	/// Six digits that aren't `document`'s PIN.
+	private func wrongPIN(for document: NearbyShareSession.SharedDocument) -> String {
+		document.pin == "000000" ? "000001" : "000000"
+	}
+
+	/// Polls `condition` on the main actor for up to `timeout` seconds.
+	private func waitUntil(timeout: TimeInterval = 5, _ condition: @MainActor () -> Bool) async -> Bool {
+		let deadline = Date.now.addingTimeInterval(timeout)
+		while Date.now < deadline {
+			if condition() { return true }
+			try? await Task.sleep(for: .milliseconds(10))
+		}
+		return condition()
 	}
 }

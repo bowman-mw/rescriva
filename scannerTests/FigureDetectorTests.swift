@@ -356,7 +356,8 @@ final class FigureDetectorTests: XCTestCase {
 		lines.append(page.text("Figure 1. A test photograph", at: CGPoint(x: 260, y: 612), size: 18))
 		lines += page.paragraph(rows: 5, top: 680)
 		let data = try XCTUnwrap(UIImage(cgImage: try page.image()).jpegData(compressionQuality: 0.9))
-		let snapshot = Rebuilder.PageSnapshot(imageData: data, lines: lines, aspect: 0.8)
+		let snapshot = await Rebuilder.PageSnapshot(imageData: data, lines: lines, aspect: 0.8).decodingImage()
+		XCTAssertNotNil(snapshot.image, "the stored JPEG decodes once for every pass")
 		let built = RescrivaPage(blocks: Rebuilder.heuristicBlocks(lines))
 
 		let pages = await Rebuilder.detectFigures(in: [built], pages: [snapshot])

@@ -1,5 +1,14 @@
 *.patch
 .DS_Store
 xcuserdata/
-*.xcworkspace
 __pycache__/
+
+# Workspace noise stays out, but the SwiftPM pin (Package.resolved) is tracked so every
+# checkout resolves the same WebRTC. Git can't re-include a file under an ignored directory,
+# so each level is ignored by its contents and only the path down to the pin is reopened.
+**/*.xcworkspace/*
+!**/*.xcworkspace/xcshareddata/
+**/*.xcworkspace/xcshareddata/*
+!**/*.xcworkspace/xcshareddata/swiftpm/
+**/*.xcworkspace/xcshareddata/swiftpm/*
+!**/*.xcworkspace/xcshareddata/swiftpm/Package.resolved

@@ -1,37 +1,36 @@
 //
 //  ScannerWidget.swift
-//  ScannerWidget
+//  Rescriva widget
 //
-//  Created by Slaven Radic on 2024-09-01.
+//  A launcher and nothing more: tapping it opens Rescriva ready to scan. It reads no data, so
+//  it needs no store, no App Group, no CloudKit and no data model; the app's data files aren't
+//  part of this target. Only WidgetKit and SwiftUI are used here.
 //
 
-
-import WidgetKit
 import SwiftUI
-import CoreData
+import WidgetKit
 
 @main
 struct ScannerWidgetBundle: WidgetBundle {
-
-	// MARK: - View
-	@WidgetBundleBuilder
 	var body: some Widget {
 		ClassicScanWidget()
 	}
 }
 
+/// The "Scan" launcher on the home screen (small) and the lock screen (circular).
 struct ClassicScanWidget: Widget {
-	let persistenceController = PersistenceController.shared
-	let kind: String = "ClassicScannerWidget"
-	
+	/// The kind the app knows this widget by; unchanged from Open Scanner.
+	static let kind = "ClassicScannerWidget"
+	/// The link the app opens on a tap: straight into the scanner.
+	static let scanURL = URL(string: "openscanner://scan/classic")
+
 	var body: some WidgetConfiguration {
-		StaticConfiguration(kind: kind, provider: Provider(context: persistenceController.container.viewContext)) { entry in
-			ScannerWidgetEntryView(entry: entry, viewState: .Page)
-				.environment(\.managedObjectContext, persistenceController.container.viewContext)
-				.widgetURL(URL(string: "openscanner://scan/classic"))
+		StaticConfiguration(kind: Self.kind, provider: ScanLauncherProvider()) { entry in
+			ScannerWidgetEntryView(entry: entry)
+				.widgetURL(Self.scanURL)
 		}
-		.configurationDisplayName("Document Scanner")
-		.description("Open Scanner widget - Document Scanner")
+		.configurationDisplayName(String(localized: "Scan"))
+		.description(String(localized: "Scan a document with Rescriva"))
 		.supportedFamilies([.systemSmall, .accessoryCircular])
 	}
 }

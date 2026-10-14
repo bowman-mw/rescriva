@@ -2,64 +2,114 @@
 //  NearbyShareSession+Rules.swift
 //  Rescriva (fork of Open Scanner)
 //
-//  The small rules a Share Nearby session applies to what pages send: wrong-PIN counting and its
-//  cooldown (Docs/Rescriva-Share-Protocol.md §1.3), checks on the text that arrives, and the label each
-//  page goes by. Pure Foundation, so tests can drive them with any clock.
+//  Two small types a Share Nearby session leans on (not an extension of it, despite the name:
+//  renaming the file means touching the project file). NearbySharePINLock counts wrong PINs on
+//  one document and says when tries are refused (Docs/Rescriva-Share-Protocol.md §1.3);
+//  NearbyShareInput checks the text pages send and names the pages. Pure Foundation, driven by
+//  the dates passed in, so tests can run them with any clock.
 //
 
 import Foundation
 
-/// Wrong PINs for one shared document, counted across every page that tries it. Five wrong tries
-/// replace the PIN and refuse tries for 30 s, doubling each time that happens again.
+/// Wrong PINs for one shared document, counted per connection ("link") so that one page can't lock
+/// everyone out. Five wrong tries from a link refuse that link for `linkCooldown`. Only when wrong
+/// tries across every link reach `triesBeforeReplacing`, or `lockedLinksBeforeReplacing` different
+/// links have each been refused, is the PIN replaced and every link refused for a cooldown that
+/// doubles each time that happens again, up to `maxDoublings`.
 struct NearbySharePINLock: Equatable {
-	static let triesPerPIN = 5
+	static let triesPerLink = 5
+	static let triesBeforeReplacing = 15
+	static let lockedLinksBeforeReplacing = 3
+	static let linkCooldown: TimeInterval = 30
 	static let firstCooldown: TimeInterval = 30
-	/// The doubling stops here (30 s × 2¹⁰ is about eight and a half hours).
-	static let maxDoublings = 10
+	/// The doubling stops here (30 s × 2⁶ is 32 minutes).
+	static let maxDoublings = 6
 
 	/// What one wrong try did.
 	struct Outcome: Equatable {
-		/// Tries left on the current PIN; 0 means the PIN has to be replaced now.
+		/// Tries this link has left on the current PIN; 0 means it's refused for now.
 		let left: Int
-		/// Seconds before tries are taken again, once the PIN has been replaced.
+		/// Seconds before this link's tries are taken again, when it has none left.
 		let retryIn: Int?
-
-		var replacesPIN: Bool { left == 0 }
+		/// The PIN has to be replaced now, and every link waits.
+		let replacesPIN: Bool
 	}
 
+	/// One link's wrong tries on the current PIN, and the cooldown they earned it.
+	private struct LinkTries: Equatable {
+		var wrong = 0
+		var refusedUntil: Date?
+	}
+
+	private var links: [UUID: LinkTries] = [:]
+	/// Wrong tries on the current PIN, from every link.
 	private(set) var wrongTries = 0
+	/// Links refused on the current PIN.
+	private(set) var lockedLinks: Set<UUID> = []
 	/// How many times the PIN has been replaced for wrong tries.
 	private(set) var lockouts = 0
+	/// Every link waits until then.
 	private(set) var lockedUntil: Date?
 
-	/// Whole seconds until tries are taken again, or nil when they're taken now.
-	func secondsLeft(at now: Date) -> Int? {
-		guard let lockedUntil, lockedUntil > now else { return nil }
-		return max(1, Int(lockedUntil.timeIntervalSince(now).rounded(.up)))
+	/// Whole seconds until `link`'s tries are taken again, or nil when they're taken now: the
+	/// later of its own cooldown and everyone's.
+	func secondsLeft(for link: UUID, at now: Date) -> Int? {
+		let ends = [lockedUntil, links[link]?.refusedUntil].compactMap { $0 }.filter { $0 > now }
+		guard let latest = ends.max() else { return nil }
+		return max(1, Int(latest.timeIntervalSince(now).rounded(.up)))
 	}
 
-	/// Counts a wrong try made at `now`. The fifth starts a cooldown.
-	mutating func recordWrong(at now: Date) -> Outcome {
-		wrongTries += 1
-		guard wrongTries >= Self.triesPerPIN else {
-			return Outcome(left: Self.triesPerPIN - wrongTries, retryIn: nil)
+	/// Wrong tries `link` has left before it's refused.
+	func triesLeft(for link: UUID) -> Int {
+		Self.triesPerLink - (links[link]?.wrong ?? 0)
+	}
+
+	/// Counts a wrong try from `link` at `now`. Ask `secondsLeft` first: a try while the link is
+	/// refused only repeats the refusal.
+	mutating func recordWrong(from link: UUID, at now: Date) -> Outcome {
+		if let wait = secondsLeft(for: link, at: now) {
+			return Outcome(left: 0, retryIn: wait, replacesPIN: false)
 		}
-		wrongTries = 0
+		var tries = links[link] ?? LinkTries()
+		if tries.refusedUntil != nil {
+			// Its cooldown is over: it starts a fresh count.
+			tries = LinkTries()
+		}
+		tries.wrong += 1
+		wrongTries += 1
+		let refused = tries.wrong >= Self.triesPerLink
+		if refused {
+			tries.refusedUntil = now.addingTimeInterval(Self.linkCooldown)
+			lockedLinks.insert(link)
+		}
+		links[link] = tries
+		if wrongTries >= Self.triesBeforeReplacing || lockedLinks.count >= Self.lockedLinksBeforeReplacing {
+			return replacePIN(at: now)
+		}
+		if refused {
+			return Outcome(left: 0, retryIn: Int(Self.linkCooldown), replacesPIN: false)
+		}
+		return Outcome(left: Self.triesPerLink - tries.wrong, retryIn: nil, replacesPIN: false)
+	}
+
+	/// Starts over with a new PIN: every count is cleared and every link waits out a cooldown that
+	/// doubles with each replacement.
+	private mutating func replacePIN(at now: Date) -> Outcome {
 		let cooldown = Self.firstCooldown * Double(1 << min(lockouts, Self.maxDoublings))
 		lockouts += 1
 		lockedUntil = now.addingTimeInterval(cooldown)
-		return Outcome(left: 0, retryIn: Int(cooldown))
+		links = [:]
+		wrongTries = 0
+		lockedLinks = []
+		return Outcome(left: 0, retryIn: Int(cooldown), replacesPIN: true)
 	}
 }
 
 /// Checks on what pages send, on top of ShareInbound's own.
 enum NearbyShareInput {
 	static let pinLength = 6
-	/// Room for a long name in UTF-8 with an extension, under the file system's 255 bytes.
-	static let maxFileNameBytes = 200
-	static let maxExtensionLength = 16
-	/// Characters file systems or paths don't allow in a name.
-	private static let notInFileNames = CharacterSet(charactersIn: "/\\:*?\"<>|")
+	/// What `String.safeFileName` cuts a name to; the same limit as every other file the app names.
+	static var maxFileNameBytes: Int { String.maxFileNameBytes }
 
 	/// Exactly six ASCII digits.
 	static func isPIN(_ text: String) -> Bool {
@@ -81,24 +131,18 @@ enum NearbyShareInput {
 	/// What the app takes: a PDF or an image (PROTOCOL.md §4).
 	static func acceptsUpload(type: String) -> Bool {
 		if type == "application/pdf" { return true }
-		guard type.hasPrefix("image/"), type.utf8.count <= 64 else { return false }
+		guard type.hasPrefix("image/"), type.utf8.count > "image/".utf8.count, type.utf8.count <= 64 else { return false }
 		return type.utf8.allSatisfy { byte in
 			(48...57).contains(byte) || (97...122).contains(byte) || byte == UInt8(ascii: "/")
 				|| byte == UInt8(ascii: "+") || byte == UInt8(ascii: ".") || byte == UInt8(ascii: "-")
 		}
 	}
 
-	/// `text` made safe as one file name: no path or control characters, no leading dots,
-	/// clipped to `maxFileNameBytes` with its extension kept. `fallback` when nothing is left.
+	/// `text` made safe as one file name (`String.safeFileName`); `fallback`, made safe the same
+	/// way, when nothing is left of it.
 	static func fileName(_ text: String, fallback: String) -> String {
-		var scalars = String.UnicodeScalarView()
-		for scalar in text.unicodeScalars.prefix(1024) {
-			let unsafe = CharacterSet.controlCharacters.contains(scalar) || notInFileNames.contains(scalar)
-			scalars.append(unsafe ? " " : scalar)
-		}
-		let words = String(scalars).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-		let trimmed = words.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
-		return clipped(trimmed.isEmpty ? fallback : trimmed)
+		let name = text.safeFileName()
+		return name.isEmpty ? fallback.safeFileName() : name
 	}
 
 	/// What to call a page named `name` that just connected, when `taken` are the labels of the
@@ -115,23 +159,5 @@ enum NearbyShareInput {
 	static func title(fromFileName name: String) -> String {
 		let stem = (name as NSString).deletingPathExtension.trimmingCharacters(in: .whitespaces)
 		return stem.isEmpty ? String(localized: "Received PDF") : stem
-	}
-
-	/// `name` cut to `maxFileNameBytes` of UTF-8, keeping a short extension.
-	private static func clipped(_ name: String) -> String {
-		guard name.utf8.count > maxFileNameBytes else { return name }
-		let ext = (name as NSString).pathExtension
-		let keepsExtension = !ext.isEmpty && ext.count <= maxExtensionLength
-		let suffix = keepsExtension ? "." + ext : ""
-		let stem = keepsExtension ? (name as NSString).deletingPathExtension : name
-		var out = ""
-		var used = suffix.utf8.count
-		for character in stem {
-			let size = String(character).utf8.count
-			if used + size > maxFileNameBytes { break }
-			out.append(character)
-			used += size
-		}
-		return out + suffix
 	}
 }
