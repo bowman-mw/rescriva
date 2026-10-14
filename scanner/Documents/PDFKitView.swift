@@ -152,7 +152,8 @@ struct PDFKitView: UIViewRepresentable {
 				MainActor.assumeIsolated { self?.pageChanged() }
 			})
 			observers.append(center.addObserver(forName: .PDFViewAnnotationHit, object: view, queue: .main) { [weak self] note in
-				let annotation = note.userInfo?["PDFAnnotationHit"] as? PDFAnnotation
+				// Posted and delivered on the main thread, where the annotation stays.
+				nonisolated(unsafe) let annotation = note.userInfo?["PDFAnnotationHit"] as? PDFAnnotation
 				MainActor.assumeIsolated { self?.annotationHit(annotation) }
 			})
 			observers.append(center.addObserver(forName: .PDFViewScaleChanged, object: view, queue: .main) { [weak self] _ in

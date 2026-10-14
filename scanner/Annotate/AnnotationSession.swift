@@ -73,7 +73,7 @@ enum MarkStyleGroup: String, CaseIterable {
 /// A named color in the annotate palette.
 struct MarkSwatch: Identifiable, Hashable {
 	let rgb: UInt32
-	let name: LocalizedStringKey
+	let name: LocalizedStringResource
 
 	var id: UInt32 { rgb }
 
@@ -100,7 +100,7 @@ enum MarkPalette {
 		MarkSwatch(rgb: 0xFFBF73, name: "Orange"),
 	]
 
-	static let sizeNames: [LocalizedStringKey] = ["Fine", "Medium", "Bold"]
+	static let sizeNames: [LocalizedStringResource] = ["Fine", "Medium", "Bold"]
 
 	static func swatches(for group: MarkStyleGroup) -> [MarkSwatch] {
 		group == .highlighter ? highlighter : ink

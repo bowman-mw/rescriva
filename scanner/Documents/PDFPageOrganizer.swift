@@ -353,7 +353,7 @@ struct PDFPageThumbnail: View {
 			image = kept
 			return
 		}
-		guard let copy = page.copy() as? PDFPage else { return }
+		guard let copy = page.unsharedCopy() else { return }
 		let pixels = Self.width * max(displayScale, 2)
 		let size = CGSize(width: pixels, height: pixels / max(aspect, 0.2))
 		guard let drawn = await PDFThumbnailRenderer.shared.render(copy, size: size), !Task.isCancelled else { return }

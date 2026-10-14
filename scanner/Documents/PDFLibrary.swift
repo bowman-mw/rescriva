@@ -222,15 +222,16 @@ final class PDFLibrary {
 
 	// MARK: Saving
 
-	/// Writes `document` as the item's edited copy, off the main thread: pass a document nothing
-	/// else is changing (PDFEditSession hands over a snapshot). A long PDF takes seconds to write,
-	/// so this mustn't run on the main thread, where iOS ends an app that's busy for too long as
-	/// it leaves the screen. The file is written next to the old one and swapped in, so a save
-	/// that fails or is cut short leaves the last good copy. When the original made conformance
-	/// claims (PDF/A, PDF/X, PDF/UA…), they're removed from the copy, which no longer meets them.
-	/// Saves of one item run one at a time, in order. Returns the copy's format report.
+	/// Writes `document` as the item's edited copy, off the main thread: the document is handed
+	/// over (`sending`), so pass one nothing else holds (PDFEditSession hands over a snapshot). A
+	/// long PDF takes seconds to write, so this mustn't run on the main thread, where iOS ends an
+	/// app that's busy for too long as it leaves the screen. The file is written next to the old
+	/// one and swapped in, so a save that fails or is cut short leaves the last good copy. When the
+	/// original made conformance claims (PDF/A, PDF/X, PDF/UA…), they're removed from the copy,
+	/// which no longer meets them. Saves of one item run one at a time, in order. Returns the
+	/// copy's format report.
 	@discardableResult
-	func save(_ document: PDFDocument, for item: PDFItem, options: [PDFDocumentWriteOption: Any] = [:]) async throws -> PDFFormatReport? {
+	func save(_ document: sending PDFDocument, for item: PDFItem, options: [PDFDocumentWriteOption: any Sendable] = [:]) async throws -> PDFFormatReport? {
 		await waitForWrites(of: item.id)
 		let folder = folder(for: item.id)
 		let edited = editedURL(for: item)
@@ -286,7 +287,7 @@ final class PDFLibrary {
 
 	/// The write itself, safe off the main thread: staging file, claims removed, swapped in.
 	private nonisolated static func write(_ document: PDFDocument, into folder: URL, replacing edited: URL,
-										  options: [PDFDocumentWriteOption: Any]) throws -> (pageCount: Int, report: PDFFormatReport?) {
+										  options: [PDFDocumentWriteOption: any Sendable]) throws -> (pageCount: Int, report: PDFFormatReport?) {
 		let staging = folder.appendingPathComponent("saving-\(UUID().uuidString).pdf")
 		guard document.write(to: staging, withOptions: options) else {
 			FileManager.default.removeIfPresent(staging, log: Log.library)

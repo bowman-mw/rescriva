@@ -265,7 +265,7 @@ private struct SwatchButton: View {
 /// A stroke size, shown as a dot in the current color.
 private struct SizeButton: View {
 	let index: Int
-	let name: LocalizedStringKey
+	let name: LocalizedStringResource
 	let color: UInt32
 	let isSelected: Bool
 	let action: () -> Void

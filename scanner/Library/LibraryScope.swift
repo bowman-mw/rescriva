@@ -112,8 +112,9 @@ struct SmartRule: Codable, Hashable, Sendable {
 }
 
 extension LibraryScope {
-	/// Scans that aren't in Recently Deleted.
-	static let livePredicate = NSPredicate(format: "deletedAt == nil")
+	/// Scans that aren't in Recently Deleted. Made fresh each time: NSPredicate isn't Sendable, so
+	/// it can't be one shared constant.
+	static var livePredicate: NSPredicate { NSPredicate(format: "deletedAt == nil") }
 
 	/// The predicate for every scope that doesn't need to look up a smart folder's rule.
 	func basePredicate() -> NSPredicate {

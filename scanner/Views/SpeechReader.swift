@@ -129,19 +129,25 @@ final class SpeechReader {
 	}
 }
 
-/// Hands the synthesizer's callbacks to its reader on the main queue.
+/// Hands the synthesizer's callbacks, which arrive on its own queue, to its reader on the main
+/// queue. The utterance goes along only to be compared by identity there (`===`), never read, so
+/// passing it across is safe although AVSpeechUtterance isn't Sendable.
+@MainActor
 private final class SpeechCallbacks: NSObject, AVSpeechSynthesizerDelegate {
 	weak var reader: SpeechReader?
 
-	func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+	nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+		nonisolated(unsafe) let utterance = utterance
 		DispatchQueue.main.async { [weak self] in self?.reader?.started(utterance) }
 	}
 
-	func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+	nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+		nonisolated(unsafe) let utterance = utterance
 		DispatchQueue.main.async { [weak self] in self?.reader?.ended(utterance) }
 	}
 
-	func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+	nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+		nonisolated(unsafe) let utterance = utterance
 		DispatchQueue.main.async { [weak self] in self?.reader?.ended(utterance) }
 	}
 }

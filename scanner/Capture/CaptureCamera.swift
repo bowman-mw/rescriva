@@ -888,7 +888,7 @@ fileprivate final class CapturePipeline: NSObject, AVCaptureVideoDataOutputSampl
 		}
 	}
 
-	private func onProcessingQueue<T>(_ work: @escaping () throws -> T) async throws -> T {
+	private func onProcessingQueue<T>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
 		try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
 			processingQueue.async {
 				do {

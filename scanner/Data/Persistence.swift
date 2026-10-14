@@ -16,7 +16,7 @@ struct PersistenceController {
 	static let shared = PersistenceController()
 	
 	/// Indexes the library for Spotlight; nil on a temporary store, which has nothing worth finding.
-	private(set) var spotlightIndexer: NSCoreDataCoreSpotlightDelegate?
+	private(set) var spotlightIndexer: SpotlightIndexer?
 	/// The index version this build makes (bumped when what's indexed changes), and where the
 	/// version last built on this device is kept. An older index is cleared and built again once.
 	static let spotlightIndexVersion = 2
@@ -64,7 +64,7 @@ struct PersistenceController {
 		if !inMemory {
 			// Permanent store options
 			container.viewContext.automaticallyMergesChangesFromParent = true
-			container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+			container.viewContext.mergePolicy = NSMergePolicy.mergeByPropertyObjectTrump
 		}
 	}
 	
@@ -102,9 +102,8 @@ struct PersistenceController {
 	/// and only when the clear succeeded: recorded any earlier, an app killed mid-rebuild (or a
 	/// clear that failed) would leave the old entries gone and every older scan out of Spotlight
 	/// until it was next changed. Clearing and reindexing again on the next launch is harmless.
-	private static func startSpotlightIndexing(_ indexer: NSCoreDataCoreSpotlightDelegate) {
-		let defaults = UserDefaults.standard
-		guard defaults.integer(forKey: spotlightIndexVersionKey) < spotlightIndexVersion else {
+	private static func startSpotlightIndexing(_ indexer: SpotlightIndexer) {
+		guard UserDefaults.standard.integer(forKey: spotlightIndexVersionKey) < spotlightIndexVersion else {
 			indexer.startSpotlightIndexing()
 			return
 		}
@@ -118,7 +117,7 @@ struct PersistenceController {
 					Log.library.notice("Spotlight reindexed, but the old index wasn't cleared; both run again next launch")
 					return
 				}
-				defaults.set(spotlightIndexVersion, forKey: spotlightIndexVersionKey)
+				UserDefaults.standard.set(spotlightIndexVersion, forKey: spotlightIndexVersionKey)
 				Log.library.notice("Spotlight index rebuilt, one item per scan")
 			})
 		}
@@ -190,7 +189,11 @@ struct PersistenceController {
 /// 800 results for a 20-page scan), and scans in Recently Deleted get nil, which keeps them out of
 /// the index and takes an entry out again when a scan is deleted. Only the model's `title` and
 /// `transcript` are marked for indexing, so nothing here changes the model.
-final class SpotlightIndexer: NSCoreDataCoreSpotlightDelegate {
+///
+/// Sendable by hand, as Core Data's delegate isn't marked: it keeps no state of its own, and Core
+/// Data does the indexing on the indexer's own background context. The app only starts it and,
+/// from a completion handler, asks for a reindex.
+final class SpotlightIndexer: NSCoreDataCoreSpotlightDelegate, @unchecked Sendable {
 	/// Most text one scan puts in the index, in UTF-16 units.
 	static let maxTextLength = 32_000
 	/// Length of the summary shown under a result.

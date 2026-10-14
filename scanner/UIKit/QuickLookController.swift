@@ -104,7 +104,9 @@ struct QuickLookController: UIViewControllerRepresentable {
 		return Coordinator(parent: self)
 	}
 	
-	class Coordinator: NSObject, QLPreviewControllerDelegate, QLPreviewControllerDataSource {
+	/// On the main actor, like its data source protocol. The delegate protocol isn't marked, but
+	/// Quick Look calls it on the main thread too, so that conformance is main-actor as well.
+	class Coordinator: NSObject, @MainActor QLPreviewControllerDelegate, QLPreviewControllerDataSource {
 		
 		let parent: QuickLookController
 		

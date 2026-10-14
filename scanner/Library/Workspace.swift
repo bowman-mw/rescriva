@@ -275,7 +275,10 @@ struct WorkspaceView: View {
 
 /// PDFs and images from files: dropped on the window, or picked in Finder or Files.
 enum FileImport {
-	/// Copies of the PDFs and images among `providers` (a drop), which outlive the drop.
+	/// Copies of the PDFs and images among `providers` (a drop), which outlive the drop. The
+	/// providers stay on the main actor, where the drop delivered them; each file is copied in
+	/// its provider's completion handler, off the main thread.
+	@MainActor
 	static func files(from providers: [NSItemProvider]) async -> [URL] {
 		var urls: [URL] = []
 		for provider in providers {
@@ -287,6 +290,7 @@ enum FileImport {
 	}
 
 	/// A copy of `provider`'s file in a fresh temporary folder, or nil when it won't load.
+	@MainActor
 	private static func copy(of provider: NSItemProvider, as type: UTType) async -> URL? {
 		await withCheckedContinuation { continuation in
 			_ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, _ in

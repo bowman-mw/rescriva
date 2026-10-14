@@ -99,3 +99,12 @@ actor PDFThumbnailRenderer {
 		return page.thumbnail(of: size, for: .cropBox)
 	}
 }
+
+extension PDFPage {
+	/// A copy of the page to hand to another thread or actor (`PDFThumbnailRenderer`). It shares
+	/// nothing with the page, which the compiler can't tell by itself, so it's handed back `sending`.
+	func unsharedCopy() -> sending PDFPage? {
+		nonisolated(unsafe) let copy = copy() as? PDFPage
+		return copy
+	}
+}

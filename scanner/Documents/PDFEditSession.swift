@@ -12,6 +12,7 @@
 
 import Foundation
 import Observation
+import os
 import PDFKit
 import SwiftUI
 import UIKit
@@ -569,17 +570,18 @@ final class PDFEditSession {
 	}
 
 	/// The password the file opened with, so the saved copy keeps it.
-	private var writeOptions: [PDFDocumentWriteOption: Any] {
+	private var writeOptions: [PDFDocumentWriteOption: any Sendable] {
 		guard document.isEncrypted, let password else { return [:] }
 		return [.userPasswordOption: password, .ownerPasswordOption: password]
 	}
 
 	/// A copy of `document` to write while the original stays in use: pages, marks, form values,
 	/// tags, metadata and passwords come along; the bookmarks, which PDFKit's copy leaves behind,
-	/// are copied across.
-	static func snapshot(of document: PDFDocument) -> PDFDocument? {
-		guard let copy = document.copy() as? PDFDocument else { return nil }
-		if copy.outlineRoot == nil, let outline = document.outlineRoot {
+	/// are copied across. The copy shares nothing with `document`, which the compiler can't tell
+	/// by itself, so it's handed back `sending`, ready to be written off the main thread.
+	static func snapshot(of document: PDFDocument) -> sending PDFDocument? {
+		nonisolated(unsafe) let copy = document.copy() as? PDFDocument
+		if let copy, copy.outlineRoot == nil, let outline = document.outlineRoot {
 			copy.outlineRoot = PDFOutlineCopy.copy(outline, from: document, to: copy, depth: 0)
 		}
 		return copy
@@ -744,23 +746,26 @@ final class PDFEditSession {
 
 // MARK: - Find
 
-/// Runs PDFKit's background search and hands matches to the session on the main thread.
+/// Runs PDFKit's background search and hands matches to the session on the main thread. PDFKit
+/// calls the delegate methods from the search; a match goes to the main thread only to join the
+/// session's results, and PDFKit doesn't touch it again, so passing it across is safe although
+/// PDFSelection isn't Sendable.
+@MainActor
 private final class PDFFinder: NSObject, PDFDocumentDelegate {
 	private weak var session: PDFEditSession?
 	private let document: PDFDocument
-	/// Bumped per search, so a cancelled search's late matches are dropped.
-	private var generation = 0
+	/// Bumped per search, so a cancelled search's late matches are dropped. Locked, since the
+	/// search's callbacks read it too.
+	private nonisolated let generation = OSAllocatedUnfairLock(initialState: 0)
 
-	@MainActor
 	init(session: PDFEditSession) {
 		self.session = session
 		self.document = session.document
 	}
 
-	@MainActor
 	func start(_ query: String) {
 		cancel()
-		generation += 1
+		generation.withLock { $0 += 1 }
 		session?.findStarted()
 		guard !query.isEmpty else {
 			session?.findEnded()
@@ -770,25 +775,25 @@ private final class PDFFinder: NSObject, PDFDocumentDelegate {
 		document.beginFindString(query, withOptions: [.caseInsensitive, .diacriticInsensitive])
 	}
 
-	@MainActor
 	func cancel() {
 		if document.isFinding { document.cancelFindString() }
-		generation += 1
+		generation.withLock { $0 += 1 }
 	}
 
-	func didMatchString(_ instance: PDFSelection) {
-		let token = generation
+	nonisolated func didMatchString(_ instance: PDFSelection) {
+		let token = generation.withLock { $0 }
+		nonisolated(unsafe) let match = instance
 		DispatchQueue.main.async { [weak self] in
-			guard let self, token == self.generation else { return }
-			MainActor.assumeIsolated { self.session?.found(instance) }
+			guard let self, token == self.generation.withLock({ $0 }) else { return }
+			self.session?.found(match)
 		}
 	}
 
-	func documentDidEndDocumentFind(_ notification: Notification) {
-		let token = generation
+	nonisolated func documentDidEndDocumentFind(_ notification: Notification) {
+		let token = generation.withLock { $0 }
 		DispatchQueue.main.async { [weak self] in
-			guard let self, token == self.generation else { return }
-			MainActor.assumeIsolated { self.session?.findEnded() }
+			guard let self, token == self.generation.withLock({ $0 }) else { return }
+			self.session?.findEnded()
 		}
 	}
 }
